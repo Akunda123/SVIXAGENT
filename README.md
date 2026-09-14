@@ -1,0 +1,2 @@
+# SVIXAGENT
+可以操作synthesizerv和instrunmentx的AI助手，基于dsh
