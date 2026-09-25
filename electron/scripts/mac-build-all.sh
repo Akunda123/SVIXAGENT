@@ -112,7 +112,13 @@ say "✓ node $(node -v) · npm $(npm -v)"
 MIRROR_REG="https://registry.npmmirror.com"
 MIRROR_ELECTRON="https://npmmirror.com/mirrors/electron/"
 npm_ci() {
-  local dir="$1" label="$2"
+  # ⚠️ **不要写成 `local dir="$1" label="$2"`**：macOS 自带的 **bash 3.2** 在 `set -u` 下对
+  #    "一行多个 local 赋值"会报 `label: unbound variable` 并把脚本整个打断
+  #    （2026-09-25 真机踩到：2/5 一进去就死）。⇒ 拆成"先声明、再逐个赋值"，并留默认值兜底。
+  local dir label
+  dir="$1"
+  label="${2:-?}"
+  [ -n "$dir" ] || { say "！npm_ci 少了目录参数"; return 1; }
   say ""
   say "▶ npm ci（$label）"
   if ( cd "$dir" && npm ci --no-audit --no-fund ); then say "✓ $label 装好了"; return 0; fi
