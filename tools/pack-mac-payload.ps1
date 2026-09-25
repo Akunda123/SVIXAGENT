@@ -76,6 +76,27 @@ $stepsPath = Join-Path $repo 'MAC-STEPS.md'
 [System.IO.File]::WriteAllText($stepsPath, $steps, (New-Object System.Text.UTF8Encoding($false)))
 $items += 'MAC-STEPS.md'
 
+# ---- one-command entry: electron/scripts/mac-build-all.sh -> mac-build.sh at the zip root
+# (so on the Mac it is literally `bash mac-build.sh`: extract + one command, nothing else)
+$mbSrc = Join-Path $repo 'electron\scripts\mac-build-all.sh'
+if (-not (Test-Path $mbSrc)) { throw "missing electron/scripts/mac-build-all.sh" }
+$mbDst = Join-Path $repo 'mac-build.sh'
+Copy-Item $mbSrc $mbDst -Force
+$items += 'mac-build.sh'
+
+# ---- the official darwin node tarball (has npm/npx; the staged binary is node-only) ------
+# source: %USERPROFILE%\Documents\mac-deps\  (downloaded once on Windows, SHA256 checked
+# against the official SHASUMS256.txt); copied into the repo root only for the tar run,
+# then deleted -- and *.tar.gz is gitignored so it can never be committed by accident.
+$nodeTgzName = 'node-v24.13.0-darwin-arm64.tar.gz'
+$nodeTgzSrc = Join-Path $env:USERPROFILE "Documents\mac-deps\$nodeTgzName"
+if (-not (Test-Path $nodeTgzSrc)) {
+  throw "missing $nodeTgzSrc -- the Mac needs npm (the staged node binary has none). Re-download it (see BUILD-MAC.md) or pass -SkipNodeTarball."
+}
+$nodeTgzDst = Join-Path $repo $nodeTgzName
+Copy-Item $nodeTgzSrc $nodeTgzDst -Force
+$items += $nodeTgzName
+
 # ---- create the zip -------------------------------------------------------------------
 if (Test-Path $Out) { Remove-Item $Out -Force }
 Write-Host "packing... -> $Out"
@@ -90,6 +111,8 @@ $tarArgs = @('-a', '-c', '-f', $Out, '-C', $repo,
 & tar.exe @tarArgs
 if ($LASTEXITCODE -ne 0) { throw "tar exited with $LASTEXITCODE" }
 Remove-Item $stepsPath -Force -ErrorAction SilentlyContinue
+Remove-Item $mbDst -Force -ErrorAction SilentlyContinue
+Remove-Item $nodeTgzDst -Force -ErrorAction SilentlyContinue
 
 $zip = Get-Item $Out
 Write-Host ("done: {0}  {1:N0} MB" -f $zip.FullName, ($zip.Length / 1MB))
@@ -107,6 +130,10 @@ $checks = [ordered]@{
   'Lua bridge'                       = (Has 'sv/lua/AKDAgentBridge.lua')
   'bundled knowledge'                = (Has 'dist/knowledge/docs/*')
   'MAC-steps guide'                  = (Has 'MAC-*.md')   # pattern stays ASCII on purpose: tar's name encoding is unreliable
+  'one-command entry (mac-build.sh)'  = (Has 'mac-build.sh')
+  'node tarball with npm'            = (Has 'node-v*-darwin-arm64.tar.gz')
+  'STT package lock (npm ci needs it)' = (Has 'electron/package-lock.json')
+  'dsh tree lock (npm ci needs it)'  = (Has 'dsh-runtime/dsh/package-lock.json')
 }
 $bad = [ordered]@{
   'electron/node_modules (must be absent)' = (Has 'electron/node_modules/*')

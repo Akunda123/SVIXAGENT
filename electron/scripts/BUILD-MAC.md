@@ -65,36 +65,54 @@ dist/server-runtime/   ← 只有一份，谁最后组装就是谁         ← t
 
 ### 3.1 借一台 Mac：最短路径（2026-09-25 新增，推荐）
 
-一条命令在 Windows 上打个**整包**（含源码 + 三个被 gitignore 的大件 + 一份 `MAC-STEPS.md`）：
+**Windows 侧一条命令**打个整包（含源码 + 三个被 gitignore 的大件 + 一份 `MAC-STEPS.md`
++ **一条命令的出包脚本** `mac-build.sh` + **官方 darwin node tar.gz**（含 npm））：
 
 ```powershell
 cd C:\Users\<USER>\Documents\SVAgent
 powershell -ExecutionPolicy Bypass -File tools\pack-mac-payload.ps1
-# ⇒ %TEMP%\akdagent-mac-payload-arm64.zip（实测 **345 MB**、35,081 个条目；
+# ⇒ %TEMP%\akdagent-mac-payload-arm64.zip（实测 **394 MB**、35,092 个条目；
 #    脚本会自检"包里该有的都在、不该有的都不在"，不过就 exit 1）
+# ⚠️ node tar.gz 取自 %USERPROFILE%\Documents\mac-deps\（见 §3.1.1）；脚本只是临时拷进来、打完就删，
+#    且 `*.tar.gz` 已在 .gitignore 里 ⇒ 绝不会误提交。
 ```
 
-Mac 上（**Apple Silicon**，Node ≥ 20，**要联网**）：
+**Mac 侧两步**（Apple Silicon · 要联网 · **不用装 Node、不用管理员、不用 agent**）：
 
 ```bash
 mkdir -p ~/SVAgent && ditto -x -k ~/Downloads/akdagent-mac-payload-arm64.zip ~/SVAgent
-cd ~/SVAgent
-
-cd electron && npm ci && cd ..                      # ① 装 darwin 的 sherpa（STT）
-cd dsh-runtime/dsh && npm ci && cd ../..             # ② 换掉 DSH 树里的 **win32 平台包**（见下）
-SKIP_SIGN=1 electron/scripts/build-mac.sh arm64 --dir   # 先出 .app 试跑（~1 分钟）
-# 正式要 dmg/zip：去掉 --dir（~3–6 分钟）
+cd ~/SVAgent && bash mac-build.sh          # 约 6~12 分钟；全程日志写 mac-build.log
 ```
 
-> ⚠️ **② 不能漏**：`dsh-runtime/dsh` 是在 Windows 上从本机 npm prefix 拷出来的，里面
+`mac-build.sh`（= 仓库的 `electron/scripts/mac-build-all.sh`，打包时复制到整包根）依次做：
+
+| 步 | 做什么 |
+|---|---|
+| 1/5 | 拿 node+npm：优先解开包里的官方 `node-v24.13.0-darwin-arm64.tar.gz`（**含 npm**），包里没有才联网下（官方 → npmmirror） |
+| 2/5 | `electron/ npm ci`（装 **darwin** 那份 sherpa） |
+| 3/5 | `dsh-runtime/dsh/ npm ci`（把这棵树里的 `@vscode/ripgrep` / `@img/sharp` / `@koromix/koffi` 换成 **darwin** 版） |
+| 4/5 | `SKIP_SIGN=1 electron/scripts/build-mac.sh arm64`（不签名 → 脚本再补 **ad-hoc**） |
+| 5/5 | 自检：server / dsh / 内嵌 node（**要可执行**）/ Lua 桥 / 侧栏面板 / 知识包 / ONNX dylib / 签名 |
+
+> ⚠️ **3/5 不能省**：`dsh-runtime/dsh` 是在 Windows 上从本机 npm prefix 拷出来的，里面
 > `@img/sharp` / `@vscode/ripgrep` / `@koromix/koffi` / `node-addon-require-builtin` **只带了 win32 那份**
 > ⇒ 不重装的话 mac 上「图片处理 / 文件搜索 / 原生对话框」缺 darwin 二进制。
-> 那份 `package-lock.json` 里各平台条目齐全，`npm ci` 会按平台自动换成 darwin 版
+> 那份 `package-lock.json` 里各平台条目齐全，`npm ci` 按平台自动换成 darwin 版
 > （`build-mac.sh` 的前置检查会 warn 这件事，但不拦）。
 
 包里带了 `dsh-runtime/dsh`（225 MB）、`dsh-runtime/node-runtimes/darwin-arm64`（112 MB）、
 `dist/server-runtime-darwin-arm64`（341 MB）⇒ 脚本会**直接复用**它们：不重建 server 运行时、不下模型、不下 node。
-**不用手动 chmod** —— 脚本会自动补 `node` 的可执行位（Windows 打的 zip 存不下 POSIX 权限）。
+**不用手动 chmod** —— `stage-node-runtime.cjs` 会补 `node` 的可执行位（Windows 打的 zip 存不下 POSIX 权限）。
+
+#### 3.1.1 Windows 侧要先备好的两样
+
+| 件 | 从哪来 | 校验 |
+|---|---|---|
+| `node-v24.13.0-darwin-arm64.tar.gz`（48.8 MB，含 npm/npx/corepack） | 放在 `%USERPROFILE%\Documents\mac-deps\`；官方 `https://nodejs.org/dist/v24.13.0/`，国内用镜像 `https://npmmirror.com/mirrors/node/v24.13.0/` | 与官方 `SHASUMS256.txt` 对 SHA256（现记录 `d595961e563fcae057d4a0fb992f175a54d97fcc4a14dc2d474d92ddeea3b9f8`） |
+| `dist/server-runtime-darwin-arm64`（341 MB） | `node tools/build-server-runtime.cjs --platform darwin --arch arm64 --out dist/server-runtime-darwin-arm64` | `tools/check-package-assets.cjs` §⑦：台账平台/架构 + dylib + 模型 + 与 `server/dist` 逐字节同源 |
+
+> 为什么非得要那个 tar.gz：包里 `dsh-runtime/node-runtimes/darwin-arm64/node` **只是 node 二进制、没有 npm**，
+> 而 Mac 上要做两次 `npm ci`（官方 tar.gz 里才有 npm/npx）。
 
 > ⚠️ **编码坑（已按守卫的要求解掉）**：Windows PowerShell 5.1 会把**无 BOM** 的 `.ps1` 按 ANSI
 > （本机 gb2312）解码 ⇒ 里面的中文字面量会变乱码（`check-no-bom.cjs` 又明令禁止仓内文件带 BOM）。

@@ -76,3 +76,6 @@ config.local.*
 
 # ── 整包步骤书（tools/pack-mac-payload.ps1 生成 → 打进 zip → 自己删掉）──
 MAC-STEPS.md
+
+# ── 官方运行时压缩包（整包脚本临时拷进来，打完就删）──
+*.tar.gz
