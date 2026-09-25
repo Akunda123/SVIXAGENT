@@ -91,8 +91,14 @@ for (const h of HOSTS) {
     const s = fs.readFileSync(panel, 'utf8');
     const missing = FEATURES.filter((f) => !s.includes(f.key));
     console.log(missing.length ? '   ⚠️ 缺特征：' + missing.map((f) => f.label).join('、') : '   ✅ 最新特征齐全（' + FEATURES.length + ' 项）');
+  } else if (h.id === 'sv2' || h.id === 'ix') {
+    // SV2 / IX 才有侧栏面板 ⇒ 这两个宿主缺 JS 面板才算问题
+    console.log('   面板 AKDAgentPanel.js：✗ 没有（这个宿主要侧栏面板，建议部署：`node tools/build-panel-lua.cjs --deploy ' + h.id + '`）');
   } else {
-    console.log('   面板 AKDAgentPanel.lua：✗ 没有（还没部署 Lua 面板）');
+    /* ⛔ SV1 / OPSV 本来就不该有面板（2026-09-25 用户确认：面板误放到 SV1 **会**出问题）：
+     *   它们没有侧栏、没有 project scriptData，而且 SV1 的脚本菜单会把 `scripts\Agent\` 里的 .js 也列出来
+     *   ⇒ 多一个"点了就出事"的菜单项。所以这里**不是**"还没部署"，而是"按设计不部署"。 */
+    console.log('   面板：— （按设计不部署：SV1 / OPSV 没有侧栏面板）');
   }
   if (fs.existsSync(path.join(h.dir, 'AKDAgentPanel.lua')) || fs.existsSync(path.join(h.dir, 'AKDAgentPanel.lua.retired'))) {
     console.log('   ⚠️ 目录里还有退役的 AKDAgentPanel.lua（会让侧栏出现第二个面板；跑 build-panel-lua.cjs --deploy 可自动挪走）')

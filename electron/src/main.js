@@ -1890,6 +1890,41 @@ ipcMain.handle('akdagent-update-pi-models', (_e, route, models) => {
   return { ok: true }
 })
 
+/** 🆕 2026-09-25（用户选 B）：改 pi-ai 提供方的**覆写字段** —— Base URL / API 协议 / 模型列表。
+ *
+ *  语义（关键）：**有值 ⇒ 写；null / '' / [] ⇒ 删掉该键**（= 回到提供方内建默认）。
+ *  为什么必须"删"而不是写空串：内建目录（baseURL / api / 模型）都在 pi-ai 插件里，
+ *  写 `baseURL: ''` 会被当成"显式空地址"而不是"没覆写" ⇒ 请求当场坏。
+ *  profile 形状 = settings.yaml 的 `llm-pi-ai.providers.<route>`（getProviders 里同名字段读回）。 */
+ipcMain.handle('akdagent-set-pi-provider-fields', (_e, route, fields) => {
+  const s = readSettings()
+  const piAi = s['llm-pi-ai'] || {}
+  const providers = { ...(piAi.providers || {}) }
+  const cur = providers[route]
+  if (!cur) return { ok: false, error: i18n.t('main.provider.notFound', route) }
+  const next = { ...cur }
+  const applied = []
+  for (const f of ['baseURL', 'api', 'models']) {
+    if (!fields || !(f in fields)) continue
+    const v = fields[f]
+    const empty = v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)
+    if (empty) {
+      if (f in next) { delete next[f]; applied.push('-' + f) }
+    } else if (f === 'models') {
+      next.models = Array.isArray(v) ? v : []
+      applied.push('+' + f + ':' + next.models.length)
+    } else {
+      next[f] = String(v)
+      applied.push('+' + f)
+    }
+  }
+  providers[route] = next
+  piAi.providers = providers
+  s['llm-pi-ai'] = piAi
+  writeSettings(s)
+  return { ok: true, applied, profile: next }
+})
+
 let dragTimer = null
 ipcMain.on('akdagent-drag-start', () => {
   if (!orbWin) return

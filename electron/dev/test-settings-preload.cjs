@@ -191,6 +191,8 @@ const api = {
   addPiProvider: record('addPiProvider'),
   removePiProvider: record('removePiProvider'),
   updatePiModels: record('updatePiModels'),
+  // 🆕 2026-09-25（B 方案）：pi-ai 覆写字段（Base URL / API 协议 / 模型列表）；null = 删键
+  setPiProviderFields: record('setPiProviderFields'),
 }
 
 contextBridge.exposeInMainWorld('svsettings', api)

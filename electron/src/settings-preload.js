@@ -123,4 +123,6 @@ contextBridge.exposeInMainWorld('svsettings', {
   addPiProvider: (route, opts) => ipcRenderer.invoke('akdagent-add-pi-provider', route, opts),
   removePiProvider: (route) => ipcRenderer.invoke('akdagent-remove-pi-provider', route),
   updatePiModels: (route, models) => ipcRenderer.invoke('akdagent-update-pi-models', route, models),
+  /** 🆕 2026-09-25：pi-ai 覆写字段（Base URL / API 协议 / 模型列表）；传 null 表示**删掉该键**（回内建默认） */
+  setPiProviderFields: (route, fields) => ipcRenderer.invoke('akdagent-set-pi-provider-fields', route, fields),
 })
