@@ -12,16 +12,19 @@
 #   · electron/        装 **darwin** 那份 sherpa（STT 原生件）
 #   · dsh-runtime/dsh/ 这棵树是在 Windows 上组的，可选依赖只带了 win32 那份
 #                      （@vscode/ripgrep · @img/sharp · @koromix/koffi）⇒ 必须按平台换成 darwin
-#   node 本身在包里（dsh-runtime/node-runtimes/darwin-arm64/node），但**只有 node 没有 npm**
+#   node 本身在包里（dsh-runtime/node-runtimes/darwin-<arch>/node），但**只有 node 没有 npm**
 #   ⇒ 本脚本优先用包里那份官方 darwin tar.gz 解开（含 node+npm+npx+corepack）；
 #      包里没有就联网下（官方 → 失败换 npmmirror 镜像）。
 #
 # 用法（在解压出来的目录里）：
-#   bash mac-build.sh                # 默认 arm64，出 dmg + zip
+#   bash mac-build.sh                # **按本机架构**（Apple Silicon ⇒ arm64；Intel ⇒ x64），出 dmg + zip
 #   bash mac-build.sh --dir          # 只出 .app（最快，用来先确认能跑）
 #   SKIP_SIGN=0 bash mac-build.sh    # 有 Apple 证书时（默认 SKIP_SIGN=1 = 不签名 + 补 ad-hoc）
-# 产物：electron/release/mac-arm64/AKDAgent.app · AKDAgent-<版本>-arm64.dmg / .zip
+# 产物：electron/release/mac-<arch>/AKDAgent.app · AKDAgent-<版本>-<arch>.dmg / .zip
 # 日志：mac-build.log（**出问题就把这个文件带回来**）
+#
+# Intel（x64）说明：官方 `onnxruntime-node` 自 1.24 起没有 darwin/x64 二进制 ⇒ 本脚本在 x64 上
+#   走的是**已单独钉成 1.23.2** 的那份 server 运行时（打包时放进 dist/server-runtime-darwin-x64）。
 # ============================================================================
 set -uo pipefail
 
@@ -46,7 +49,19 @@ say "macOS：$(sw_vers -productVersion 2>/dev/null || echo '?') · 架构：$(un
 
 # ── 0. 平台自检 ────────────────────────────────────────────────────────────
 [[ "$(uname -s)" == "Darwin" ]] || die "这不是 macOS（$(uname -s)）—— 本脚本只在 Mac 上跑"
-[[ "$(uname -m)" == "arm64" ]] || die "这台 Mac 是 $(uname -m)（Intel）—— AKDAgent 的 mac 版**只支持 Apple Silicon**（M 系列）。原因：onnxruntime 没有 darwin/x86-64 二进制。"
+MACH="$(uname -m)"
+case "$MACH" in
+  arm64)  BUILD_ARCH=arm64 ;;
+  x86_64) BUILD_ARCH=x64 ;;
+  *) die "认不出的架构：$MACH" ;;
+esac
+if [[ "$BUILD_ARCH" == "x64" ]]; then
+  say ""
+  say "⚠️ 这是 **Intel** Mac ⇒ 出 **x64（Intel）包**。功能齐全，但有一条来历要说清："
+  say "   `onnxruntime-node` 自 1.24 起**不再发布 darwin/x64 二进制**（上游 #27961）⇒ 本包的 x64"
+  say "   运行时里那份 onnxruntime 是**单独钉在 1.23.2**（它的 npm 包自带 darwin/x64）。"
+  say "   影响面：只有用 ONNX 的两个音频工具（人声分离 / 干声提取音符）；其余功能与 arm64 版一致。"
+fi
 [[ -d "$ROOT/electron" && -d "$ROOT/dsh-runtime" && -d "$ROOT/dist" ]] || die "整包不完整（缺 electron/ dsh-runtime/ dist/）—— 重新解压整包"
 
 # ── 1. 拿到 node + npm（不装任何东西）────────────────────────────────────────
@@ -59,7 +74,7 @@ OFFICIAL="https://nodejs.org/dist"
 if [[ -x "$NODE_DIR/bin/node" && -x "$NODE_DIR/bin/npm" ]]; then
   say "✓ 复用已解开的：tools/node-darwin/bin"
 else
-  TGZ="$(ls "$ROOT"/node-"$NODE_VER"-darwin-arm64.tar.gz "$ROOT"/node-v*-darwin-arm64.tar.gz 2>/dev/null | head -1 || true)"
+  TGZ="$(ls "$ROOT"/node-"$NODE_VER"-darwin-"$BUILD_ARCH".tar.gz "$ROOT"/node-v*-darwin-"$BUILD_ARCH".tar.gz 2>/dev/null | head -1 || true)"
   if [[ -n "${TGZ:-}" && -f "$TGZ" ]]; then
     say "包里带了 $(basename "$TGZ") ⇒ 解开到 tools/node-darwin"
     mkdir -p "$NODE_DIR"
@@ -69,13 +84,13 @@ else
     mkdir -p "$NODE_DIR" /tmp/akdagent-node
     ok=0
     for base in "$OFFICIAL" "$MIRROR"; do
-      url="$base/$NODE_VER/node-$NODE_VER-darwin-arm64.tar.gz"
+      url="$base/$NODE_VER/node-$NODE_VER-darwin-$BUILD_ARCH.tar.gz"
       say "  试 $url"
       if curl -fL --connect-timeout 20 --max-time 600 -o /tmp/akdagent-node/node.tgz "$url"; then
         tar -xzf /tmp/akdagent-node/node.tgz -C "$NODE_DIR" --strip-components=1 && ok=1 && break
       fi
     done
-    [[ $ok == 1 ]] || die "node 下载失败（官方与镜像都不行）—— 检查网络；或手动下 node-$NODE_VER-darwin-arm64.tar.gz 放进整包根目录再跑一次"
+    [[ $ok == 1 ]] || die "node 下载失败（官方与镜像都不行）—— 检查网络；或手动下 node-$NODE_VER-darwin-$BUILD_ARCH.tar.gz 放进整包根目录再跑一次"
   fi
 fi
 export PATH="$NODE_DIR/bin:$PATH"
@@ -108,22 +123,22 @@ SHERPA="$(ls -d "$ROOT"/electron/node_modules/sherpa-onnx-darwin-* 2>/dev/null |
 
 # ── 3. dsh 树的 darwin 平台包 ───────────────────────────────────────────────
 step "3/5　把内嵌 DSH 树的平台依赖换成 darwin（约 2~4 分钟）"
-if [[ -d "$ROOT/dsh-runtime/dsh/node_modules/@vscode/ripgrep-darwin-arm64" ]]; then
+if [[ -d "$ROOT/dsh-runtime/dsh/node_modules/@vscode/ripgrep-darwin-$BUILD_ARCH" ]]; then
   say "已存在 darwin 平台包 ⇒ 跳过"
 else
   npm_ci "$ROOT/dsh-runtime/dsh" "dsh-runtime/dsh（ripgrep / sharp / koffi 的 darwin 版）"
 fi
 
 # ── 4. 出包 ────────────────────────────────────────────────────────────────
-step "4/5　打包（electron-builder --mac）"
+step "4/5　打包（electron-builder --mac --$BUILD_ARCH）"
 EXTRA="${1:-}"
 export SKIP_SIGN="${SKIP_SIGN:-1}"        # 默认不签名（没证书）⇒ build-mac.sh 第 4 步会补 ad-hoc
-say "SKIP_SIGN=$SKIP_SIGN  EXTRA=${EXTRA:-（无）}"
-bash "$ROOT/electron/scripts/build-mac.sh" arm64 $EXTRA || die "build-mac.sh 失败（看上面最后 20 行）"
+say "SKIP_SIGN=$SKIP_SIGN  ARCH=$BUILD_ARCH  EXTRA=${EXTRA:-（无）}"
+bash "$ROOT/electron/scripts/build-mac.sh" "$BUILD_ARCH" $EXTRA || die "build-mac.sh 失败（看上面最后 20 行）"
 
 # ── 5. 自检 + 收尾 ─────────────────────────────────────────────────────────
 step "5/5　自检（包里该有的东西在不在）"
-APP="$ROOT/electron/release/mac-arm64/AKDAgent.app"
+APP="$ROOT/electron/release/mac-$BUILD_ARCH/AKDAgent.app"
 FAIL=0
 chk() { if eval "$2"; then say "  ✓ $1"; else say "  ✗ $1"; FAIL=$((FAIL+1)); fi; }
 chk "app 存在" "[[ -d '$APP' ]]"
@@ -135,7 +150,7 @@ if [[ -d "$APP" ]]; then
   chk "Lua 桥（assets/AKDAgentBridge.lua）" "[[ -f '$R/assets/AKDAgentBridge.lua' ]]"
   chk "侧栏面板（assets/AKDAgentPanel.js）" "[[ -f '$R/assets/AKDAgentPanel.js' ]]"
   chk "随包知识（knowledge/docs）"          "[[ -d '$R/knowledge/docs' ]]"
-  chk "darwin ONNX 动态库"                  "ls '$R/server/node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/'*.dylib >/dev/null 2>&1"
+  chk "darwin ONNX 动态库"                  "ls '$R/server/node_modules/onnxruntime-node/bin/napi-v6/darwin/$BUILD_ARCH/'*.dylib >/dev/null 2>&1"
   chk "ad-hoc 签名可校验"                   "codesign --verify --deep --strict '$APP' >/dev/null 2>&1"
   say "  app 体积：$(du -sh "$APP" | cut -f1)"
 fi
@@ -147,7 +162,7 @@ say "日志：$LOG"
 if [[ $FAIL -eq 0 ]]; then
   say "✅ 全部通过。把这两样带回来："
   say "   ① $LOG（**出任何问题都靠它定位**）"
-  say "   ② electron/release/AKDAgent-<版本>-arm64.zip（我能在 Windows 上拆开验内容）"
+  say "   ② electron/release/AKDAgent-<版本>-$BUILD_ARCH.zip（我能在 Windows 上拆开验内容）"
 else
   say "⚠️ 有 $FAIL 项自检没过（上面带 ✗ 的）—— 把 $LOG 带回来，我按日志定位"
 fi

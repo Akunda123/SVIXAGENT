@@ -20,14 +20,25 @@
  *   node tools/build-server-runtime.cjs --platform darwin --arch x64     # 🆕 macOS(Intel)
  *   node tools/build-server-runtime.cjs --platform darwin --arch arm64 --out dist/server-runtime-darwin-arm64
  *                                                               # 🆕 组装到别处（不动正在用的那份）
+ *   node tools/build-server-runtime.cjs --platform darwin --arch x64 --out dist/server-runtime-darwin-x64 \
+ *        --onnx-version 1.23.2                                  # 🆕 **给这个目标钉 onnxruntime 版本**
  *   （平台名用 Node 口径：win32 / darwin / linux；arch：x64 / arm64）
  *
+ * ⚠️ `--onnx-version` 为什么存在（2026-09-25，Intel mac 支持）：`onnxruntime-node` 自 1.24 起
+ *   **不再发布 darwin/x64 的二进制**（上游 microsoft/onnxruntime#27961）⇒ 1.27 装出来没有
+ *   `bin/napi-v6/darwin/x64/`，而 `server/src/tools.ts` **顶层 import** 了用它的模块 ⇒ 缺了会
+ *   整个 server 起不来（这就是"mac 只支持 Apple Silicon"的硬来源）。实测 **1.23.2 的 npm 包里自带
+ *   `darwin/x64` 的 dylib + binding**（`bin/napi-v6/darwin/x64/{libonnxruntime.1.23.2.dylib,onnxruntime_binding.node}`）
+ *   ⇒ 给 darwin/x64 这一份单独钉旧版即可。只在**目标平台**生效：临时目录里按 `--os/--cpu` 装好后
+ *   替换产物里那份 onnxruntime-node（本机 node_modules 与别的平台产物都不受影响）。
  * ⚠️ 产物目录里会写一份 `STAGING.json` 台账（平台/架构/有没有模型）。**这个目录是"当前要打包的那份"**：
  *    为 mac 组装完再打 Windows 包，就会把 darwin 裁过的依赖塞进 Windows 安装包
  *    ⇒ `tools/check-package-assets.cjs` 会拿台账拦住（2026-09-24 加）。
  */
 const fs = require('node:fs')
 const path = require('node:path')
+const os = require('node:os')
+const { spawnSync } = require('node:child_process')
 
 const ROOT = path.join(__dirname, '..')
 const SERVER = path.join(ROOT, 'server')
@@ -129,6 +140,37 @@ for (const e of fs.readdirSync(srcNM, { withFileTypes: true })) {
   copyDir(path.join(srcNM, e.name), path.join(dstNM, e.name))
 }
 // ③ 裁掉 onnxruntime 里**非目标平台**的二进制（258 MB → 单平台约 60 MB）
+
+/* ③' `--onnx-version <v>`：给**这个目标**换上指定版本的 onnxruntime-node（必须在裁剪之前做）。
+ * 场景：darwin/x64 从 1.24 起就没有官方二进制了 ⇒ 钉 1.23.2（它的 npm 包自带 darwin/x64）。
+ * 做法：临时目录里 `npm install --os=<platform> --cpu=<arch> --ignore-scripts onnxruntime-node@<v>`
+ * （`--ignore-scripts`：二进制就在 tarball 里，不需要它的 postinstall 再去下载），然后**整包替换**。 */
+const ONNX_VER = opt('--onnx-version', '')
+if (ONNX_VER) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'akdagent-ort-'))
+  fs.writeFileSync(path.join(tmp, 'package.json'),
+    JSON.stringify({ name: 'akdagent-ort-stage', version: '1.0.0', private: true }, null, 2), 'utf8')
+  const args = ['install', '--os=' + PLATFORM, '--cpu=' + ARCH, '--ignore-scripts',
+    '--no-audit', '--no-fund', '--loglevel=error', 'onnxruntime-node@' + ONNX_VER]
+  console.log(`  … 给 ${PLATFORM}/${ARCH} 装 onnxruntime-node@${ONNX_VER}（临时目录，不动本机）`)
+  const r = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args,
+    { cwd: tmp, stdio: 'inherit', shell: false })
+  const src = path.join(tmp, 'node_modules', 'onnxruntime-node')
+  if (r.status !== 0 || !fs.existsSync(src)) {
+    console.error(`✗ onnxruntime-node@${ONNX_VER} 装失败（exit=${r.status}）—— 该版本对 ${PLATFORM}/${ARCH} 可能也没有二进制`)
+    process.exit(3)
+  }
+  const keepDir = path.join(src, 'bin', 'napi-v6', PLATFORM === 'win32' ? 'win32' : PLATFORM, ARCH)
+  if (!fs.existsSync(keepDir)) {
+    console.error(`✗ onnxruntime-node@${ONNX_VER} 里没有 ${PLATFORM}/${ARCH} 的二进制（${keepDir}）—— 换一个版本再试`)
+    process.exit(3)
+  }
+  rmrf(path.join(dstNM, 'onnxruntime-node'))
+  copyDir(src, path.join(dstNM, 'onnxruntime-node'))
+  console.log(`  ✓ onnxruntime-node 已换成 ${ONNX_VER}（自带 ${PLATFORM}/${ARCH} 二进制）`)
+  try { rmrf(tmp) } catch { /* 临时目录清不掉就算了 */ }
+}
+
 const ortBin = path.join(dstNM, 'onnxruntime-node', 'bin', 'napi-v6')
 if (fs.existsSync(ortBin)) {
   for (const os of fs.readdirSync(ortBin)) {

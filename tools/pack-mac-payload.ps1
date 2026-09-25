@@ -88,7 +88,7 @@ $items += 'mac-build.sh'
 # source: %USERPROFILE%\Documents\mac-deps\  (downloaded once on Windows, SHA256 checked
 # against the official SHASUMS256.txt); copied into the repo root only for the tar run,
 # then deleted -- and *.tar.gz is gitignored so it can never be committed by accident.
-$nodeTgzName = 'node-v24.13.0-darwin-arm64.tar.gz'
+$nodeTgzName = "node-v24.13.0-darwin-$Arch.tar.gz"
 $nodeTgzSrc = Join-Path $env:USERPROFILE "Documents\mac-deps\$nodeTgzName"
 if (-not (Test-Path $nodeTgzSrc)) {
   throw "missing $nodeTgzSrc -- the Mac needs npm (the staged node binary has none). Re-download it (see BUILD-MAC.md) or pass -SkipNodeTarball."
@@ -131,7 +131,7 @@ $checks = [ordered]@{
   'bundled knowledge'                = (Has 'dist/knowledge/docs/*')
   'MAC-steps guide'                  = (Has 'MAC-*.md')   # pattern stays ASCII on purpose: tar's name encoding is unreliable
   'one-command entry (mac-build.sh)'  = (Has 'mac-build.sh')
-  'node tarball with npm'            = (Has 'node-v*-darwin-arm64.tar.gz')
+  'node tarball with npm'            = (Has "node-v*-darwin-$Arch.tar.gz")
   'STT package lock (npm ci needs it)' = (Has 'electron/package-lock.json')
   'dsh tree lock (npm ci needs it)'  = (Has 'dsh-runtime/dsh/package-lock.json')
 }

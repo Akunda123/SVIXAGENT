@@ -114,6 +114,29 @@ cd ~/SVAgent && bash mac-build.sh          # 约 6~12 分钟；全程日志写 m
 > 为什么非得要那个 tar.gz：包里 `dsh-runtime/node-runtimes/darwin-arm64/node` **只是 node 二进制、没有 npm**，
 > 而 Mac 上要做两次 `npm ci`（官方 tar.gz 里才有 npm/npx）。
 
+#### 3.1.2 Intel（x64）机器：2026-09-25 起也支持
+
+原先**拦死**了 Intel：官方 `onnxruntime-node` 自 **1.24** 起不再发布 darwin/x64 二进制
+（上游 microsoft/onnxruntime#27961），而 `server/src/tools.ts` **顶层 import** 了用它的模块
+⇒ 缺了会整个 MCP server 起不来。现在解开了 —— **只给 darwin/x64 这一份钉旧版**：
+
+| 件 | 怎么来 |
+|---|---|
+| `dist/server-runtime-darwin-x64`（约 305 MB） | `node tools/build-server-runtime.cjs --platform darwin --arch x64 --out dist/server-runtime-darwin-x64 --onnx-version 1.23.2` |
+| `node-v24.13.0-darwin-x64.tar.gz`（50.0 MB） | 与 arm64 同源；官方 `SHASUMS256.txt` 对下来是 `6f03c1b48ddbe1b129a6f8038be08e0899f05f17185b4d3e4350180ab669a7f3` |
+| 整包 | `powershell -File tools\pack-mac-payload.ps1 -Arch x64 -Out ...\akdagent-mac-payload-x64.zip` |
+
+- `--onnx-version` 是给 `build-server-runtime.cjs` **新加**的开关：在临时目录里
+  `npm install --os=darwin --cpu=x64 --ignore-scripts onnxruntime-node@1.23.2`，再把产物里那份换掉
+  （**本机 node_modules 与别的平台产物都不受影响**）。为什么 `--ignore-scripts`：1.23.2 的 npm 包
+  **自带** `bin/napi-v6/darwin/x64/{libonnxruntime.1.23.2.dylib,onnxruntime_binding.node}`，不需要它的 postinstall 再去下载。
+- `mac-build.sh` / `build-mac.sh` 都会**按本机架构**自动选：Apple Silicon ⇒ arm64、Intel ⇒ x64；
+  `build-mac.sh x64` 会先确认 `dist/server-runtime-darwin-x64/STAGING.json` 在（那里面才是钉过版本的 onnxruntime）。
+- **影响面**：只有用 ONNX 的两个音频工具（`sv_separate_vocals` 人声分离 / `sv_extract_notes` 干声提取音符）
+  跑在 1.23.2 上；其余功能与 arm64 版一致。这两个工具在 Intel 上首次使用请实测一次。
+- **本机 node_modules 里的 onnxruntime 是 1.27**（server/package.json 的 `^1.27.0` 不动）：
+  跨平台组装时才会按 `--onnx-version` 临时换；Windows/Linux/arm64 产物不受影响。
+
 > ⚠️ **编码坑（已按守卫的要求解掉）**：Windows PowerShell 5.1 会把**无 BOM** 的 `.ps1` 按 ANSI
 > （本机 gb2312）解码 ⇒ 里面的中文字面量会变乱码（`check-no-bom.cjs` 又明令禁止仓内文件带 BOM）。
 > 所以 `pack-mac-payload.ps1` **保持纯 ASCII**（注释与输出都是英文），中文正文放在

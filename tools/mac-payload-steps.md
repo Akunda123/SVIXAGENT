@@ -42,11 +42,20 @@ bash mac-build.sh
 ## 可选：在 Mac 上顺手验一眼
 
 ```bash
-open electron/release/mac-arm64/AKDAgent.app     # 菜单栏出现图标、桌面出现悬浮球
+open electron/release/mac-__ARCH__/AKDAgent.app     # 菜单栏出现图标、桌面出现悬浮球
 ```
 - 悬浮球右键（或托盘右键）→ **帮助**：应弹出「AKDAgent 使用说明」（离线页面）
 - 设置 → 关于：版本 **1.0.0**、三个联系方式（B 站 / 邮箱 / GitHub）
 - 【可选】真跑桥：需要这台 Mac 上装了 SV / IX —— 没有就跳过，回 Windows 再验
+
+## Intel（x64）机器也能出包了（2026-09-25 起）
+
+脚本会**按本机架构**自动选：Apple Silicon ⇒ `arm64`，Intel ⇒ `x64`。Intel 包**功能齐全**，只有一条来历要说清：
+
+> 官方的 `onnxruntime-node` 自 **1.24** 起**不再发布 darwin/x64 二进制**（上游 microsoft/onnxruntime#27961）。
+> ⇒ 本包的 x64 运行时里那份 onnxruntime 是**单独钉在 1.23.2**（实测它的 npm 包自带 `bin/napi-v6/darwin/x64/`
+> 的 dylib + binding）。影响面只有用 ONNX 的两个音频工具（**人声分离** / **干声提取音符**），
+> 其余功能与 arm64 版一致；这两个工具在 Intel 上首次使用请顺手实测一次。
 
 ## 已知会遇到的坑
 
@@ -54,6 +63,6 @@ open electron/release/mac-arm64/AKDAgent.app     # 菜单栏出现图标、桌�
 |---|---|
 | app 打不开、提示「已损坏 / 无法验证开发者」 | 脚本已自动 ad-hoc 签名 + `xattr -cr`；仍被拦就 `xattr -cr <app>` 再来一次，或右键 → 打开 |
 | `npm ci` 卡在下载 Electron | 脚本已自动重试并换 npmmirror；手工等价命令：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm ci --registry=https://registry.npmmirror.com` |
-| 脚本说「这台 Mac 是 x86_64」 | 那是 Intel 机器 ⇒ 不支持（AKDAgent 的 mac 版只出 Apple Silicon） |
+| 脚本报「认不出的架构」 | 只有 `arm64`（Apple Silicon）与 `x86_64`（Intel）两种；其它架构请把 `mac-build.log` 带回来 |
 | 想只出 `.app`（更快，先确认能跑） | `bash mac-build.sh --dir` |
-| 打出来 900 MB+ | 正常（server 341 + dsh 225 + node 112 + Electron 运行时） |
+| 打出来 900 MB+ | 正常（server 305~341 + dsh 225 + node 112 + Electron 运行时） |

@@ -6,14 +6,17 @@
 #
 # 用法：
 #   ./build-mac.sh                # 默认 arm64（Apple Silicon）
+#   ./build-mac.sh x64            # Intel（见下"Intel"一节）
 #   ./build-mac.sh both           # 同 arm64（见"Intel"）
 #   ./build-mac.sh arm64 --dir    # 只出 app 目录（不生成 dmg/zip，最快）
 #   SKIP_SIGN=1 ./build-mac.sh    # 不签名（本机试包）；见下面"签名"一节
 #
-# ⚠️ Intel（x64）mac 暂不支持：实测 `onnxruntime-node` 1.27.0 里 **darwin 只有 arm64**
-#    （上游 microsoft/onnxruntime#27961：1.23.x 起不再发 x86-64）
-#    ⇒ Intel mac 上 ONNX 功能（人声分离 / 音高提取 / 音频分析…）起不来。
-#    确实要试界面：AKDAGENT_ALLOW_INTEL_MAC=1 ./build-mac.sh x64
+# ⚠️ Intel（x64）—— 2026-09-25 起**支持**（原先拦着，因为 `onnxruntime-node` 1.27 里 darwin 只有 arm64；
+#    上游 microsoft/onnxruntime#27961：1.24 起不再发 darwin/x64）。现在的做法：
+#    **给 darwin/x64 这一份单独钉 `onnxruntime-node@1.23.2`**（它的 npm 包自带 `bin/napi-v6/darwin/x64/`
+#    的 dylib + binding），产物落在 `dist/server-runtime-darwin-x64`，本脚本直接用它。
+#    ⇒ Intel 包**功能齐全**；只是那两个用 ONNX 的音频工具（人声分离 / 干声提取音符）跑在 1.23.2 上，
+#      首次使用请在 Mac 上实测一次（其余功能与 arm64 版无差别）。
 #
 # 前置（脚本会逐条检查，缺了会明确报出来）：
 #   ① Node ≥ 20（建议与内嵌运行时同大版本：见 tools/stage-node-runtime.cjs 的 DEFAULT_VERSION）
@@ -37,8 +40,11 @@ case "$ARCH_IN" in
   arm64)     ARCHS=(arm64) ;;
   both)      ARCHS=(arm64) ;;
   x64)
-    [[ "${AKDAGENT_ALLOW_INTEL_MAC:-0}" == "1" ]] || die "Intel(x64) mac 暂不支持（onnxruntime-node 1.27 无 darwin/x64）⇒ 见脚本头注释；确实要试：AKDAGENT_ALLOW_INTEL_MAC=1"
-    say "⚠️ AKDAGENT_ALLOW_INTEL_MAC=1 ⇒ 会打出 Intel 包，但 ONNX 功能不可用（仅验证界面/桥）"
+    # 2026-09-25：Intel 已支持（onnxruntime 在 darwin/x64 上钉 1.23.2）—— 不再需要环境开关
+    if [[ ! -f "$REPO_DIR/dist/server-runtime-darwin-x64/STAGING.json" ]]; then
+      die "出 Intel 包需要预装产物 dist/server-runtime-darwin-x64（它里面的 onnxruntime 是单独钉的 1.23.2）⇒ 见 BUILD-MAC.md §3.1.2"
+    fi
+    say "⚠️ Intel(x64) 包：server 侧 onnxruntime = 1.23.2（官方 1.24 起没 darwin/x64）；功能齐全，ONNX 两个音频工具首次使用请实测"
     ARCHS=(x64) ;;
   *)         die "架构只能是 arm64 / x64 / both（收到：$ARCH_IN）" ;;
 esac
