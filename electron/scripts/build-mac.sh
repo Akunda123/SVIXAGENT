@@ -116,6 +116,15 @@ for ARCH in "${ARCHS[@]}"; do
     say "   SKIP_SIGN=1 ⇒ 这次不做代码签名（下面会补 ad-hoc，产物只能本机试跑）"
     export CSC_IDENTITY_AUTO_DISCOVERY=false
   fi
+  # ⚠️ 2026-09-25 真机踩到：`app-builder_amd64` 报 ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+  #    （进程起不来 / 刚跑就崩，日志里是 Go 的 fatal error 堆栈）。macOS 上这类多半是
+  #    **隔离标记 com.apple.quarantine 或可执行位**的问题 —— npm 装出来的二进制也可能中招
+  #    ⇒ 调 electron-builder **之前**统一清标记 + 补可执行位（幂等、无害）。
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "$ELECTRON_DIR/node_modules" 2>/dev/null || true
+  fi
+  chmod +x "$ELECTRON_DIR/node_modules/app-builder-bin/mac/"* 2>/dev/null || true
+  chmod +x "$ELECTRON_DIR/node_modules/7zip-bin/mac/"* 2>/dev/null || true
   # shellcheck disable=SC2086
   npx electron-builder --mac "--$ARCH" $EXTRA
   say "   ✓ 产物在 electron/release/"
