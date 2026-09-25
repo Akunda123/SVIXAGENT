@@ -8,8 +8,8 @@
 ## 就两步
 
 ```bash
-# ① 解压（ditto 比双击稳：保留权限）
-mkdir -p ~/SVAgent && ditto -x -k ~/Downloads/akdagent-mac-payload-__ARCH__.zip ~/SVAgent
+# ① 解压（ditto 比双击稳：保留权限。**--noqtn** = 不要把 macOS 隔离标记带进来，见文末"已知会遇到的坑"）
+mkdir -p ~/SVAgent && ditto -x -k --noqtn ~/Downloads/akdagent-mac-payload-__ARCH__.zip ~/SVAgent
 cd ~/SVAgent
 
 # ② 一条命令（约 6~12 分钟；自带 node+npm、网络失败自动换国内镜像、全程写日志、最后自检）
@@ -61,8 +61,10 @@ open electron/release/mac-__ARCH__/AKDAgent.app     # 菜单栏出现图标、�
 
 | 现象 | 处理 |
 |---|---|
+| 弹「**无法打开"node"，因为 Apple 无法检查其是否包含恶意软件**」 | 整包是从 QQ/微信/浏览器 下来的 ⇒ zip 带 **quarantine 隔离标记**，`ditto` 会把它传播给解出来的**每个文件**（包括包里的 node tar.gz，于是解出来的 `node` 被 Gatekeeper 拒绝执行）。两条路：① 解压时加 **`--noqtn`**（推荐，见上面"就两步"）；② 已经解压了就跑一次 `xattr -dr com.apple.quarantine ~/SVAgent`，再 `bash mac-build.sh`（脚本自己也会清一遍） |
 | app 打不开、提示「已损坏 / 无法验证开发者」 | 脚本已自动 ad-hoc 签名 + `xattr -cr`；仍被拦就 `xattr -cr <app>` 再来一次，或右键 → 打开 |
 | `npm ci` 卡在下载 Electron | 脚本已自动重试并换 npmmirror；手工等价命令：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm ci --registry=https://registry.npmmirror.com` |
+| 日志里出现 `line NN: xxx: command not found` 但流程照常往下走 | 那是脚本里**某行提示文案**里的反引号被 bash 当成了命令替换（只影响那行文字）—— 把日志带回来我修脚本 |
 | 脚本报「认不出的架构」 | 只有 `arm64`（Apple Silicon）与 `x86_64`（Intel）两种；其它架构请把 `mac-build.log` 带回来 |
 | 想只出 `.app`（更快，先确认能跑） | `bash mac-build.sh --dir` |
 | 打出来 900 MB+ | 正常（server 305~341 + dsh 225 + node 112 + Electron 运行时） |

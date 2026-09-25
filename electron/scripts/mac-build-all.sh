@@ -35,6 +35,14 @@ elif [[ -d "$HERE/../../electron" ]]; then ROOT="$(cd "$HERE/../.." && pwd)"
 else echo "✗ 找不到 electron/ —— 请在**整包解压出来的根目录**里跑：bash mac-build.sh" >&2; exit 2; fi
 cd "$ROOT"
 
+# ── 清掉 macOS 的隔离标记（2026-09-25 真机踩到）────────────────────────────
+# 现象：弹「无法打开"node"，因为 Apple 无法检查其是否包含恶意软件」。
+# 原因：整包若是从 QQ / 微信 / 浏览器 下来的，那个 zip 带 `com.apple.quarantine`，而 `ditto`
+#   会把该标记**传播给解出来的每一个文件** —— 包括包里的 `node-v*-darwin-*.tar.gz`
+#   ⇒ 脚本解出来的 `node` 也带标记 ⇒ macOS 拒绝执行它（于是 1/5 就卡住）。
+# 处理：进目录先**递归清一遍**（顺便覆盖"用双击解压"的情况）；解出 node 后再清一次（见下）。
+xattr -dr com.apple.quarantine "$ROOT" >/dev/null 2>&1 || true
+
 LOG="$ROOT/mac-build.log"
 # 全程 tee 进日志（bash 3.2 也支持进程替换）
 exec > >(tee "$LOG") 2>&1
@@ -58,7 +66,7 @@ esac
 if [[ "$BUILD_ARCH" == "x64" ]]; then
   say ""
   say "⚠️ 这是 **Intel** Mac ⇒ 出 **x64（Intel）包**。功能齐全，但有一条来历要说清："
-  say "   `onnxruntime-node` 自 1.24 起**不再发布 darwin/x64 二进制**（上游 #27961）⇒ 本包的 x64"
+  say "   ⚠ onnxruntime-node 自 1.24 起**不再发布 darwin/x64 二进制**（上游 #27961）⇒ 本包的 x64"
   say "   运行时里那份 onnxruntime 是**单独钉在 1.23.2**（它的 npm 包自带 darwin/x64）。"
   say "   影响面：只有用 ONNX 的两个音频工具（人声分离 / 干声提取音符）；其余功能与 arm64 版一致。"
 fi
@@ -79,6 +87,8 @@ else
     say "包里带了 $(basename "$TGZ") ⇒ 解开到 tools/node-darwin"
     mkdir -p "$NODE_DIR"
     tar -xzf "$TGZ" -C "$NODE_DIR" --strip-components=1 || die "解压 $TGZ 失败"
+    # 解出来的 node 可能仍带隔离标记（见文件开头那段）⇒ 清掉，否则下面 `node -v` 会被 Gatekeeper 拦
+    xattr -dr com.apple.quarantine "$NODE_DIR" >/dev/null 2>&1 || true
   else
     say "包里没有 node tar.gz ⇒ 联网下载（官方失败会自动换镜像）"
     mkdir -p "$NODE_DIR" /tmp/akdagent-node
@@ -93,6 +103,8 @@ else
     [[ $ok == 1 ]] || die "node 下载失败（官方与镜像都不行）—— 检查网络；或手动下 node-$NODE_VER-darwin-$BUILD_ARCH.tar.gz 放进整包根目录再跑一次"
   fi
 fi
+# 两条分支都清一遍（幂等）：解出来的 node 若带隔离标记，`node -v` 会被 Gatekeeper 拦（弹"无法打开 node"）
+xattr -dr com.apple.quarantine "$NODE_DIR" >/dev/null 2>&1 || true
 export PATH="$NODE_DIR/bin:$PATH"
 say "✓ node $(node -v) · npm $(npm -v)"
 
