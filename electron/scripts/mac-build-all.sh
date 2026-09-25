@@ -140,10 +140,29 @@ npm_ci() {
 }
 
 # ── 2. electron 依赖（含 darwin 的 sherpa）──────────────────────────────────
+# ⚠️ 2026-09-25 真机教训：**不要只看"目录在不在"就跳过 npm ci** —— 前几次中途失败会留下
+#    **装了一半的 node_modules**，被跳过复用后 electron-builder 会在 4/5 炸
+#    （表现为 `app-builder_amd64 ... ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`，日志里是 Go 的 fatal error）。
+#    判据：npm **装完**才会写 `node_modules/.package-lock.json`；再点验一个关键可执行件在不在、够不够大
+#    （`app-builder-bin/mac/app-builder_<arch>` 正常约 18.7 MB）。
+#    想强制重装：`FORCE_NPM_CI=1 bash mac-build.sh`。
+installed_ok() {          # $1=目录 $2=关键文件（相对 node_modules） $3=最小字节数（0=不查）
+  local d f min sz
+  d="$1"; f="${2:-}"; min="${3:-0}"
+  [ -f "$d/node_modules/.package-lock.json" ] || return 1
+  [ -z "$f" ] || [ -e "$d/node_modules/$f" ] || return 1
+  if [ "$min" -gt 0 ] && [ -n "$f" ]; then
+    sz=$(wc -c < "$d/node_modules/$f" 2>/dev/null | tr -d ' ')
+    [ -n "$sz" ] && [ "$sz" -ge "$min" ] || return 1
+  fi
+  return 0
+}
 step "2/5　装 Electron 侧依赖（约 3~6 分钟，唯一需要联网的一步）"
-if [[ -d "$ROOT/electron/node_modules" ]]; then
-  say "已存在 electron/node_modules ⇒ 跳过（要重装就删掉它）"
+if [[ "${FORCE_NPM_CI:-0}" != "1" ]] && installed_ok "$ROOT/electron" "app-builder-bin/mac/app-builder_${BUILD_ARCH}" 10000000; then
+  say "已存在**完整**的 electron/node_modules ⇒ 跳过（要强制重装：FORCE_NPM_CI=1 bash mac-build.sh）"
 else
+  [[ -d "$ROOT/electron/node_modules" ]] && say "！electron/node_modules 存在但**不完整**（缺 .package-lock.json 或 app-builder 二进制）⇒ 重装"
+  [[ "${FORCE_NPM_CI:-0}" == "1" ]] && say "FORCE_NPM_CI=1 ⇒ 强制重装"
   npm_ci "$ROOT/electron" "electron/（Electron 运行时 + darwin sherpa）"
 fi
 SHERPA="$(ls -d "$ROOT"/electron/node_modules/sherpa-onnx-darwin-* 2>/dev/null | head -1 || true)"
@@ -151,8 +170,8 @@ SHERPA="$(ls -d "$ROOT"/electron/node_modules/sherpa-onnx-darwin-* 2>/dev/null |
 
 # ── 3. dsh 树的 darwin 平台包 ───────────────────────────────────────────────
 step "3/5　把内嵌 DSH 树的平台依赖换成 darwin（约 2~4 分钟）"
-if [[ -d "$ROOT/dsh-runtime/dsh/node_modules/@vscode/ripgrep-darwin-$BUILD_ARCH" ]]; then
-  say "已存在 darwin 平台包 ⇒ 跳过"
+if [[ -d "$ROOT/dsh-runtime/dsh/node_modules/@vscode/ripgrep-darwin-$BUILD_ARCH" ]] && installed_ok "$ROOT/dsh-runtime/dsh" "" 0; then
+  say "已存在 darwin 平台包（且台账完整）⇒ 跳过"
 else
   npm_ci "$ROOT/dsh-runtime/dsh" "dsh-runtime/dsh（ripgrep / sharp / koffi 的 darwin 版）"
 fi
