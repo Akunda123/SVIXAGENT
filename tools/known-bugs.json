@@ -1,0 +1,1162 @@
+{
+  "schema": 1,
+  "title": "AKDAgent 已知缺陷与平台约束登记表",
+  "note": "按宿主版本登记的缺陷/约束清单。单一事实源 = 本文件；knowledge/docs/已知Bug与平台约束.md 是人读版，由 tools/known-bugs.cjs --doc 生成。判据一律来自真机实测（官方 API 文档未覆盖 IX ⇒ IX 侧文档缺席不算证据）。",
+  "classes": {
+    "crash": "调用即冻桥 / 宿主闪退 —— 必须规避，绝不允许出现在生成脚本里",
+    "api-gap": "调用不崩但做不到（需文件路线或绕行）",
+    "doc-gap": "官方文档缺席，或与实测不符",
+    "by-design": "平台设计如此，不是缺陷 —— 只作操作纪律，**永不复检**"
+  },
+  "recheckPolicy": {
+    "triggers": [
+      "宿主版本向前更新（桥心跳 hostVersionNumber 与 state.checkedVersionNumber 比较）",
+      "官方 API 文档 generatedAt 变化（skills/sv-scripting/api/_sync.json）",
+      "用户提出（state.userReportAt 晚于 checkedAt）"
+    ],
+    "perItemTrigger": "条目可加 recheckOn: [\"doc\"] ⇒ **只认官方 API 文档更新**（宿主版本向前更新**不判到期**），并把探针换成 kind:\"docs\"（只提示查文档、不碰宿主）。用于「用户侧测不了 / 只有上游补了 API 才算修好」的 api-gap 条目（现例 IX-002）",
+    "safeCheck": "tools/known-bugs.cjs --check 只读心跳文件与 _sync.json：不碰桥、不出网、可挂客户端启动钩子",
+    "dangerousProbe": "必须 --confirm；跑前用户先 Ctrl+S 保存工程；一次只跑一条；发请求前写 pendingProbe 落盘标记（若进程随宿主一起没了，残留标记即证明缺陷仍在）",
+    "byDesign": "class=by-design 的条目 recheck=false，永不列入待复检；只作为纪律保留在表里"
+  },
+  "docStampSource": "skills/sv-scripting/api/_sync.json",
+  "bugs": [
+    {
+      "id": "IX-001",
+      "class": "crash",
+      "recheck": true,
+      "host": "ix",
+      "title": "Automation 读点类 API：**IX 1.0.0 会冻桥（1.0.1 已修）** —— 只保留一道「版本检测」防线",
+      "apis": [
+        "Automation#getPoints(start, end) —— **2 个参数**",
+        "Automation#getAllPoints() —— 0 个参数",
+        "Automation#getLinear(blick) —— 1 个参数",
+        "Automation#getDefinition() → {typeName, range, displayName, defaultValue}",
+        "Automation#remove(b) / remove(begin, end) —— **两个重载**，均返回布尔（**按 blick** 删）",
+        "Automation#removeAll() —— 0 个参数（清空）"
+      ],
+      "symptom": "🔴 **IX 1.0.0 上**：调用读点类 API（`getPoints`/`getAllPoints`/`getLinear`/`getDefinition`）会让**宿主弹模态框挡住 Lua 主线程** ⇒ 桥无响应、宿主可能重启，未保存工程会丢（2026-09-14 实测）。<br>✅ **IX 1.0.1 起已修**（2026-09-20 真机重测）：同一批调用 **67~319ms 正常返回**，且**返回的是普通嵌套数字数组**（`getAllPoints()` → `{{0,-800},{1411200000,0},{2822400000,800}}`，**原样 return 给桥序列化 319ms 正常**；`getDefinition().range` → `[-800,800]`，252ms）。<br>⚠️ **当时的归因（「返回宿主内部对象 ⇒ 序列化卡死」）是错的，已按实测推翻。** 真正会踩的是**参数个数**：`getPoints(start, end)` 要 **2 个**、`getLinear(blick)` 要 **1 个**、`getAllPoints()` 要 **0 个** —— 写错只抛 `InvocationError`（消息里写明「预期 N 个参数」），**不冻桥**。<br>🆕 **写/删点也一并测了（2026-09-20，自造 4 个点逐形式打 —— 结论与官方文档逐字吻合）**：**`remove(b)` 的 `b` 是 blick**，删该位置上的那个点 —— `remove(0)` → `true` 且点真没了、`remove(2*Q)` → `true`、**`remove(1)` → `false` 因为 blick 1 上本来就没有点**（文档原话「if there is one」⇒ **返回 false 是正确行为，不是怪癖**）；`remove(begin, end)` 删区间内所有点；3 参 ⇒ `InvocationError：预期 2 个参数`；`removeAll()` 清空 ✓。**全程 69ms、无冻桥。**<br>📗 **签名以官方文档为准、不需要「探」**：`skills/sv-scripting/api/Automation.md` 逐方法都写了（`getPoints(begin, end)` · `getAllPoints()` · `getLinear(b)` · `get(b)` · `remove(b)` / `remove(begin, end)` 两个重载 · `removeAll()`），**本次 IX 实测与它逐条一致** ⇒ 这族 API 是**有官方文档的正式接口**；此前把整族标成「危险/未知」是**过度泛化**（起因只是一次 IX 1.0.0 的事故）。",
+      "impact": "读点/写点类 API 在 IX ≥1.0.1 上**可以正常用**（`getAllPoints()` 一把拿全部折点，比按 1/64 拍采样更准更快；删点按 blick）。**唯一的现实风险是宿主版本**：1.0.0 上这类调用会把桥冻住 ⇒ 靠**版本检测**兜（见 workaround）。⚠️ **SV2 不需要「再验证」——它本来就有官方文档**（`skills/sv-scripting/api/Automation.md`，本次 IX 实测与其逐条吻合）；**真正没验的只剩 SV1**。",
+      "workaround": [
+        "🔑 **版本检测（唯一保留的防线；用户 2026-09-20 指示「清除所有禁调用的痕迹，保留一个版本检测」）**：桥在 `ping` / 心跳 / `boot` / `diag` 里报 **`hostOutdated` + `hostWarning`**；**检测到 IX 1.0.0（或更早）就先让用户升级 Instrument X（≥1.0.1）**，再做读点类操作。判据 = `CFG.hostIsOutdated(host, hostVerNum)`（**只有 IX 且版本号 < 65537 才为真**；SV 一律 false；版本号拿不到时不误报），回归见 `sv/lua/tests/test-ops.lua` 的「宿主版本检测」节",
+        "**参数个数别猜**：`getPoints(start, end)` **2 个** · `getAllPoints()` **0 个** · `getLinear(blick)` **1 个** · `get(blick)` 1 个 · `getDefinition()` 0 个 · `remove(beginBlick, endBlick)` **2 个**；写错抛 `InvocationError`（含「预期 N 个参数」字样，照它改即可）",
+        "**删点按 blick 删**（官方语义）：`remove(b)` 删**位置 b 处那个点**（返回布尔：那里没点就是 `false`）· `remove(begin, end)` 删区间内所有点 · `removeAll()` 清空。⚠️ 参数是 **blick 不是序号** —— 传一个没有点的位置会返回 `false` 且什么都不删；**别只看返回值，要 `getAllPoints()` 回读**",
+        "**要范围就问宿主**：`getDefinition().range` ⇒ `[min, max]`（实测 `toneShift` = `[-800, 800]`，与用户裁定一致）—— 比自己维护的表更权威；官方文档 `Automation.md` 的 `getDefinition()` 一节还直接给了 7 个参数的范围表（pitchDelta ±1200 / vibratoEnv 0~2 / loudness −48~12 / tension·breathiness ±1 / voicing 0~1 / gender ±1），**与本仓 `param-units.json` 全部吻合**",
+        "📗 **SV2 不需要「再验」**：这族 API 有官方文档（`skills/sv-scripting/api/Automation.md`），**签名照文档写**即可；⚠️ **真正没验的只剩 SV1**（SV1 缺部分 API，`SV-001` 记过「不支持成员会弹框冻桥」）",
+        "兜底（若哪天又冻桥）：读曲线改用 `get(blick)` 单点采样（1/64 拍线性插值，实测 109 次采样 12ms 内）· 清空用 `removeAll()`",
+        "⚠️ 与 `SV-001` 的联动：**模态框会绕过 pcall 冻住桥**（SV1 已证实）⇒ 一旦怀疑是「弹框」型故障，别继续试错式探测，先重启宿主"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-14",
+          "hostVersion": "1.0.0",
+          "hostVersionNumber": 65536
+        },
+        {
+          "date": "2026-09-20",
+          "hostVersion": "1.0.1",
+          "hostVersionNumber": 65537
+        }
+      ],
+      "probe": {
+        "kind": "dangerous",
+        "gate": "user-consent",
+        "what": "**逐 API 单次调用**（只看是否返回 / 报什么错，**不写任何数据**）：`getPoints` → `getAllPoints` → `getLinear(0, Q)`。⚠️ `getDefinition()` 与 `remove(index)` **不在本探针里**（前者要碰宿主内部的 range 数组、后者是写操作且要先有点可删）—— 要测请另开一次，别把已经拿到的结果一起赔进去",
+        "prepare": [
+          "用户先 Ctrl+S 保存工程",
+          "确认当前组非主组、或接受主组被读的风险",
+          "知晓：若仍在 ⇒ 桥无响应，宿主可能重启"
+        ],
+        "expect": "修复前（1.0.0）：8s 内无响应（桥挂）· **2026-09-20 实测（1.0.1）：44ms 就回来了，但 `getPoints` 的 pcall 失败（`ok=false`，错误值是个 table）⇒ 性质变了：不再冻桥、改成抛错（仍然不能用）**",
+        "readonly": true,
+        "lua": [
+          "local p = SV:getProject()",
+          "local g = SV:getMainEditor():getCurrentGroup():getTarget()",
+          "local a = g:getAutomation(\"loudness\")",
+          "if a == nil then return { err = \"getAutomation loudness 返回 nil\" } end",
+          "local function probe(label, fn)",
+          "  local ok, v = pcall(fn)",
+          "  local t = type(v)",
+          "  local s = \"\"",
+          "  if ok then",
+          "    if t == \"table\" then",
+          "      local n = 0",
+          "      for _ in pairs(v) do n = n + 1 end",
+          "      s = \"table(n=\" .. n .. \")\"",
+          "    else s = tostring(v) end",
+          "  else",
+          "    s = tostring(v)",
+          "    if #s > 200 then s = string.sub(s, 1, 200) .. \"...\" end",
+          "  end",
+          "  return { api = label, ok = ok, t = t, detail = s }",
+          "end",
+          "local out = { results = {} }",
+          "out.results[#out.results + 1] = probe(\"getPoints\", function() return a:getPoints() end)",
+          "out.results[#out.results + 1] = probe(\"getAllPoints\", function() return a:getAllPoints() end)",
+          "out.results[#out.results + 1] = probe(\"getLinear\", function() return a:getLinear(0, 705600000) end)",
+          "return out"
+        ],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "cant-repro",
+        "checkedAt": "2026-09-20",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.1",
+        "checkedVersionNumber": 65537,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "observed",
+            "note": "真机实测：调用即冻桥，宿主重启；同日找到采样读 + remove(begin,end) 两条安全替代"
+          },
+          {
+            "at": "2026-09-20",
+            "event": "probe-responded",
+            "note": "探针**有回应**（44ms）⇒ 不再复现\"调用即冻桥\"；结论=不再冻桥，仍需人工确认宿主未重启。返回={\"ok\":true,\"result\":{\"resultType\":\"table\",\"result\":{\"t\":\"table\",\"ok\":false}},\"elapsedMs\":44,\"seq\":1789918201829001}"
+          },
+          {
+            "at": "2026-09-20",
+            "event": "probe-responded",
+            "note": "探针**有回应**（45ms）⇒ 不再复现\"调用即冻桥\"；结论=不再冻桥，仍需人工确认宿主未重启。返回={\"ok\":true,\"result\":{\"resultType\":\"table\",\"result\":{\"results\":[{\"api\":\"getPoints\",\"detail\":\"InvocationError in getPoints: 预期 2 个参数，实际得到 0 个。\",\"t\":\"table\",\"ok\":false},{\"api\":\"getAllPoints\",\"detail\":\"table(n=0)\",\"t\":\"table\",\"ok\":true},{\"api\":\"getLinear\",\"detail\":\"InvocationError in getLinear: 预期 1 个参数"
+          },
+          {
+            "at": "2026-09-20",
+            "event": "verified",
+            "note": "IX 1.0.1 真机重测：读点类全部正常（getAllPoints 返回普通嵌套数组、原样序列化 319ms；getDefinition().range=[-800,800] 252ms）⇒ 「宿主内部对象无法序列化」被否掉；真正坑是参数个数（getPoints 要 2 参、getLinear 要 1 参）。remove(index) 与 SV 侧仍未测（部分修复 @ 1.0.1）"
+          },
+          {
+            "at": "2026-09-20",
+            "event": "verified",
+            "note": "IX 1.0.1 全清单实测完毕：读点(getPoints/getAllPoints/getLinear/getDefinition)+写点(remove/removeAll) 全部 67~319ms 正常、返回普通数组、无一次冻桥 ⇒ 原「调用即冻桥」在 1.0.1 上未能复现；真正会踩的是参数个数（getPoints 2 / getLinear 1 / remove 2；单参 remove 静默返回 false 不删点）。1.0.0 用户由 hostOutdated 版本检测拦住（未能复现 @ 1.0.1）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "IX-002",
+      "class": "api-gap",
+      "recheck": true,
+      "recheckOn": [
+        "doc"
+      ],
+      "host": "ix",
+      "title": "音符级 dynamics 曲线：API **不能直接设**（但 **`clone()` 能复制模板包络**）· 也读不出（验证只能靠文件 / recovery 快照）",
+      "apis": [
+        "Note#setAttributes({dynamics={mode,points}})",
+        "Note#setAttributes({dynamic=<table>})",
+        "Note#setAttributes({dynamicsCurve=…}) · {dynamicCurve=…} · {envelope=…} · {dynamicsPoints=…} · {dynamics=<表套点对>}",
+        "Note#setScriptData(\"dynamics\", ...)",
+        "Note#getDynamic() / setDynamic() —— 只有**标量**，没有曲线的 getter/setter",
+        "1.0.1 实测**不存在**的成员：setDynamics/getDynamics/setDynamicsCurve/getDynamicsCurve/setDynamicCurve/getDynamicCurve/setEnvelope/getEnvelope/setDynamicsEnvelope/setDynamicsPoints/getCurve/setCurve/setPoints/addPoint/removePoint",
+        "⛔ **`Note#clone()` —— 会连同 dynamics 包络一起复制，但用户 2026-09-21 已否决此路线**（复制的是**整个音符状态**：`attributes`（含 `articulations`/`muted`/`articulationsFixed`）/`takes`/`scriptData`/`detune` 全照搬 ⇒ 要干净就得逐项清洗，不值）"
+      ],
+      "symptom": "**直接写：不行** —— 10 种写法全部被静默忽略（2026-09-14 的 8 种 + 2026-09-21 新增的 dynamicsCurve / dynamicCurve / envelope / dynamicsPoints / 表套点对）；传表给 dynamic 会被强转成 0（把整条曲线抹平）；setScriptData(\"dynamics\", …) 能持久化进 .ixp 但宿主不解释它 ⇒ 只是元数据。**读：也不行** —— getAttributes() 只有 {articulations, articulationsFixed, muted, dynamic}（当前组 / 轨道引用 / library 三条路径一致），getDynamic() 只回标量。**文件层证据**：同一份 .ixp 里 UI 画的音符有顶层 dynamics 键，API 试写的那个没有。<br>⛔ **克隆路线：探明后已否决（2026-09-21）** —— `clone()` **确实保真复制包络**（克隆出的两个副本 Ctrl+S 后文件里逐点与模板一致），但它复制的是**整个音符状态**：把一个「脏模板」（`setArticulations({Staccato,Tenuto})` + `setAttributes({muted=true})` + `setDetune(500)` + `setLanguageOverride('ja')` + `setScriptData`）克隆两次，两个副本的 `attrs` 一律带 `articulationsFixed=true | muted=true`、`scriptDataKeys=[akdagentDirty]` ⇒ **无关内容一模一样照搬**。**用户裁定：不复制**，改为 ① 等官方 API 更新（本条的触发 = 只跟官方文档）② 或走 `.ixp` 文件路线。",
+      "impact": "IX 上**没有直接设置**音符级力度曲线的 API（读也读不到）；`clone()` 虽然能复制包络，但会连无关字段一起照搬 ⇒ **用户 2026-09-21 裁定不采用**。⇒ 现状：**等官方 API 更新**（本条触发 = 只跟官方文档）**或走 `.ixp` 文件路线**。",
+      "workaround": [
+        "⛔ **不要用克隆路线做包络**（用户 2026-09-21 否决：`clone()` 会把 `attributes`/`takes`/`scriptData`/`detune` 等**无关内容一起复制**，要干净得逐项清洗）",
+        "要「凭空造一条新形状」的包络 ⇒ 走文件路线（改 .ixp 的 library[].notes[].dynamics），结构见 knowledge/docs/InstrumentX-API枚举.md §6.2.2 与 skills/sv-project-format/SKILL.md；改前让用户保存，改完让用户**重载**（重载前别再保存，否则覆盖我们的改动）",
+        "⚠️ **改文件要外科式插入**（只在目标音符对象里补/改 dynamics 键），别整文件 JSON 往返 —— 2026-09-21 实测整文件 stringify 会把原有空格风格重排（5066 → 4688 B），对用户的真实工程是没必要的 diff。**工具已就位**：写 = `node tools/ixp-dynamics.cjs --write --file <ixp> --pitch <n> --base <0..1> --points \"0:0.15, 0.5:0.5, 1:0.9\" --apply`（外科式插入 + 自动 .bak + 写后自检；t = 音符内比例、值 = 绝对力度）；校验 = `node tools/ixp-dynamics.cjs <ixp>`；守卫 = `node tools/check-ixp-dynamics.cjs`（**20 个真实工程 / 408 条曲线 0 违规**）",
+        "**y 的换算（2026-09-21 · 408 条真实曲线全量核对）**：y = 绝对力度 − attributes.dynamic，且 **y ∈ [−dynamic, 1−dynamic]**（即 dynamic + y 落在 [0,1]）；mode 实测有 linear 与 cubic 两种（真实工程 gemee.ixp 里两者并存）",
+        "✅ **mode 已定论（2026-09-21 实测，别再当疑点）**：把 cubic 写进 .ixp（两条曲线）→ 用户**重载** → 宿主的 recovery 快照（21:22:59）**立刻是 linear** → 用户 **Ctrl+S**（21:23:15，文件 sha256 由 67EA67E7… 变 BB2DEAA0…）→ **保存后的文件也是 linear**。⇒ **宿主载入时把 cubic 归一成 linear，保存写出的也是 linear** ⇒ **文件路线写曲线一律用 linear**（`tools/ixp-dynamics.cjs` 默认值已改成 linear）。旁证：用户 20:41 那份保存文件是 cubic，是因为那条曲线**画完就存、没经过重载**；真实工程 gemee.ixp 里 388 linear / 4 cubic 同理。附：宿主保存会把 y 做 float32 舍入（−0.35 → −0.349999994039536），校验器容差 EPS=1e-3 覆盖得住（实测 0 违规）",
+        "纯 API 流程里**不能承诺「设定」力度曲线**，但可以承诺**「复制」**：改口说\"力度要么你在 UI 画一次当模板、我用克隆铺开，要么我用文件方式写一条新的再让你重载\"",
+        "验证是否真写进去：① 让用户 Ctrl+S 后直接读 .ixp（最权威）；② 或看 IX 的 recovery 快照（%APPDATA%\\Dreamtonics\\Instrument X\\recovery\\，**每 2 分钟一份**）里 note 是否有 dynamics 键"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-14",
+          "hostVersion": "1.0.0",
+          "hostVersionNumber": 65536
+        },
+        {
+          "date": "2026-09-21",
+          "hostVersion": "1.0.1",
+          "hostVersionNumber": 65537
+        }
+      ],
+      "probe": {
+        "kind": "docs",
+        "gate": "none",
+        "what": "**不碰宿主**：查官方 API 文档（skills/sv-scripting/api/）里有没有出现音符级 dynamics 曲线的读写 API —— 例如 Note#getDynamics/setDynamics/*Curve/*Envelope，或 getAttributes() 里多出 dynamics 键",
+        "prepare": [
+          "无（纯离线：node tools/api-docs-sync.cjs --check，变了再 --update）"
+        ],
+        "expect": "修复前：Note 只有 getDynamic/setDynamic 标量 · 修复后：出现曲线 getter/setter 或在 getAttributes() 里能读到 dynamics",
+        "readonly": true
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-21",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.1",
+        "checkedVersionNumber": 65537,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "observed",
+            "note": "8 种写法实测全静默；{dynamic=<table>} 被强转 0；scriptData 路线持久化但不生效"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "IX 1.0.1 复检（不跑宿主探针）：10 种 API 写法全被静默忽略；getAttributes 三条取音符路径都读不到曲线（只有标量 dynamic）；文件路线端到端验通（写 notes[].dynamics -> 用户重载后 UI 出现曲线、宿主 recovery 快照回写含该曲线）；y = 绝对力度 - attributes.dynamic 且 y 在 [-dynamic, 1-dynamic]（405 音符全样本）。本项此后只跟官方 API 文档更新复检。（存在 @ 1.0.1）"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "2026-09-21 新发现：Note#clone() 会连同 dynamics 包络一起复制（模板+克隆 = 纯 API 通路，免重载；实测用户 Ctrl+S 后文件里逐点一致，scriptData 也一起带）。直接设包络的 API 仍不存在（10 种写法全忽略），但API（存在 @ 1.0.1）"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "用户 2026-09-21 裁定：克隆路线否决（clone 会照搬 attributes/takes/scriptData/detune 等无关字段；脏模板实测副本一律带 muted=true、scriptDataKeys=[akdagentDirty]）。包络获取改为：① 等官方 API 更新（本条触发=只跟官方文档）② 走 .ixp 文件路线（tools/ixp-dynamics.cjs）。（存在 @ 1.0.1）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "IX-003",
+      "class": "api-gap",
+      "recheck": true,
+      "recheckOn": [
+        "doc"
+      ],
+      "host": "ix",
+      "title": "Automation 的「区间读点」是 getPoints(begin, end) —— 原判「没有任何区间读点接口」不成立（1.0.0 上会冻桥，见 IX-001）",
+      "apis": [
+        "Automation#get(blick) —— 只收 1 参（传 2~3 参会抛参数个数错 ⇒ **设计如此，不是缺陷**）",
+        "Automation#getPoints(begin, end) —— **这才是区间读点**（官方镜像有该方法；IX ≥1.0.1 可用）",
+        "Automation#getAllPoints() / getLinear(blick) / getDefinition()",
+        "Automation#remove(b) / remove(begin, end) / removeAll() / add(b, v) / simplify(begin, end, threshold)"
+      ],
+      "symptom": "**原文（2026-09-14 · IX 1.0.0）**：get 传 2~3 参 pcall 失败 ⇒ 判「没有任何区间读点接口」。**该结论是误诊**：区间读点一直是 **getPoints(begin, end)**（官方镜像 Automation 有这个方法），只是 **1.0.0 上调这族读点会冻桥**（IX-001，1.0.1 已修）⇒ 当时误以为「没有这个能力」。**2026-09-21 复核（IX 1.0.1 · 空工程 main 组 · loudness 曲线 · 只读）**：① 成员**都在**（get / getPoints / getAllPoints / getLinear 均 userdata，官方签名 = get(1 参) · getPoints(2 参) · getAllPoints(0 参) · getLinear(1 参)）；② ✅ **真机调用实测**：`getAllPoints()` ok=true n=0 · **`getPoints(0, dur)` ok=true 返回数组（n=0，空曲线）** · `getLinear(0)` ok=true v=0.0 · `get(0)` ok=true v=0.0，**全程 256 ms、无冻桥** ⇒ **区间读点在 1.0.1 上确认可用**。",
+      "impact": "原判「只能逐点采样」不成立：区间读点用 getPoints(begin,end) 一次拿回整段。仍需遵守：**参数个数写错会抛错**（消息里写明预期个数）；**IX 1.0.0 上调这族会冻桥** ⇒ 靠 hostOutdated 版本检测挡。",
+      "workaround": [
+        "读区间用 **getPoints(begin, end)**；读单点用 get(blick) / getLinear(blick)；一把读全部用 getAllPoints()。**别拿 get 去传 2~3 参**（那只是参数个数错，会抛）",
+        "删点按 **blick** 删：remove(b) 删位置 b 那个点（返回布尔）· remove(begin, end) 删区间 · removeAll() 清空；b 是 blick 不是序号（remove(1) 返回 false 是因为 blick 1 上本来没有点）",
+        "老路（1.0.0 上被迫用）＝ 按 1/64 拍步长采样 + 线性插值（近似，cubic 曲线有偏差）；1.0.1 起不必再用",
+        "采样前先「钉默认值」：曲线第一个点会向前外推（既知语义）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-14",
+          "hostVersion": "1.0.0",
+          "hostVersionNumber": 65536
+        },
+        {
+          "date": "2026-09-21",
+          "hostVersion": "1.0.1",
+          "hostVersionNumber": 65537
+        }
+      ],
+      "probe": {
+        "kind": "safe",
+        "gate": "none",
+        "what": "**只读**：先索引确认成员存在（不试探调用），再用**正确参数个数**调 getPoints(begin,end) / getAllPoints() / getLinear(blick) / get(blick)，看能否拿到点集",
+        "prepare": [
+          "无需保存工程（只读）· 需 IX ≥1.0.1（1.0.0 上调这族会冻桥）"
+        ],
+        "expect": "1.0.0：调用即冻桥（见 IX-001）· 1.0.1：四个成员都在，getPoints 返回 {位置,值} 数组",
+        "readonly": true,
+        "lua": [
+          "local proj = SV:getProject()",
+          "local out = {}",
+          "local g = SV:getMainEditor():getCurrentGroup():getTarget()",
+          "local a = g:getAutomation(\"loudness\")",
+          "if a == nil then",
+          "  out[#out + 1] = \"getAutomation(loudness) -> nil\"",
+          "  return { out = out }",
+          "end",
+          "for _, n in ipairs({ \"get\", \"getPoints\", \"getAllPoints\", \"getLinear\" }) do",
+          "  local v = a[n]",
+          "  out[#out + 1] = n .. \"=\" .. type(v)",
+          "end",
+          "local dur = proj:getDuration()",
+          "if type(dur) ~= \"number\" or dur <= 0 then dur = SV.QUARTER end",
+          "local okAll, rAll = pcall(function() return a:getAllPoints() end)",
+          "out[#out + 1] = \"getAllPoints ok=\" .. tostring(okAll) .. \" n=\" .. tostring(type(rAll) == \"table\" and #rAll or \"n/a\")",
+          "local okPts, rPts = pcall(function() return a:getPoints(0, dur) end)",
+          "out[#out + 1] = \"getPoints(0,dur) ok=\" .. tostring(okPts) .. \" n=\" .. tostring(type(rPts) == \"table\" and #rPts or \"n/a\")",
+          "local okLin, rLin = pcall(function() return a:getLinear(0) end)",
+          "out[#out + 1] = \"getLinear(0) ok=\" .. tostring(okLin) .. \" v=\" .. tostring(rLin)",
+          "local okGet, rGet = pcall(function() return a:get(0) end)",
+          "out[#out + 1] = \"get(0) ok=\" .. tostring(okGet) .. \" v=\" .. tostring(rGet)",
+          "return { out = out }"
+        ],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "cant-repro",
+        "checkedAt": "2026-09-21",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.1",
+        "checkedVersionNumber": 65537,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "observed",
+            "note": "get(b,e) / get(b,e,n) 均 pcall 失败"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "IX 1.0.1 复核：区间读点是 getPoints(begin,end)（官方镜像有；1.0.0 上调这族会冻桥见 IX-001，1.0.1 已修）⇒ 原判「没有任何区间读点接口」不成立，属 1.0.0 时代误诊；本次只做存在性检查（get/getPoints/getAllPoints/getLinear 成员都在），区间调用的真机实测待补。此后只跟官方 API 文档更新复检。（未能复现 @ 1.0.1）"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "IX 1.0.1 真机实测（空工程 main 组 · loudness · 只读）：四成员都在；getAllPoints() ok n=0 · getPoints(0,dur) ok 返回数组 · getLinear(0) ok v=0.0 · get(0) ok v=0.0，256ms 无冻桥 ⇒ 区间读点在 1.0.1 确认可用（原文没有任何区间读点接口彻底否证）。（未能复现 @ 1.0.1）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "IX-004",
+      "class": "doc-gap",
+      "recheck": true,
+      "recheckOn": [
+        "doc"
+      ],
+      "host": "ix",
+      "title": "官方脚本 API 文档未覆盖 Instrument X",
+      "apis": [],
+      "symptom": "resource.dreamtonics.com 的 JSDoc 站点只描述 Synthesizer V；IX 侧的类/方法/取值域没有文档。**2026-09-21 复核**：`api-docs-sync.cjs --check` 显示页脚 generatedAt **仍是 Thu Oct 09 2025 18:00:39**、23 个类无增减 ⇒ 文档站点没有重生成、**IX 依旧没有文档** ⇒ 本条仍成立（本条本质是文档问题 ⇒ 触发只跟官方文档走）。",
+      "impact": "IX 上一切结论只能真机实测；**文档里没有 ≠ 宿主没有**（例如 toneShift / pitchDelta 在 UI 隐藏但 API 可写且渲染）。",
+      "workaround": [
+        "IX 侧一律以真机实测为准（knowledge/docs/InstrumentX-API枚举.md 是本仓的实测枚举）",
+        "把「文档缺席」当线索而不是结论：先做**存在性检查（索引取值 + type()）**，确认成员在再调用 —— ⚠️ **别用\"试着调一下\"代替检查**（SV-001/IX-001 那类模态框冻桥就是试出来的）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-14",
+          "hostVersion": "1.0.0",
+          "hostVersionNumber": 65536
+        },
+        {
+          "date": "2026-09-21",
+          "hostVersion": "1.0.1",
+          "hostVersionNumber": 65537
+        }
+      ],
+      "probe": {
+        "kind": "docs",
+        "gate": "none",
+        "what": "跑 node tools/api-docs-sync.cjs --check，比对页脚 generatedAt 是否变化；变了再 --update 重新抓取",
+        "prepare": [],
+        "expect": "generatedAt 未变 ⇒ 文档没重生成，本条维持 · 变了 ⇒ 抓回来逐类看是否新增 IX 说明",
+        "timeoutMs": 20000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-21",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.1",
+        "checkedVersionNumber": 65537,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "observed",
+            "note": "IX 桥在线的多轮真机实测均以\"文档无 IX\"为前提"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "IX 1.0.1 复核（开发侧唯一出网步骤）：api-docs-sync --check 页脚 generatedAt 未变（Thu Oct 09 2025）、23 类无增减 ⇒ 文档站没重生成、IX 仍无官方文档 ⇒ 本条仍成立；触发改为仅官方文档。（存在 @ 1.0.1）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SV-002",
+      "class": "crash",
+      "recheck": true,
+      "host": "sv",
+      "title": "写入数百量级的音高参数（如 fF0Vbr = 300）会让宿主闪退",
+      "apis": [
+        "Note#setAttributes({fF0Vbr=...})",
+        "NoteGroupReference/Note 的 F0 系列参数"
+      ],
+      "symptom": "把 F0 系列参数写成\"数百\"这种远超取值域的量级时，宿主崩溃（不是报错返回）。",
+      "impact": "批量调参脚本一旦算错量纲（例如把 -1~1 归一化值当成 π 或百分数写入），会直接崩掉用户工程。",
+      "workaround": [
+        "写前按取值域钳制（各参数范围见 skills/sv-scripting/references/08-pit-drawing.md 与 API 枚举）",
+        "生成脚本里对每个参数加 clamp，并在注释写明量纲（√ 归一化 / 半音 / cent / 秒 / 拍）",
+        "先写 1 个音符做 A/B，确认无异常再批量"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-12",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": null
+        }
+      ],
+      "probe": {
+        "kind": "manual-only",
+        "gate": "user-consent",
+        "what": "在**临时工程**里对一个音符写 fF0Vbr=300，看宿主是否还活着。本条**不提供一键探针**：代价 = 宿主闪退 + 工程可能损坏，必须由用户在临时工程里手动安排",
+        "prepare": [
+          "必须是临时/可丢弃的工程",
+          "用户在场并同意"
+        ],
+        "expect": "修复前：宿主闪退 · 修复后：报错或钳制而不崩",
+        "readonly": false,
+        "lua": [],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-12",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": null,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-12",
+            "event": "observed",
+            "note": "调参实验期间发生宿主闪退，定位到量级失控的 F0 参数"
+          }
+        ]
+      }
+    },
+    {
+      "id": "API-003",
+      "class": "api-gap",
+      "recheck": true,
+      "host": "any",
+      "title": "脚本/桥没有保存工程的能力",
+      "apis": [
+        "Project#save",
+        "Project#saveAs",
+        "Project#exportProject",
+        "Project#writeToFile",
+        "SV#save"
+      ],
+      "symptom": "以上成员在两桥（SV / IX）的能力探测中全部不存在 ⇒ 脚本无法落盘保存，桥也没有保存 op。**2026-09-21 复核（IX 1.0.1，只索引未调用；与官方 Project 文档一致）**：Project 与全局 SV 上 `save / saveAs / saveProject / saveToFile / exportProject / exportToFile / writeToFile / serialize / write / flush` **10 个都不存在** ⇒ 本条仍成立。",
+      "impact": "所有\"改文件\"路线都必须让用户先保存、改完再重载；自动化流程最后一步永远得请用户 Ctrl+S。",
+      "workaround": [
+        "改 .svp/.ixp 安全三步：用户先保存 → 我们改写文件 → 用户重载",
+        "IX 可用 recovery 快照（**实测每 2 分钟一份**）验证文件是否被宿主接受，无需用户 Ctrl+S",
+        "交付话术里必须提醒用户保存，不能假设脚本能替他存"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-14",
+          "hostVersion": "1.0.0",
+          "hostVersionNumber": 65536
+        },
+        {
+          "date": "2026-09-12",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": null
+        },
+        {
+          "date": "2026-09-21",
+          "hostVersion": "1.0.1",
+          "hostVersionNumber": 65537
+        }
+      ],
+      "probe": {
+        "kind": "safe",
+        "gate": "none",
+        "what": "**只读、零风险**：对 Project 与全局 SV 做保存类成员的存在性检查（索引取值 + `type()`，**不调用**）",
+        "prepare": [
+          "只读，无风险（不做任何调用 ⇒ 不存在试错式冻桥的可能）"
+        ],
+        "expect": "修复前：10 个候选全不存在 · 修复后：出现某个保存成员",
+        "readonly": true,
+        "lua": [
+          "local proj = SV:getProject()",
+          "local names = { \"save\", \"saveAs\", \"saveProject\", \"saveToFile\", \"exportProject\", \"exportToFile\", \"writeToFile\", \"serialize\", \"write\", \"flush\" }",
+          "local function scan(o, label)",
+          "  local hit, miss = {}, {}",
+          "  for _, n in ipairs(names) do",
+          "    if o == nil then miss[#miss + 1] = n else",
+          "      local ok, v = pcall(function() return o[n] end)",
+          "      local t = ok and type(v) or \"nil\"",
+          "      if ok and v ~= nil then hit[#hit + 1] = n .. \":\" .. t else miss[#miss + 1] = n end",
+          "    end",
+          "  end",
+          "  return { label = label, has = hit, missing = miss }",
+          "end",
+          "return { project = scan(proj, \"Project\"), sv = scan(SV, \"SV\") }"
+        ],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-21",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.1",
+        "checkedVersionNumber": 65537,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "observed",
+            "note": "两宿主 + 桥 op 全表均无保存能力"
+          },
+          {
+            "at": "2026-09-21",
+            "event": "verified",
+            "note": "IX 1.0.1 复核（只索引未调用）：Project 与全局 SV 上 save/saveAs/saveProject/saveToFile/exportProject/exportToFile/writeToFile/serialize/write/flush 十个全不存在，与官方 Project 文档一致 ⇒ 仍无保存能力；探针已换成只索引（存在 @ 1.0.1）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SV-001",
+      "class": "by-design",
+      "recheck": false,
+      "host": "sv",
+      "title": "【不是缺陷】SV1 上调用不支持的成员会弹模态框，且穿透 pcall",
+      "apis": [
+        "SV#create(\"PitchControlPoint\")",
+        "任何 SV2 专有成员在 SV1 上的调用"
+      ],
+      "symptom": "在 SV1 上调用 SV2 专有 API，宿主弹脚本错误对话框。**用户 2026-09-14 裁定：这不是 bug，是宿主的设计**（版本差异提示）。",
+      "impact": "虽是设计，但弹框会**绕过 pcall 冻住桥**（模态框挡住 Lua 主线程）⇒ 表现为\"桥死了\"，必须重启宿主。",
+      "workaround": [
+        "禁止一切试错式探测（`getTrack(0)` 在 pcall 里照样弹框）",
+        "存在性检查必须是：索引取值 + type() ∈ {function, userdata, table}（userdata 靠 __call，type 判 function 恒假），确认存在再 pcall 冒号调用",
+        "写脚本前先按宿主能力表核对（SV1 缺 SV2 专有的音高线接口、computed 接口、scriptData 等）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-12",
+          "hostVersion": "1.11.2",
+          "hostVersionNumber": 68354
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-14",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio Pro",
+        "checkedVersion": "1.11.2",
+        "checkedVersionNumber": 68354,
+        "checkedDocStamp": null,
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "by-design",
+            "note": "用户裁定：SV1 的不支持成员弹窗是宿主设计，不算 bug ⇒ 永不复检，只作纪律"
+          }
+        ]
+      }
+    },
+    {
+      "id": "API-001",
+      "class": "by-design",
+      "recheck": false,
+      "host": "any",
+      "title": "【不是缺陷】NoteGroupReference#setTarget() 对已指向的 ref 静默失败",
+      "apis": [
+        "NoteGroupReference#setTarget(group)"
+      ],
+      "symptom": "对已经指向某组的 ref 再调 setTarget 无任何效果与报错。官方 API 文档已写明\"只能在不确定目标时使用\"（用户指出：api 文档有写）。",
+      "impact": "想\"换绑\"目标组时会静默不生效，脚本看着成功实则没变。",
+      "workaround": [
+        "要换目标 ⇒ 删除旧 ref，再新建一个 ref 指向新组",
+        "改完必须读回校验（ref 的 target 与 onset/时长）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-13",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": null
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-14",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": null,
+        "checkedDocStamp": null,
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "by-design",
+            "note": "文档已写明语义 ⇒ 归设计约束，不复检"
+          }
+        ]
+      }
+    },
+    {
+      "id": "API-002",
+      "class": "by-design",
+      "recheck": false,
+      "host": "any",
+      "title": "【不是缺陷】Track#clone() 复制出的轨与源轨共享音符组",
+      "apis": [
+        "Track#clone()"
+      ],
+      "symptom": "clone 出来的轨与源轨共享同一批 NoteGroup（用户 2026-09-14 确认真机行为）⇒ 改一处两边都变。",
+      "impact": "想\"复制一轨再独立改\"的做法会串改源轨，是隐蔽的数据污染。",
+      "workaround": [
+        "clone 后必须独立重新指向：给新轨建/指定自己的组（复制组的音符数据），不要把 ref 指回原组",
+        "改完读回校验两轨音符数/内容确实独立"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-14",
+          "hostVersion": "1.0.0",
+          "hostVersionNumber": 65536
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-14",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.0",
+        "checkedVersionNumber": 65536,
+        "checkedDocStamp": null,
+        "history": [
+          {
+            "at": "2026-09-14",
+            "event": "by-design",
+            "note": "用户确认：Track:clone() 会共享（宿主设计）⇒ 不复检，只作纪律"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tempo-mark-no-update",
+      "class": "api-gap",
+      "recheck": true,
+      "host": "sv",
+      "title": "TimeAxis.addTempoMark 不更新已有 tempo 标（文档说会更新）",
+      "apis": [
+        "TimeAxis.addTempoMark",
+        "TimeAxis.removeTempoMark",
+        "TimeAxis.getTempoMarkAt",
+        "TimeAxis.getAllTempoMarks"
+      ],
+      "symptom": "某 blick 处已有 tempo 标时，调 addTempoMark(同一 blick, 新值) 后回读（getTempoMarkAt / getAllTempoMarks）仍是旧值；只读回该 blick 一处不足以发现\"另插了一个标\"。",
+      "impact": "一次调用改不动工程 BPM；sv_align_audio 的 setBpm=true 因此也不生效；逐段写变速包络时会**重复插标**（实测 71 条 → 141 条）。",
+      "workaround": [
+        "改值一律 removeTempoMark(blick) → addTempoMark(blick, bpm)",
+        "写完回读 getTempoMarkAt(blick).bpm 验证，并数 getAllTempoMarks() 的条数防重复插入",
+        "变速（BPM 包络）场景每段都走 remove+add，见 skills/sv-project-format/SKILL.md「变速 BPM 包络曲线」节"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-17",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": {
+        "kind": "safe",
+        "gate": "none",
+        "what": "读 getAllTempoMarks() 记下某 blick 的 bpm → addTempoMark(同一 blick, 新值) → 再读回对比",
+        "prepare": [
+          "只改速度标，宿主内可 Ctrl+Z"
+        ],
+        "expect": "修复前：回读仍是旧值 · 修复后：回读变成新值",
+        "readonly": false,
+        "lua": [
+          "local p = SV:getProject()",
+          "p:newUndoRecord()",
+          "local a = p:getTimeAxis()",
+          "local before = a:getTempoMarkAt(0).bpm",
+          "a:addTempoMark(0, 150)",
+          "local after = a:getTempoMarkAt(0).bpm",
+          "return { before = before, after = after }"
+        ],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "observed",
+            "note": "实测：pos=0 已有 120 时 addTempoMark(0,150) 回读仍 120 ⇒ 必须 remove+add"
+          }
+        ]
+      }
+    },
+    {
+      "id": "align-audio-measure-ignored",
+      "class": "api-gap",
+      "recheck": true,
+      "host": "any",
+      "title": "sv_align_audio 的 measure 参数无效（对齐不到第 N 小节）",
+      "apis": [
+        "sv_align_audio"
+      ],
+      "symptom": "measure=2 与 measure=1 的返回值逐字相同：measureStartBlick 恒为 0、absoluteOnsetBlicks 恒为 -254016000。",
+      "impact": "做不到\"音频第一拍压第 N 小节线、前面留空小节\"，也无法按小节留前奏。",
+      "workaround": [
+        "用 shiftBeats 手工补偏移（拍数 × 705600000 blick）",
+        "改完回读 getOnset() 验证"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-17",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": {
+        "kind": "safe",
+        "gate": "none",
+        "what": "无需探针：直接看 MCP 工具返回字段与工程实际值的差异（工具侧缺陷，非宿主 API）",
+        "prepare": [],
+        "expect": "修复前：返回值里 measure/时长与参数不符 · 修复后：返回值与实际写入一致",
+        "readonly": true,
+        "lua": [],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "observed",
+            "note": "用户在 SV2 2.2.1 真机走流程时发现"
+          }
+        ]
+      }
+    },
+    {
+      "id": "align-audio-duration-bpm-mismatch",
+      "class": "api-gap",
+      "recheck": true,
+      "host": "any",
+      "title": "sv_align_audio 传的 durationBlicks 按 120 BPM 折算 ⇒ 音频被截断",
+      "apis": [
+        "sv_align_audio"
+      ],
+      "symptom": "224 s 的音频被写成 316108832000 blick（= 448 拍，即 120 BPM 下的 224 s）；工程 BPM 改成 150 后同样 448 拍只剩 179.2 s ⇒ 音频尾巴被裁 44.8 s。",
+      "impact": "音频内容被截断（用户实测\"音频被切了\"）。",
+      "workaround": [
+        "不要用工具回传的 durationBlicks：自行算 时长blick = 音频真实秒数 × (本地该段 BPM / 60) × 705600000",
+        "⚠️ 必须用**该段所在位置的 BPM**，不是 tempo[0]（变速工程里两者不同）",
+        "改完回读 getDuration() 换算回秒数验证"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-17",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": {
+        "kind": "safe",
+        "gate": "none",
+        "what": "无需探针：直接看 MCP 工具返回字段与工程实际值的差异（工具侧缺陷，非宿主 API）",
+        "prepare": [],
+        "expect": "修复前：返回值里 measure/时长与参数不符 · 修复后：返回值与实际写入一致",
+        "readonly": true,
+        "lua": [],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "observed",
+            "note": "用户在 SV2 2.2.1 真机走流程时发现"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SV-004",
+      "class": "doc-gap",
+      "recheck": true,
+      "host": "sv",
+      "title": "getComputedPitchForGroup 返回「长度 = numFrames、无数据帧为 null」的数组，文档写作 \"may return an empty array\"",
+      "apis": [
+        "SV#getComputedPitchForGroup",
+        "SV#getComputedAttributesForGroup"
+      ],
+      "symptom": "取到数据时是长度 = numFrames 的数组，未算出数据的帧是 null（不是空数组）。文档原话只有 \"does not block and may return an empty array if processing hasn't completed\" ⇒ 读起来像\"没数据时长度为 0\"。",
+      "impact": "用 `#arr` 统计帧数的写法会得到 0（Lua 里含 nil 的表 `#` 不可靠）⇒ 把\"一整排 null\"误报成\"空/0 帧/接口没实现\"，据此做出的归因会全错（我们因此查了好几轮）。",
+      "workaround": [
+        "逐帧判 type(v) == \"number\" 来数字值帧，**绝不用 `#arr`**",
+        "判\"就绪\"= 轮询同一位置，看 null 何时变数值（小工程 3~5 s、长工程 30 s 以上预算）",
+        "拿到全 null 时先查\"能不能渲染\"（见 SV-005），不要先怀疑渲染延迟"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-18",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": {
+        "kind": "safe",
+        "gate": "none",
+        "what": "对一个已能渲染的组调 getComputedPitchForGroup（小窗口，如 numFrames=8），返回 rawFrames 的长度与逐帧类型",
+        "prepare": [
+          "只读，无风险"
+        ],
+        "expect": "修复前：文档说空数组 · 实测：长度 = numFrames，内容为 null 或数值",
+        "readonly": true,
+        "lua": [
+          "local p = SV:getProject()",
+          "local t = p:getTrack(1)",
+          "local ref = t:getGroupReference(1)",
+          "local raw = SV:getComputedPitchForGroup(ref, 0, 705600000, 8)",
+          "local n, nulls = 0, 0",
+          "for i = 1, 8 do if type(raw[i]) == \"number\" then n = n + 1 else nulls = nulls + 1 end end",
+          "return { numeric = n, nulls = nulls }"
+        ],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "observed",
+            "note": "实测：返回长度 = numFrames、未算出的帧为 null；`#arr` 会误报 0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SV-005",
+      "class": "by-design",
+      "recheck": false,
+      "host": "sv",
+      "title": "【不是缺陷】SV2 没有\"自动存在的主组\"：组必须经 NoteGroupReference 挂到轨道、且引用窗口覆盖内容，才会被渲染",
+      "apis": [
+        "Project#addNoteGroup",
+        "Track#addGroupReference",
+        "NoteGroupReference#setTimeRange",
+        "NoteGroupReference#setTarget"
+      ],
+      "symptom": "新建的 NoteGroup 只是\"库里的数据\"，不挂引用就不渲染；缺引用或窗口没盖住内容时，getComputedPitchForGroup / getComputedAttributesForGroup 一律全 null，且**不报任何错**。",
+      "impact": "\"采样全 null\"最容易被误判成\"渲染没完成/接口不可用\"，从而做出错误结论（用户指出：SV2 没有主组）。",
+      "workaround": [
+        "要让一组音符被渲染，三步缺一不可：建组 → addNoteGroup(grp) → 建 NoteGroupReference 并 setTarget(grp) + setTimeRange(覆盖全部内容) → track:addGroupReference(ref)",
+        "删除用 track:removeGroupReference(索引)，索引 1 起",
+        "采样前先自检：该轨道有没有指向该组的 ref、窗口是否覆盖采样区间"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-18",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "by-design",
+            "note": "用户裁定：这是宿主设计（没有主组概念）⇒ 只作纪律，不复检"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SV-006",
+      "class": "by-design",
+      "recheck": false,
+      "host": "sv",
+      "title": "【不是缺陷】语种与声库不兼容 ⇒ 无音素 ⇒ 该组不可渲染（语言链：音符 > 音符组 > 轨道 > 声库）",
+      "apis": [
+        "Note#getLanguageOverride",
+        "Note#setLanguageOverride",
+        "SV#getComputedAttributesForGroup"
+      ],
+      "symptom": "英文声库 + 中文歌词（如「我」）时拿不到音素，组不渲染 ⇒ 计算类接口全 null。语言链：音符属性 > 音符组属性 > 轨道属性 > 声库语言；都没有时取声库录制语言。`getLanguageOverride()` 返回 `\"\"` = 继承（须上溯）。",
+      "impact": "把\"语言不兼容\"误判成\"渲染没完成/接口没数据\"。**约束（用户 2026-09-18 裁定）：用户比我们更清楚声库语种 ⇒ 我们默认不动音符语言**；只有用户主动反馈\"多语言混杂\"时，才按词内语言自动改。",
+      "workaround": [
+        "采样全 null 时，先问\"这组词和当前声库语种兼容吗\"",
+        "⛔ 不主动改音符语言（不 setLanguageOverride、不改组/轨语言）—— 用户知道声库语种",
+        "仅当用户报告多语言混杂：按词内语言自动设 setLanguageOverride",
+        "声库语种写在 nofs 里（非 flat 版加密 ⇒ 读不到，别当已知信息）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-18",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "by-design",
+            "note": "用户裁定：语言与声库兼容性是平台事实；语言处置权在用户 ⇒ 不复检，只作纪律"
+          }
+        ]
+      }
+    },
+    {
+      "id": "SV-007",
+      "class": "by-design",
+      "recheck": false,
+      "host": "sv",
+      "title": "【不是缺陷】Note#setAttributes() 不校验字段：传不存在的字段不报错、静默忽略",
+      "apis": [
+        "Note#setAttributes",
+        "Note#getAttributes"
+      ],
+      "symptom": "SV2 上写那 12 个音高参数（tF0Offset/tF0Left/tF0Right/dF0Left/dF0Right/tF0VbrStart/tF0VbrLeft/tF0VbrRight/dF0Vbr/pF0Vbr/fF0Vbr/tNoteOffset —— Note.md 注明 \"Properties only available in version 1\"）**不报错**，getAttributes() 读回是空表；且 getAttributes() 只返回\"写过的键\"，没写过的字段是 `nil` 而不是 `nan`。",
+      "impact": "\"写成功\"与\"写了个不存在的字段\"从返回值上无法区分 ⇒ 会把 SV2 的版本差异误归因到别的因素（我们曾错怪成\"rap 音符丢弃这些参数\"）。",
+      "workaround": [
+        "⛔ 纪律：凡写属性必须回读验证（read-back），不看返回值下结论",
+        "SV2/IX 上这 12 个参数一律无效 ⇒ 桥的 write_pit 分宿主：SV2/IX 直接回 attrUnsupported（改走 curve 模式），SV1 才对 rap 音符跳过"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-18",
+          "hostVersion": "2.2.1",
+          "hostVersionNumber": 131585
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-18",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio 2 Pro",
+        "checkedVersion": "2.2.1",
+        "checkedVersionNumber": 131585,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-18",
+            "event": "by-design",
+            "note": "用户指出：SV2 本来就没有这 12 个属性，setAttributes 不校验是宿主设计 ⇒ 不复检，只作纪律"
+          }
+        ]
+      }
+    },
+    {
+      "id": "IX-005",
+      "class": "api-gap",
+      "recheck": true,
+      "host": "ix",
+      "title": "IX 音高曲线（宿主侧为「暴力移植」实现）在和弦上不可靠：同 onset 的多音可能被压成同度",
+      "apis": [
+        "NoteGroup#addPitchControl",
+        "NoteGroup#getPitchControl",
+        "NoteGroup#getNumPitchControls",
+        "PitchControlCurve#setPitch/setPoints",
+        "SV#getComputedPitchForGroup"
+      ],
+      "symptom": "宿主侧现象**未定位**：用户 2026-09-20 明确告知「当前 IX 有 bug，其音高曲线计算方式是暴力移植（SV 那套），具体情况与后续是否会修都未知」⇒ 本条先按「已知有 bug、表现待定」登记，**不臆断宿主行为**。我方侧可复现的相邻现象（IX 1.0.1 + 桥 0.3.19 真机 dryRun）：对**同 onset** 的两个音（60/64、72/76 两对）各写一条曲线时，第二个音的 `yAtOnset` = **−4 / −3.807** —— 本工具按**单声部骨架**画曲线（点值 = 全局轮廓 − 本音音高，见 `PIT.levelAt`）⇒ 同 onset 的同伴音被拉到**骨架音高**上 ⇒ **柱式和弦可能被压成同度**，而工具**不报错、也不丢音**。两层可能叠加，故合并登记。",
+      "impact": "**和弦音高线不能当成「已验证」**：对柱式和弦跑 `sv_write_pit`，结果可能被压成同度（听感错）却不报错；在 IX 更新前不建议对和弦做音高线精修，也**不要照着当前宿主行为去改我们的算法**（外部实现可能变）。",
+      "workaround": [
+        "桥 **0.3.20** 起：**仅 IX** 上，`sv_write_pit` 的目标里含**同 onset** 音符（且走 curve 路线）时，返回体带 `chordStarts`/`chordNotes`/`chordHint` **如实警告**（只告知不阻止，`dryRun` 也带）；见到就**别把结果当已验证**。⚠️ 这条**只在 IX**、**不许外溢到 SV**（用户 2026-09-20 口径）：SV1 走 attr 路线无共享骨架、SV2 的骨架是既定设计 ⇒ 二者都不提示",
+        "要逐音精确控制：`indices` **一次只给一个音**（判据按**目标集**算，不是按全组）",
+        "和弦上确实要精修音高线：先按单音逐个写，再由用户**听感验收**（听感一律由用户判）",
+        "⛔ 不要据当前宿主行为适配我们的曲线算法 —— 先等上游修/改，再复检本条"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-20",
+          "hostVersion": "1.0.1",
+          "hostVersionNumber": 65537
+        }
+      ],
+      "probe": {
+        "kind": "manual-only",
+        "gate": "user-consent",
+        "risk": "无闪退风险（只写**自建测试组**，我们当天已多次这么做）；需要用户在场做**听感验收**",
+        "what": "复检「和弦音高线是否被压成同度」：① 自建一个含**同 onset 两音**（如 60 与 64）的组并选中它 → ② `sv_write_pit` 对这两个音先 `dryRun`，看两个音的 `yAtOnset` 是否**都接近 0**（= 曲线各自围绕自己的音高，不再被拉到骨架）→ ③ 真写后看渲染/听感确认和弦是否还成立",
+        "prepare": [
+          "自建测试组（**别动用户的正式组**）",
+          "用户在场；听感由用户判"
+        ],
+        "expect": "修复前：第 2 个音 `yAtOnset` ≈ −(两音音程)（60/64 ⇒ −4）、和弦被压成同度 · 修复后：两音 `yAtOnset` 都 ≈ 0、和弦保持",
+        "readonly": false,
+        "lua": [],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-20",
+        "checkedHost": "ix",
+        "checkedHostName": "Instrument X",
+        "checkedVersion": "1.0.1",
+        "checkedVersionNumber": 65537,
+        "checkedDocStamp": "Thu Oct 09 2025 18:00:39 GMT+0900",
+        "history": [
+          {
+            "at": "2026-09-20",
+            "event": "observed",
+            "note": "用户告知：IX 侧音高曲线为「暴力移植」实现、当前有 bug（具体情况与是否修未知）；同日我方真机 dryRun 实测同 onset 两音 yAtOnset = 0/−4 与 0.193/−3.807。桥 0.3.19 已加 chordHint 如实警告；**未按宿主行为改我方算法**（用户裁定：归因在宿主侧、等上游）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "DSH-001",
+      "class": "api-gap",
+      "recheck": false,
+      "host": "dsh",
+      "title": "内嵌 DSH 升到 0.1.5-rc.2 后，旧版（0.1.0-rc.5）写的 **v0 会话读不了也续不了** —— 上游 v0→v1 迁移器拒收",
+      "apis": [
+        "session/follow（读历史）—— 被拒：gateway/internal",
+        "session/page（分页读历史）—— 同样被拒",
+        "session/prompt（继续对话）—— gateway/internal: resume failed"
+      ],
+      "symptom": "🔴 对旧 v0 会话调 `session/follow` / `session/page` / `session/prompt` 一律 `gateway/internal`，报文写明真因：`@deepseek-ai/dsh-session-format-v0-to-v1 refuses this format v0 Session: user/message N source form must be one of instructions, catalog, snapshot, notice, relay, recall; source v0 artifact remains unchanged`。<br>实测（2026-09-21 真机）：隔离 home `~/.dsh-akdagent` 的 18 个会话里**14 个有内容的全部被拒**、4 个 0 字节空会话正常（返回 `version=3` 的空快照）。<br>被拒字段：用户消息的 source 是 `{kind:'user', rpcId:'svh-…'}`（**没有 form**），以及 `{kind:'plugin', plugin:'ide-context-injector', form:'ide-context'}` —— 都是**旧内嵌运行时自己写出来的** v0 形态。",
+      "impact": "旧内嵌 app 的对话历史：① 悬浮球/面板看不到历史 ② 导出这些段得到空文件 ③ **不能继续在该会话里发消息**（一发就报错）⇒ 客户端段表里指向旧会话的段等于「死段」。<br>⛔ 与用户**自己的** DSH（`~/.dsh`，v3 格式）无关 —— 那边不受影响。",
+      "workaround": [
+        "客户端已做兜底（2026-09-21）：`ensureOrbSession()` 先用 `sessionUsable()` 探一次（`session/follow` 取 1 条快照）；**不可用就给该段新开会话**，旧 id 记到 `userData/legacy-sessions.json`（`noteLegacySession()`）",
+        "旧数据**一个字节没动**（迁移器自己写明 `source v0 artifact remains unchanged`）：原始文件仍在 `~/.dsh-akdagent/sessions/**`，且已整体备份到 `~/.dsh-akdagent.bak-<时间戳>`",
+        "要读旧历史：把运行时换回 `dsh-runtime/dsh.0.1.0-rc.5.bak-*`（该目录保留着，回滚即可读）",
+        "⛔ 不要盲改 v0 文件去迎合那个白名单：它是 102 KB 的冻结 codec 校验，改错会毁历史（备份虽在，也没必要冒这个险）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-21",
+          "hostVersion": "0.1.5-rc.2",
+          "hostVersionNumber": 0
+        }
+      ],
+      "probe": {
+        "kind": "manual-only",
+        "gate": "user-consent",
+        "risk": "只读为主（`session/follow` 取快照即可判）；若用 `session/prompt` 探测，隔离 home 无 key 时会停在 MISSING_CREDENTIAL，不产生费用",
+        "what": "复检旧 v0 会话是否已可读：起内嵌宿主（新版）→ 调一次 `session/follow`（`{args:{request:{address:{kind:'session',sessionId}}}}`），看返回 `snapshot` 还是 `gateway/internal: … refuses this format v0 Session`",
+        "prepare": [
+          "别动用户自己的 ~/.dsh（那是 v3，不涉及）",
+          "只在隔离 home 上试；先确认 `~/.dsh-akdagent.bak-*` 备份还在"
+        ],
+        "expect": "仍被拒：`gateway/internal` + `refuses this format v0 Session` · 上游放宽 v0 codec 后：返回 `snapshot`（`header.version=3`）",
+        "readonly": true,
+        "lua": [],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "open",
+        "checkedAt": "2026-09-21",
+        "checkedHost": "dsh",
+        "checkedHostName": "DSH embedded (Electron 内嵌 host)",
+        "checkedVersion": "0.1.5-rc.2",
+        "checkedVersionNumber": 0,
+        "history": [
+          {
+            "at": "2026-09-21",
+            "event": "observed",
+            "note": "升级当天实测：18 个会话 4 成 14 败；`session/page` 与 `session/prompt` 同因；报文明确指向 v0→v1 迁移器的 source form 白名单。同日客户端加 `sessionUsable()` 兜底（不可用则该段新开会话 + 旧 id 记档）"
+          }
+        ]
+      }
+    },
+    {
+      "id": "DSH-002",
+      "class": "api-gap",
+      "recheck": false,
+      "host": "dsh",
+      "title": "内嵌 host 上「插件包清单」请求贡献者解析不了我们插入的裸包名 ⇒ **每条消息都在 HTTP 前失败**（`REQUEST_EXTENSION`）—— 已由客户端停用该条目修掉",
+      "apis": [
+        "session/prompt（每次都被拒，且失败发生在 HTTP 之前）",
+        "turn/end 的 reason = {kind:'error', error:{code:'REQUEST_EXTENSION'}}"
+      ],
+      "symptom": "🔴 发消息后**每一轮**都以 `kind:'error'` 结束，`message` = `DeepSeek request extension preparation failed`、`code` = `REQUEST_EXTENSION`（球/面板就显示这个）。真因藏在 `LlmError` 的 `cause` 里、UI 与会话日志都看不到。<br>**根因（A/B 实测定位）**：`@deepseek-ai/dsh-plugin-package-inventory-deepseek` 在发请求前会把**所有活跃 loader entry** 解析成包身份（`PackageIdentityResolver.resolve()`），遇到解析不到的**裸包名**就抛 `cannot resolve active package \"<name>\"`。而内嵌 profile 是**客户端插入**的 `mcp-akdagent → '@deepseek-ai/dsh-mcp-client'`（裸包名），该包**只在运行时根**、**不在 `$DSH_HOME/profiles/web/node_modules` 的托管回退里**（回退只镜像一部分：实测 `profiles/web/node_modules/@deepseek-ai/dsh-mcp-client` **不存在**）⇒ 解析失败 ⇒ 整个请求被拒。<br>**A/B 证据（同一 home、同一运行时）**：只停用 `plugin-package-inventory-deepseek` ⇒ `turn/end = {kind:'completed'}`（**真跑通**）；只停用 `session-log-deepseek` ⇒ 仍 `REQUEST_EXTENSION`；两个都停 ⇒ 通。精确 diff（两份 `--dump-config` 的活跃 entry）里**唯一**「我们活跃、用户不活跃」的条目就是 `mcp-akdagent/@deepseek-ai/dsh-mcp-client`。<br>🧷 用户自己的 DSH 不触发：它的 profile 把 mcp-akdagent 指向**相对路径** `./plugins/mcp-client/lib/index.js`（相对路径走 `nearestManifest`，不抛）。",
+      "impact": "内嵌 host（悬浮球 / 侧栏面板）**完全无法对话** —— 发什么都立刻报错，但它不是崩溃：宿主活着、MCP 子进程照常 `[akdagent-mcp] server ready`，SV/IX 工具不受影响。",
+      "workaround": [
+        "✅ **已修（客户端侧，2026-09-21）**：`electron/src/dsh-home.js` 新增 `ensureInventoryContributorDisabled()`，在 profile 的 `cordis.patch.yml` 里**幂等**追加 `- id: plugin-package-inventory-deepseek` + `disabled: true`（写前备份 `.bak-inventory`），并在 `ensureHome()` 里**每次启动**执行；干净机器上 profile 目录还不存在时也会**先建目录写好**（否则首启第一次发消息仍会踩）",
+        "该贡献者只往 DeepSeek 请求里加 `dsh_plugin_packages` 元数据（README 原话：**模型输入 token 为零**，只增加 HTTP 请求字节）⇒ 停用无功能损失",
+        "已修后的验证据：真 home 上 `session/prompt` → `turn/end reason = {kind:'completed'}` + `assistant/message` 落地 + `[akdagent-mcp] server ready`",
+        "备选（未采用）：把 `mcp-akdagent` 的 name 换成**绝对路径**（走 nearestManifest，不抛）—— 能保住清单字段，但改动 MCP 加载路径，风险高于只停用一个元数据贡献者"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-21",
+          "hostVersion": "0.1.5-rc.2",
+          "hostVersionNumber": 0
+        }
+      ],
+      "probe": {
+        "kind": "manual-only",
+        "gate": "user-consent",
+        "risk": "只读为主；发一条 prompt 会真调一次模型（隔离 home 有 key 时会产生一次极小的用量）",
+        "what": "复检该贡献者是否仍会被停用/是否可恢复：起内嵌宿主（新版）→ `session/prompt` 一句「只回复两个字」→ 看 `turn/end` 的 reason 是 `completed` 还是 `REQUEST_EXTENSION`；同时看 profile 的 `cordis.patch.yml` 里那两条 `disabled: true` 是否仍在",
+        "prepare": [
+          "别动用户自己的 ~/.dsh（它的 profile 用相对路径，不涉及）",
+          "在隔离 home 上试；改动 patch 前留 `.bak-inventory`"
+        ],
+        "expect": "仍被停用：`kind:'completed'` · 若哪天不写停用项：`kind:'error'` + `REQUEST_EXTENSION`（说明上游仍未修 resolver 的回退行为）",
+        "readonly": true,
+        "lua": [],
+        "timeoutMs": 8000
+      },
+      "state": {
+        "status": "fixed",
+        "checkedAt": "2026-09-21",
+        "checkedHost": "dsh",
+        "checkedHostName": "DSH embedded (Electron 内嵌 host)",
+        "checkedVersion": "0.1.5-rc.2",
+        "checkedVersionNumber": 0,
+        "history": [
+          {
+            "at": "2026-09-21",
+            "event": "observed",
+            "note": "升级当天用户报「直接报error了」→ 复现出 REQUEST_EXTENSION（宿主不崩、stderr 干净）→ 读 provider 包定位到 prepareExtensions 的 cause 被吞 → 逐个禁用贡献方 A/B 定位到 plugin-package-inventory-deepseek → 精确 diff 定位到 mcp-akdagent 的裸包名解析失败 → 客户端侧停用该贡献者并验证真跑通一轮"
+          }
+        ]
+      }
+    }
+  ]
+}

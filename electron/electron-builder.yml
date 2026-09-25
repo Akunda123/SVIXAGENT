@@ -1,0 +1,153 @@
+# AKDAgent Electron 打包配置（electron-builder）
+# 目标：**Windows 10+（NSIS exe + MSI）** 与 **macOS 11+（dmg + zip）**（2026-09-21 用户确认 mac 也要支持）。
+# ⚠️ mac 现在只有**配置骨架**，真正出包前必须先补齐三样（否则打出来的包跑不起来）：
+#   ① 运行时按 darwin 组装：`node tools/build-server-runtime.cjs --platform darwin --arch arm64|x64`
+#      （extraResources 里的 `../dist/server-runtime` 是**单平台产物**，Windows 那份塞进 mac 包没用）
+#   ② 内嵌 Node：`../dsh-runtime/node` 现在是 **Windows 的 node.exe** ⇒ mac 要放对应平台的 node 二进制
+#   ③ STT（语音输入）：`package.json` 里的 `sherpa-onnx-win-x64` 是 **Windows 专属** ⇒ mac 需换 darwin 版
+#      （或先把语音输入在 mac 上置为不可用，其余功能不受影响）
+
+appId: com.akdagent.app
+productName: AKDAgent
+copyright: Copyright © 2026 AKDAgent
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - src/**/*
+  - package.json
+
+# ⚠️ STT（语音输入）**不能待在 asar 里**（用户 2026-09-19 报的问题）：
+#   sherpa-onnx 的原生 addon 与 Electron ABI 不匹配 ⇒ 故意用**系统/内置 node 跑独立进程**（stt-server.js）；
+#   而 asar 内的路径**既不能当外部进程的 cwd**（spawn 直接 ENOENT，报的却是 node.exe 找不到），
+#   **系统 node 也读不了 asar 里的 js** ⇒ 这两样必须落到实盘（`resources/app.asar.unpacked/…`）。
+#   开发态 `__dirname` 就是真目录，所以**这个坑只在打包版出现**；守卫见 `tools/check-package-assets.cjs`。
+asarUnpack:
+  - src/stt-server.js
+  - src/stt-model.js
+  - node_modules/sherpa-onnx-node/**
+
+win:
+  icon: assets/icon.ico
+  # 日常只打 NSIS（快：LZMA 多线程，几分钟）；最终发布版再用 `npm run dist:msi` 出 MSI
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# 应用资源（extraResources 不打进 asar，运行时按路径读取）：
+# - dsh/                     -> 内嵌 DSH 运行时（0.1.5-rc.2 起是 **npm 前缀树**：
+#                               node_modules\@deepseek-ai\dsh\lib\bin.js + 随包 skills/；
+#                               由 scripts/build-runtime.ps1 从本机 prefix 离线组装，**零符号链接**
+#                               —— 必须零链接，WiX/MSI 不能跟随链接（脚本里有断言））
+# - node/node.exe            -> 内嵌 Node 运行时（与预编译原生模块 ABI 一致，避免
+#                               electron-rebuild；由 build-runtime.ps1 从系统 node 拷贝）
+# - assets/                  -> 托盘/悬浮球图标（打包后从 resources/assets 读取）
+# 注意：**Lua 桥**（`sv/lua/AKDAgentBridge.lua`）随应用分发（resources/assets），安装后可在设置页
+#       「SV 集成」一键部署到各 SV 的 scripts/Agent/ 子目录。
+# ⛔ 旧的 **JS 剪贴板桥**（`legacy/SVAgentBridge.js`）**已退役，不得再打进包**（用户 2026-09-12 指出
+#    「这个 js 不进 electron 包」）⇒ 这里只分发 `.lua`；守卫见 `tools/check-package-assets.cjs`。
+extraResources:
+  - from: assets
+    to: assets
+  - from: ../sv/lua/AKDAgentBridge.lua
+    to: assets/AKDAgentBridge.lua
+  - from: ../dsh-runtime/dsh
+    to: dsh
+  - from: ../dsh-runtime/node
+    to: node
+  # 合规：第三方许可声明 + 各依赖 LICENSE 正文（随安装包分发）
+  - from: ../THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
+  - from: ../licenses
+    to: licenses
+  # ── 知识集（用户 2026-09-19 改判：**只打「随包集合」**）──
+  # 真源 = `knowledge/docs`（随包文档）+ `tools`（随包工具，整体 0.4 MB）；`docs/` 已降级为开发参考，**不进包**。
+  # 用途：① 客户端离线读取缺陷表/基线（`resources/knowledge/tools/known-bugs.json`）
+  #       ② 用户可离线翻阅文档（`resources/knowledge/docs`）
+  # ⚠️ 打包前**必跑脱敏**（knowledge/docs 里也可能带开发机路径）：
+  #     node tools/check-redaction.cjs --redact-to dist/knowledge
+  #   失败（exit 1）就别发版；`dist/knowledge` 是**生成物**，不进版本库。
+  #   若临时没跑脱敏，electron-builder 会 warn 说目录不存在，但**不要因此改用 ../docs 直发**。
+  - from: ../dist/knowledge/tools
+    to: knowledge/tools
+  - from: ../dist/knowledge/docs
+    to: knowledge/docs
+  # ⛔ 不再单独打 `knowledge/skills`：技能已随 `../dsh-runtime/dsh`（→ `dsh/skills`）分发，
+  #    再打一份是**重复**（~1.2 MB + 两处真源）；客户端用 `DSH_BUNDLED_SKILL_DIR` 指向那份。
+  # ── MCP server 随手分发（P13：干净用户机也要能用 mcp__sv__*）──
+  # 由 `node tools/build-server-runtime.cjs` 生成（server/dist + 裁剪过平台的依赖 + onnx 模型）。
+  # 客户端启动时会把这条注册**写进 profile**（ensureMcpRegistration），指向 resources/server/dist/index.js。
+  - from: ../dist/server-runtime
+    to: server
+
+msi:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  # ⚠️ MSI 的 oneClick 默认也是 true = 一键装（**静默式**，不走向导）。用户 2026-09-24 问过这个问题。
+  #    它与 NSIS 是**两套**实现（WiX）：要向导得 `oneClick: false`（builder 会加 `-ext WixUIExtension`）。
+  #    但 MSI **不能让用户选安装目录** —— `MsiOptions` 里没有 `allowToChangeInstallationDirectory`（只有 NSIS 有）。
+  #    本次按裁定**只改 NSIS**，MSI 保持现状。
+
+nsis:
+  # 用户 2026-09-24 定：**改成向导版**。原来 oneClick: true = 双击直接解压、UI 只有一个进度条；
+  # 而安装包 377 MB → 展开 931 MB / 30,658 个文件 ⇒ 用户看不出进度条在干嘛，也没机会选路径。
+  oneClick: false                          # 出向导（assisted installer）
+  allowToChangeInstallationDirectory: true # *assisted only* ⇒ 没有上一行不生效
+  perMachine: false                        # 免管理员；oneClick:false + perMachine:false ⇒ 多一个"为谁安装"页
+  allowElevation: true                     # *assisted only*；默认就是 true，显式写出来
+  createDesktopShortcut: true              # 默认 true，写出来当文档
+  createStartMenuShortcut: true
+  runAfterFinish: true                     # 装完自动启动
+  # ⚠️ deleteAppDataOnUninstall **只对 one-click 生效**（类型注释原文："one-click installer only"）
+  #    ⇒ 换成向导版后这条不再适用：卸载时由 NSIS 自己问用户要不要删应用数据。
+  #    原来的 `deleteAppDataOnUninstall: false` 已删，避免"以为它还在保护用户数据"的错觉。
+
+# 🆕 macOS（2026-09-21 加；用户确认 mac 也要支持）
+# 2026-09-24 用户裁定：**把 darwin 运行时也一起长备好** + 带 darwin 的 STT 包 ⇒ 三件前置都有了脚本：
+#   ① 运行时按 darwin 组装：`node tools/build-server-runtime.cjs --platform darwin --arch arm64`
+#      （产物带 STAGING.json 台账；换平台前先重跑，守卫 tools/check-package-assets.cjs 会拦错配）
+#   ② 内嵌 node：`node tools/stage-node-runtime.cjs --platform darwin --arch arm64 --activate`
+#      （下载 nodejs.org 对应版本到 dsh-runtime/node；台账 NODE-STAGING.json）
+#   ③ STT：`sherpa-onnx-darwin-arm64` / `-darwin-x64` 已进 package.json 的 optionalDependencies
+#      ⇒ 在 mac 上 `npm ci` 自动只装 darwin 那份（win 那份被 os/cpu 约束跳过）
+# ⚠️ **真正的 mac 包必须在 macOS 上打**（electron-builder 不支持在 Windows 上出 dmg/zip），
+#    完整步骤见 `electron/scripts/BUILD-MAC.md`，一键脚本 `electron/scripts/build-mac.sh`。
+mac:
+  # ⚠️ 仓库里**还没有 .icns**（只有 win 的 icon.ico 与 PNG）⇒ 这里先用 **512×512 PNG**，
+  #    electron-builder 会在 mac 上自行转 icns；将来补 `assets/icon.icns` 后可换成它。
+  icon: assets/icon-black-512.png
+  category: public.app-category.music
+  target:
+    - target: dmg
+      arch: [arm64]          # ⚠️ 只出 Apple Silicon：见下面"为什么没有 Intel(x64)"
+    - target: zip
+      arch: [arm64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # ── ⚠️ 为什么 mac 只出 arm64（Intel / x64 暂不支持）──
+  #   实测 onnxruntime-node **1.27.0 里 darwin 只有 arm64**（同一个包：win32 有 x64、linux 也有 x64，
+  #   唯独 darwin 没有）⇒ 在 Intel mac 上 ONNX 相关功能（人声分离 / 音高提取 / 音频分析…）起不来。
+  #   上游：microsoft/onnxruntime#27961「onnxruntime-node no longer shipping x86-64 since 1.23.x」；
+  #   另有报告称 **1.23.2** 在 Intel macOS 上仍可用（1.24.3 / 1.27.0 都不行）。
+  #   要真支持 Intel：把 server 的 onnxruntime-node 降到 ≤1.23.2（或在 mac 构建里单独 pin），
+  #   然后 `node tools/build-server-runtime.cjs --platform darwin --arch x64` 的产物才有 libonnxruntime 的 dylib
+  #   （现在那份只有 0.1 MB = 空的）。守卫 tools/check-package-assets.cjs 会在你把 x64 加回来时提醒。
+  # ── 签名 / hardened runtime ──
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # 内嵌 node（STT 子进程）也要被签名：它落在 Contents/Resources/node/node（extraResources 的 to: node）。
+  # 不签它 ⇒ hardened runtime 下从 app 里 spawn 一个未签名可执行文件会被系统挡掉。
+  binaries:
+    - Contents/Resources/node/node
+  # ── 公证（notarization）：出正式版才需要，默认关 ──
+  # 打开要 Apple 开发者凭据（环境变量）：
+  #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+  #   然后 notarize: true（或 { teamId: ... }）
+  notarize: false
+  # 本机**不签名**试包：`CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --arm64`
+  # （或在命令行加 `-c.mac.identity=null`）；有证书时无需设它，builder 会自动发现。
+
+npmRebuild: false

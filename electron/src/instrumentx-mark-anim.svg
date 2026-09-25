@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Instrument X 左侧 logo 动画版：3 个 path 依次描边（与 sv-monogram-anim 同款 1s 机制），hover 由 orb.html 重载 src 重放 -->
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 33 36" xml:space="preserve">
+  <style type="text/css">
+    /* p1: 白色大块（左侧）；p2: 右蓝；p3: 左蓝角 */
+    .st0{fill:none;stroke-width:0.5;}
+    #p1{ animation: ixa1 1s ease-in 0.006s forwards; } @keyframes ixa1 { 0% { fill: transparent; stroke: #ffffff; stroke-dasharray: 500px; stroke-dashoffset: 500px; } 20%{ stroke-dashoffset: 0; } 30%{ fill: transparent; } 50%{ stroke: #ffffff; fill: #ffffff; } 100%{ stroke: #ffffff; fill: #ffffff; } }
+    #p2{ animation: ixa2 1s ease-in 0.013s forwards; } @keyframes ixa2 { 0% { fill: transparent; stroke: #00AEFF; stroke-dasharray: 500px; stroke-dashoffset: 500px; } 20%{ stroke-dashoffset: 0; } 30%{ fill: transparent; } 50%{ stroke: #00AEFF; fill: #00AEFF; } 100%{ stroke: #00AEFF; fill: #00AEFF; } }
+    #p3{ animation: ixa3 1s ease-in 0.02s forwards; } @keyframes ixa3 { 0% { fill: transparent; stroke: #00AEFF; stroke-dasharray: 500px; stroke-dashoffset: 500px; } 20%{ stroke-dashoffset: 0; } 30%{ fill: transparent; } 50%{ stroke: #00AEFF; fill: #00AEFF; } 100%{ stroke: #00AEFF; fill: #00AEFF; } }
+  </style>
+  <g>
+    <path id="p1" class="st0" d="M7.05469 35.3271H10.2893C11.7663 35.3271 13.0529 34.3635 13.4071 32.992L21.9286 0H18.9011C17.3025 0 15.9099 1.04294 15.5265 2.52743L7.05469 35.3271Z" fill="white"/>
+    <path id="p2" class="st0" d="M18.6699 17.6636L23.2322 0H28.9816L24.4193 17.6636L28.9816 35.3273H25.7469C24.2699 35.3273 22.9833 34.3637 22.6291 32.9921L18.6699 17.6636Z" fill="#00AEFF"/>
+    <path id="p3" class="st0" d="M10.3115 17.6636L6.35239 2.33515C5.99814 0.9636 4.1763 0 2.6993 0H-0.000108299L4.56216 17.6636L-0.000108299 35.3273H5.74925L10.3115 17.6636Z" fill="#00AEFF"/>
+  </g>
+</svg>

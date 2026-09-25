@@ -1,0 +1,1514 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title data-i18n="app.settingsTitle">AKDAgent 设置</title>
+<style>
+  /* 配色对齐悬浮球对话面板（orb.html）：深灰 #2e2e2e + 强调绿 #79d825 */
+  :root {
+    --bg: #2e2e2e;
+    --panel: #353837;
+    --border: rgba(255,255,255,.08);
+    --text: rgb(200,200,200);
+    --body: rgb(179,179,179);
+    --muted: rgb(140,140,140);
+    --accent: #79d825;
+    --danger: #e5484d;
+    --hover: rgba(255,255,255,.1);
+    --active: rgba(121,216,37,.15);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--body);
+    font-family: system-ui, sans-serif; font-size: 13px;
+    display: flex; -webkit-user-select: none;
+    padding-top: 32px;   /* 给自定义标题栏让位（标题栏由 main.js 的 titleBarOverlay 绘制） */
+  }
+  /* ── 自定义标题栏（精确 #2e2e2e，与页面同色；可拖拽）── */
+  #titlebar {
+    position: fixed; top: 0; left: 0; right: 0; height: 32px; z-index: 9999;
+    display: flex; align-items: center; padding: 0 12px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag; -webkit-user-select: none;
+    font-size: 12px; color: var(--muted);
+  }
+  #titlebar .app { font-weight: 600; color: var(--text); }
+
+  /* ── 左侧导航栏 ── */
+  #nav {
+    width: 148px; flex-shrink: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 14px 8px;
+  }
+  #nav .brand { font-weight: 600; font-size: 13px; color: var(--text); padding: 0 10px 12px; }
+  .nav-item {
+    padding: 9px 10px; border-radius: 8px;
+    color: var(--body); cursor: pointer; font-size: 12.5px;
+    margin-bottom: 2px; transition: background .15s ease;
+  }
+  .nav-item:hover { background: var(--hover); }
+  .nav-item.active { background: var(--active); color: var(--accent); font-weight: 600; }
+  #nav .spacer { flex: 1; }
+  #nav .nav-foot { padding: 10px 10px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+
+  /* ── 右侧内容区 ── */
+  #main { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+  .page { display: none; }
+  .page.active { display: block; }
+  h1 { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  section h2 {
+    font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--text);
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid var(--border); gap: 12px;
+  }
+  .row:last-child { border-bottom: none; }
+  /* 左侧文字列可收缩换行：否则长 hint 会把右侧徽标挤扁（徽标被压成"椭圆"的根因） */
+  .row > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .row .label { color: var(--body); }
+  .row .hint { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .row .value { color: var(--muted); font-size: 12px; }
+  select, input[type="text"] {
+    background: var(--bg); color: var(--body);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; font-size: 12.5px; outline: none; min-width: 140px;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    background: rgba(255,255,255,.06); color: var(--muted);
+    /* 徽标自身不许被压缩、不许换行：否则长文案下会挤成 53×54 的"椭圆" */
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .badge.ok { background: rgba(121,216,37,.15); color: var(--accent); }
+  .badge.bad { background: rgba(229,72,77,.15); color: var(--danger); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  button {
+    background: rgba(255,255,255,.08); color: var(--body);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 14px; font-size: 12.5px; cursor: pointer;
+    transition: background .15s ease;
+  }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); color: #1a1d29; border: none; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .muted-btn { color: var(--muted); font-size: 12px; text-decoration: none; }
+  .muted-btn:hover { color: var(--text); }
+  .save-tip { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .model-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 0; border-bottom: 1px solid var(--border); gap: 12px;
+  }
+  .model-item:last-child { border-bottom: none; }
+  .model-item .m-name { color: var(--text); font-size: 12.5px; }
+  .model-item .m-desc { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .model-item .m-current { color: var(--accent); font-size: 11px; }
+  .model-item .m-del {
+    background: none; border: none; color: var(--muted);
+    font-size: 12px; cursor: pointer; padding: 4px 6px; border-radius: 6px;
+  }
+  .model-item .m-del:hover { color: var(--danger); background: rgba(229,72,77,.12); }
+  .model-item .m-right { display: flex; align-items: center; gap: 10px; }
+
+  /* ── 提供方卡片（模型页） ── */
+  .provider-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
+  }
+  .provider-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .provider-name { color: var(--text); font-weight: 600; font-size: 13.5px; }
+  .provider-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .provider-body { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .key-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .key-input { flex: 1; }
+  .key-hint { color: var(--muted); font-size: 11px; }
+  .model-check-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+  .model-check {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+  }
+  .model-check input { width: auto; }
+  .model-check.selected { border-color: var(--accent); color: var(--accent); }
+  /* 模型 chip 上的删除钮（`.model-item .m-del` 是另一处列表的，观感对齐即可） */
+  .model-check .m-del {
+    border: none; background: transparent; color: var(--muted);
+    cursor: pointer; font-size: 11px; line-height: 1; padding: 0 2px;
+  }
+  .model-check .m-del:hover { color: var(--danger); }
+  /* 「添加模型」一行：id / 名称 / 描述 / 支持图片 / 按钮（input[type=text] 已有全局样式，这里只管排布） */
+  .model-add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0 10px; }
+  .model-add-row input[type="text"] { flex: 1 1 130px; min-width: 110px; }
+  .model-add-row .model-check { margin: 0; }
+  .add-provider-row { display: flex; gap: 8px; margin-top: 4px; }
+  .preset-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .preset-chip {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--body);
+  }
+  .preset-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .inline-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .inline-form .frow { display: flex; flex-direction: column; gap: 4px; }
+  .inline-form .flabel { color: var(--muted); font-size: 11px; }
+  .stt-model-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid var(--border); gap: 10px;
+  }
+  .stt-model-row:last-child { border-bottom: none; }
+  .stt-model-row .m-name { color: var(--text); font-size: 12.5px; }
+  .stt-model-row .m-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .stt-model-row .m-actions { display: flex; align-items: center; gap: 8px; }
+  /* ── SV Flat 版：列表行内的展开编辑器（点「编辑」后贴在该行正下方） ── */
+  #sv-flat-list .row.active-row .label { color: var(--accent); }
+  #sv-flat-list .row.active-row { border-bottom-color: transparent; }
+  .flat-editor-inline {
+    border-left: 2px solid var(--accent);
+    padding: 4px 0 4px 12px;
+    margin: 4px 0 12px;
+  }
+
+  /* ── 滚动条：与悬浮球对话面板一致 ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; }
+  ::-webkit-scrollbar-thumb { background: rgb(96,96,96); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover,
+  ::-webkit-scrollbar-thumb:active { background: rgb(125,125,125); }
+</style>
+</head>
+<body>
+
+<!-- 自定义标题栏（与 main.js 的 titleBarOverlay 配合；空格处可拖拽窗口） -->
+<div id="titlebar"><span class="app" data-i18n="app.settingsTitle">AKDAgent 设置</span></div>
+
+<!-- 左侧导航 -->
+<div id="nav">
+  <div class="brand">AKDAgent</div>
+  <div class="nav-item" data-page="model" data-i18n="settings.nav.model">模型设置</div>
+  <div class="nav-item" data-page="conv" data-i18n="settings.nav.conv">对话设置</div>
+  <div class="nav-item" data-page="sv" data-i18n="settings.nav.sv">SV 集成</div>
+  <div class="nav-item" data-page="status" data-i18n="settings.nav.status">状态</div>
+  <div class="nav-item" data-page="about" data-i18n="settings.nav.about">关于</div>
+  <div class="spacer"></div>
+  <div class="nav-foot" id="ver">v0.1.0</div>
+</div>
+
+<!-- 右侧内容 -->
+<div id="main">
+
+  <!-- 模型设置 -->
+  <div class="page" id="page-model">
+    <h1 data-i18n="settings.model.title">模型</h1>
+    <div class="sub" data-i18n="settings.model.sub">填入各提供方的 API 密钥即可使用其模型。</div>
+
+    <!-- 提供方卡片动态渲染 -->
+    <div id="provider-list"></div>
+
+    <section>
+      <div class="actions">
+        <button id="btn-add-provider" data-i18n="settings.model.addProvider">+ 添加提供方</button>
+        <button id="btn-add-custom-provider" data-i18n="settings.model.addCustomProvider">+ 添加自定义提供方</button>
+      </div>
+
+      <!-- 添加预设提供方 -->
+      <div id="preset-form" style="display:none">
+        <div class="preset-grid" id="preset-grid"></div>
+        <div class="save-tip" id="preset-tip"></div>
+      </div>
+
+      <!-- 添加自定义提供方 -->
+      <div id="custom-form" class="inline-form" style="display:none">
+        <div class="frow">
+          <span class="flabel" data-i18n="settings.model.custom.route">提供方 ID（route，如 my-openai）</span>
+          <input type="text" id="custom-route" placeholder="如 my-openai" data-i18n-ph="settings.model.custom.routePh">
+        </div>
+        <div class="frow">
+          <span class="flabel" data-i18n="settings.model.custom.name">显示名称</span>
+          <input type="text" id="custom-name" placeholder="My OpenAI">
+        </div>
+        <div class="frow">
+          <span class="flabel" data-i18n="settings.model.custom.keyEnv">API 密钥环境变量名（写进 .credentials.yaml）</span>
+          <input type="text" id="custom-keyenv" placeholder="MY_OPENAI_API_KEY">
+        </div>
+        <div class="frow">
+          <span class="flabel" data-i18n="settings.model.custom.api">API 协议（openai-completions / anthropic-messages / …，自定义必填）</span>
+          <input type="text" id="custom-api" placeholder="openai-completions">
+        </div>
+        <div class="frow">
+          <span class="flabel" data-i18n="settings.model.custom.baseUrl">Base URL（自定义必填）</span>
+          <input type="text" id="custom-baseurl" placeholder="https://api.example.com/v1">
+        </div>
+        <div class="frow">
+          <span class="flabel" data-i18n="settings.model.custom.apiKey">API 密钥（可选，直接填入）</span>
+          <input type="password" id="custom-key" placeholder="sk-...">
+        </div>
+        <div class="actions">
+          <button class="primary" id="btn-save-custom" data-i18n="settings.common.save">保存</button>
+          <button id="btn-cancel-custom" data-i18n="common.cancel">取消</button>
+        </div>
+        <div class="save-tip" id="custom-tip"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 对话设置 -->
+  <div class="page" id="page-conv">
+    <h1 data-i18n="settings.conv.title">对话设置</h1>
+    <div class="sub" data-i18n="settings.conv.sub">语言、推理等级等</div>
+
+    <section>
+      <h2 data-i18n="settings.conv.section.language">语言</h2>
+      <!-- DSH 自己的语言（~/.dsh/settings.yaml 的 locale.preference），管模型回复语言 + DSH 网页界面 -->
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.conv.dshLanguage">DSH 界面语言</div>
+          <div class="hint" data-i18n="settings.conv.dshLangHint">locale.preference — 影响模型回复语言与 DSH 网页界面</div>
+        </div>
+        <select id="lang-select">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+        </select>
+      </div>
+      <!-- 客户端界面语言（悬浮球 / 设置窗 / 托盘）：与 DSH 语言是两套设置；选项由主进程给，页面不写死 -->
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.conv.uiLanguage">客户端界面语言</div>
+          <div class="hint" data-i18n="settings.conv.uiLangHint">悬浮球 / 设置窗 / 托盘（与 DSH 语言无关）</div>
+        </div>
+        <select id="locale-select"></select>
+      </div>
+      <div class="save-tip" id="ui-locale-tip"></div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.conv.section.reasoning">推理</h2>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.conv.reasoningEffort">推理等级</div>
+          <div class="hint">agent-default-model.reasoningEffort</div>
+        </div>
+        <select id="effort-select">
+          <option value="low" data-i18n="settings.conv.effortLow">低</option>
+          <option value="medium" data-i18n="settings.conv.effortMedium">中</option>
+          <option value="high" data-i18n="settings.conv.effortHigh">高</option>
+        </select>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.conv.section.stt">语音输入（STT）</h2>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.conv.sttModel">使用模型</div>
+          <div class="hint" data-i18n="settings.conv.sttHint">下载后悬浮球对话面板显示语音图标</div>
+        </div>
+        <select id="stt-model-select" disabled>
+          <option value="" data-i18n="settings.conv.sttNoModel">（未下载模型）</option>
+        </select>
+      </div>
+      <div id="stt-model-list" style="margin-top:6px"></div>
+      <div class="save-tip" id="stt-tip"></div>
+    </section>
+  </div>
+
+  <!-- SV 集成 -->
+  <div class="page" id="page-sv">
+    <h1 data-i18n="settings.sv.title">SV 集成</h1>
+    <div class="sub" data-i18n="settings.sv.sub">配置各版本 Synthesizer V 的 scripts 目录，一键部署桥脚本并创建 Agent 工作目录。</div>
+
+    <section>
+      <h2 data-i18n="settings.sv.bridgeSource">桥脚本源</h2>
+      <div class="row">
+        <div>
+          <div class="label">AKDAgentBridge.lua</div>
+          <div class="hint" id="sv-bridge-src" data-i18n="settings.sv.searching">查找中…</div>
+        </div>
+        <span class="badge" id="sv-bridge-badge"><span class="dot"></span><span id="sv-bridge-text" data-i18n="settings.status.unknown">未知</span></span>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.sv.scriptsDirs">scripts 目录（可多个版本）</h2>
+      <div id="sv-dir-list"></div>
+      <div class="add-provider-row" style="margin-top:10px">
+        <input type="text" id="sv-dir-input" placeholder="如 C:/Users/you/Documents/Dreamtonics/Synthesizer V Studio/scripts" data-i18n-ph="settings.sv.dirPh" style="flex:1">
+        <button id="btn-sv-add" data-i18n="settings.common.add">添加</button>
+        <button id="btn-sv-browse" data-i18n="settings.sv.browse">浏览…</button>
+        <button id="btn-sv-scan" data-i18n="settings.sv.autoDetect">自动检测</button>
+      </div>
+      <div class="save-tip" id="sv-dir-tip"></div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.sv.deploy">部署</h2>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.sv.deployAll">一键部署到全部目录</div>
+          <div class="hint"><span data-i18n="settings.sv.deployHint1">复制桥脚本到</span> <code>scripts/Agent/</code> <span data-i18n="settings.sv.deployHint2">子目录，并在各 SV 根目录创建</span> <code>Agent</code> <span data-i18n="settings.sv.deployHint3">工作文件夹（提取的伴奏 / 日志等）</span></div>
+        </div>
+        <button class="primary" id="btn-sv-deploy" data-i18n="settings.sv.deploy">部署</button>
+      </div>
+      <div id="sv-deploy-result" style="margin-top:8px"></div>
+    </section>
+
+    <!-- 没检测到 Flat 版时整块隐藏（默认也先隐藏，等检测结果回来再显示，避免闪一下"检测中"） -->
+    <section id="sv-flat-section" style="display:none">
+      <h2 data-i18n="settings.sv.flatSection">SV Flat 版（nofs JSON 编辑器）</h2>
+      <div id="sv-flat-status" data-i18n="settings.sv.detecting">检测中…</div>
+      <div id="sv-flat-list" style="margin-top:8px"></div>
+      <!-- 编辑器**默认不在这里**：点某行「编辑」后 JS 把它插到那一行正下方（见 openFlatEditor）
+           —— 声库动辄 80+ 个，放列表末尾等于"点了没反应" -->
+      <div id="sv-flat-editor" class="flat-editor-inline" style="display:none">
+        <div class="frow" style="margin-bottom:6px">
+          <span class="flabel" id="sv-flat-edit-path"></span>
+        </div>
+        <textarea id="sv-flat-edit-area" rows="14" style="width:100%;background:var(--bg);color:var(--body);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:12px;outline:none;-webkit-user-select:text" spellcheck="false"></textarea>
+        <!-- 加 style：正下方一条输入行，只收「十六进制 data + name」两个字段 -->
+        <div class="add-provider-row" style="margin-top:8px">
+          <input type="text" id="sv-flat-style-data" style="flex:1;font-family:ui-monospace,monospace" spellcheck="false" placeholder="十六进制 data（256 字符 = 32 个 float32）" data-i18n-ph="settings.sv.styleDataPh">
+          <input type="text" id="sv-flat-style-name" style="flex:0 0 180px" placeholder="style 名称" data-i18n-ph="settings.sv.styleNamePh">
+          <button class="primary" id="btn-sv-flat-add-style" data-i18n="settings.sv.styleAdd">添加 style</button>
+        </div>
+        <div class="save-tip" id="sv-flat-style-tip"></div>
+        <!-- 从现有 style 复制：**只列同 vocoder 的**（跨 vocoder 不可移植，2026-09 实测结论） -->
+        <div class="add-provider-row" style="margin-top:6px">
+          <select id="sv-flat-copy-src" style="flex:1;min-width:0"></select>
+          <input type="text" id="sv-flat-copy-name" style="flex:0 0 180px" placeholder="新 style 名称" data-i18n-ph="settings.sv.copyNamePh">
+          <button id="btn-sv-flat-copy-style" data-i18n="settings.sv.copyButton">复制为新 style</button>
+        </div>
+        <div class="save-tip" id="sv-flat-copy-hint"></div>
+        <div class="actions" style="margin-top:8px">
+          <button class="primary" id="btn-sv-flat-save" data-i18n="settings.common.save">保存</button>
+          <button id="btn-sv-flat-cancel" data-i18n="common.cancel">取消</button>
+          <button id="btn-sv-flat-reload" data-i18n="settings.sv.reload">重新加载</button>
+        </div>
+        <div class="save-tip" id="sv-flat-tip"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 状态 -->
+  <div class="page" id="page-status">
+    <h1 data-i18n="settings.status.title">状态</h1>
+    <div class="sub" data-i18n="settings.status.sub">运行状态与快捷操作</div>
+
+    <section>
+      <h2 data-i18n="settings.status.runtime">运行状态</h2>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.status.embeddedHost">内嵌 DSH host</div>
+          <div class="hint" id="host-url" data-i18n="settings.status.waiting">等待启动…</div>
+        </div>
+        <span class="badge" id="host-badge"><span class="dot"></span><span id="host-text" data-i18n="settings.status.starting">启动中</span></span>
+      </div>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.status.bridge">Synthesizer V 桥</div>
+          <div class="hint" id="bridge-hint" data-i18n="settings.status.bridgeHint">在 SV/IX 里运行 AKDAgentBridge.lua 后点右侧「检查桥连接」</div>
+        </div>
+        <span class="badge" id="bridge-badge"><span class="dot"></span><span id="bridge-text" data-i18n="settings.status.unknown">未知</span></span>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.status.actions">操作</h2>
+      <div class="actions">
+        <button id="btn-open-chat" data-i18n="settings.status.openChat">打开聊天面板</button>
+        <button id="btn-check-bridge" data-i18n="settings.status.checkBridge">检查桥连接</button>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.status.orb">悬浮球</h2>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.status.autostart">开机自启</div>
+          <div class="hint" data-i18n="settings.status.autostartHint">登录 Windows 后自动启动悬浮球（写 HKCU\Software\Microsoft\Windows\CurrentVersion\Run 的 AKDAgent 项）</div>
+        </div>
+        <button id="btn-autostart" data-i18n="settings.status.loading">读取中…</button>
+      </div>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.status.alwaysOnTop">置顶显示</div>
+          <div class="hint" data-i18n="settings.status.alwaysOnTopHint">悬浮球与设置窗口保持在其他窗口之上</div>
+        </div>
+        <button id="btn-always-top" data-i18n="settings.status.loading">读取中…</button>
+      </div>
+      <div class="row">
+        <div>
+          <div class="label" data-i18n="settings.status.position">位置</div>
+          <div class="hint" data-i18n="settings.status.positionHint">直接拖动悬浮球即可移动；贴回按钮把它放回当前屏幕右下角（拖动丢球或多屏变化后用）</div>
+        </div>
+        <button id="btn-orb-reset" data-i18n="settings.status.resetOrb">贴回右下角</button>
+      </div>
+      <div class="save-tip" id="orb-tip"></div>
+    </section>
+  </div>
+
+  <!-- 关于 -->
+  <div class="page" id="page-about">
+    <h1 data-i18n="settings.about.title">关于</h1>
+    <div class="sub">AKDAgent</div>
+    <section>
+      <div class="row">
+        <div class="label" data-i18n="settings.about.version">版本</div>
+        <div class="value" id="ver-val">0.1.0</div>
+      </div>
+      <div class="row">
+        <div class="label" data-i18n="settings.about.feedback">反馈 / 联系</div>
+        <!-- 联系方式：**链接是常量**（不随语种变），文字由 i18n 填（四语同一串 URL）。
+             点击走主进程的 akdagent-open-external（只放行 http(s)，见 main.js），
+             不让渲染进程自己开浏览器（设置页是 sandbox 渲染进程，没有 shell 权限）。 -->
+        <div class="value"><a id="link-feedback" href="https://github.com/Akunda123" data-i18n="settings.about.feedbackValue">https://github.com/Akunda123</a></div>
+      </div>
+      <div class="row" style="border:none">
+        <div class="hint" data-i18n="settings.about.feedbackHint">遇到问题直接联系作者即可（说明现象与复现步骤）。本程序不联网、不上报任何数据；宿主（SV / IX）升级后只会弹一次本地通知，提示你去下载最新安装包。</div>
+      </div>
+      <div class="row" style="border:none">
+        <div class="label" data-i18n="settings.about.bridgeInstall">桥脚本安装</div>
+        <a class="muted-btn" id="btn-bridge-doc" href="#" data-i18n="settings.about.bridgeDocLink">AKDAgentBridge.lua → SV scripts 目录</a>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id)
+
+  /* ── 界面语言（preload 注入的 window.svi18n；万一没注入也不崩，退回 key 本身） ──
+   * ⚠️ 这里管的是**客户端**界面文案（悬浮球 / 设置窗 / 托盘），
+   *    和对话设置页里 DSH 的 locale.preference 是两套独立设置。 */
+  const I = window.svi18n || { t: (k) => k, apply: () => {}, onChange: () => {}, locale: 'zh-Hans' }
+
+  /* ── 左侧导航切换 ── */
+  function activatePage(name) {
+    const item = document.querySelector(`.nav-item[data-page="${name}"]`)
+    const page = $(`page-${name}`)
+    if (!item || !page) return false
+    document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'))
+    document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'))
+    item.classList.add('active')
+    page.classList.add('active')
+    if (typeof autoCheckBridgeOnStatusPage === 'function') autoCheckBridgeOnStatusPage(name)
+    return true
+  }
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    item.addEventListener('click', () => activatePage(item.dataset.page))
+  })
+  activatePage('model')
+  // 外部（如密钥弹窗的「配置其他模型」）要求直达某页
+  if (window.svsettings && window.svsettings.onGotoPage) {
+    window.svsettings.onGotoPage((page) => { if (page) activatePage(String(page)) })
+  }
+
+  /* ── 徽标工具 ── */
+  function setBadge(el, text, ok) {
+    el.classList.remove('ok', 'bad')
+    el.classList.add(ok ? 'ok' : 'bad')
+    el.querySelector('span:last-child').textContent = text
+  }
+
+  /* ── 模型页：提供方管理 ── */
+  let providersData = null
+  let openEditId = null
+
+  async function loadProviders() {
+    providersData = await window.svsettings.getProviders()
+    renderProviders()
+    renderPresets()
+  }
+
+  function renderProviders() {
+    const list = $('provider-list')
+    list.innerHTML = ''
+    for (const p of providersData.providers) {
+      list.appendChild(buildProviderCard(p))
+    }
+  }
+
+  function buildProviderCard(p) {
+    const card = document.createElement('div')
+    card.className = 'provider-card'
+
+    // 头部
+    const head = document.createElement('div')
+    head.className = 'provider-head'
+    const info = document.createElement('div')
+    const name = document.createElement('div')
+    name.className = 'provider-name'
+    name.textContent = p.displayName
+    info.appendChild(name)
+    const sub = document.createElement('div')
+    sub.className = 'provider-sub'
+    sub.textContent = p.hasKey
+      ? I.t('settings.model.keyConfigured', p.apiKeyEnv)
+      : I.t('settings.model.keyNotConfigured')
+    info.appendChild(sub)
+    head.appendChild(info)
+    const headRight = document.createElement('div')
+    headRight.style.cssText = 'display:flex;align-items:center;gap:10px'
+    if (p.isDefault) {
+      const badge = document.createElement('span')
+      badge.className = 'badge ok'
+      badge.innerHTML = '<span class="dot"></span><span></span>'
+      badge.lastChild.textContent = I.t('settings.model.defaultBadge')
+      headRight.appendChild(badge)
+    }
+    const editBtn = document.createElement('button')
+    editBtn.textContent = I.t('settings.common.edit')
+    editBtn.addEventListener('click', () => {
+      openEditId = openEditId === p.id ? null : p.id
+      renderProviders()
+    })
+    headRight.appendChild(editBtn)
+    if (p.kind === 'pi-ai') {
+      const delBtn = document.createElement('button')
+      delBtn.textContent = I.t('settings.common.remove')
+      delBtn.style.color = 'var(--danger)'
+      delBtn.addEventListener('click', async () => {
+        if (!confirm(I.t('settings.model.confirmRemoveProvider', p.displayName))) return
+        await window.svsettings.removePiProvider(p.id)
+        loadProviders()
+      })
+      headRight.appendChild(delBtn)
+    }
+    head.appendChild(headRight)
+    card.appendChild(head)
+
+    // 编辑展开
+    if (openEditId === p.id) {
+      const body = document.createElement('div')
+      body.className = 'provider-body'
+
+      // 模型选择（单选默认模型）+ 增删（**只有 DeepSeek 专用插件路由能增删**：
+      //   `addModel`/`removeModel` 写的是 `llm-deepseek.models`；pi-ai 的列表来自提供方预设）
+      const label = document.createElement('div')
+      label.className = 'key-hint'
+      label.textContent = I.t('settings.model.defaultModel')
+      body.appendChild(label)
+      const canEdit = p.kind === 'deepseek'
+      let selectedModel = p.defaultModel || (p.models[0] && p.models[0].id) || ''
+      if (p.models.length > 0) {
+        const grid = document.createElement('div')
+        grid.className = 'model-check-grid'
+        for (const m of p.models) {
+          const chip = document.createElement('label')
+          chip.className = 'model-check' + (m.id === selectedModel ? ' selected' : '')
+          const cb = document.createElement('input')
+          cb.type = 'radio'
+          cb.name = 'model-' + p.id
+          cb.checked = m.id === selectedModel
+          cb.addEventListener('change', () => {
+            selectedModel = m.id
+            grid.querySelectorAll('.model-check').forEach((c) => c.classList.remove('selected'))
+            chip.classList.add('selected')
+          })
+          chip.appendChild(cb)
+          const span = document.createElement('span')
+          span.textContent = m.name || m.id
+          chip.appendChild(span)
+          if (canEdit) {
+            const del = document.createElement('button')
+            del.type = 'button'
+            del.className = 'm-del'
+            del.textContent = '✕'
+            del.title = I.t('settings.model.removeModel')
+            del.addEventListener('click', async (ev) => {
+              ev.preventDefault()               // 别让 label 顺带选中这个 radio
+              ev.stopPropagation()
+              if (!window.confirm(I.t('settings.model.removeConfirm', m.id))) return
+              const r = await window.svsettings.removeModel(m.id)
+              if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.addFailed')); return }
+              await loadProviders()
+            })
+            chip.appendChild(del)
+          }
+          grid.appendChild(chip)
+        }
+        body.appendChild(grid)
+      } else {
+        /* ⚠️ 列表为空时**绝不能**造一个 `{id: <提供方 id>}` 的假模型（旧代码就是这么干的）：
+         *   那会把 `agent-default-model.model` 写成提供方 id（如 `deepseek-official`），
+         *   而 DSH 对**不在目录里的 id 是透传**的（`dsh-llm-deepseek/lib/index.js:550`）⇒ 请求必然 400。
+         *   ⇒ 这里只给提示，且**保存时不碰 model 字段**（见下面 setDefaultProvider 传 undefined）。 */
+        const empty = document.createElement('div')
+        empty.className = 'key-hint'
+        empty.textContent = p.kind === 'deepseek'
+          ? I.t('settings.model.emptyHintBuiltin')
+          : I.t('settings.model.emptyHint')
+        body.appendChild(empty)
+      }
+      if (canEdit) {
+        const addRow = document.createElement('div')
+        addRow.className = 'model-add-row'
+        const mk = (ph, type) => {
+          const i = document.createElement('input')
+          i.type = type || 'text'
+          i.placeholder = ph
+          return i
+        }
+        const idIn = mk(I.t('settings.model.modelIdPh'))
+        const nameIn = mk(I.t('settings.model.modelNamePh'))
+        const descIn = mk(I.t('settings.model.modelDescPh'))
+        const imgWrap = document.createElement('label')
+        imgWrap.className = 'model-check'
+        const imgCb = document.createElement('input')
+        imgCb.type = 'checkbox'
+        imgWrap.appendChild(imgCb)
+        const imgSpan = document.createElement('span')
+        imgSpan.textContent = I.t('settings.model.modelImage')
+        imgWrap.appendChild(imgSpan)
+        const addBtn = document.createElement('button')
+        addBtn.type = 'button'
+        addBtn.textContent = I.t('settings.model.addModel')
+        addBtn.addEventListener('click', async () => {
+          const id = idIn.value.trim()
+          if (!id) { idIn.focus(); return }
+          const r = await window.svsettings.addModel({
+            id, name: nameIn.value.trim(), description: descIn.value.trim(), supportsImage: imgCb.checked,
+          })
+          if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.addFailed')); return }
+          await loadProviders()
+        })
+        addRow.appendChild(idIn)
+        addRow.appendChild(nameIn)
+        addRow.appendChild(descIn)
+        addRow.appendChild(imgWrap)
+        addRow.appendChild(addBtn)
+        body.appendChild(addRow)
+      }
+
+      // API 密钥
+      const keyRow = document.createElement('div')
+      keyRow.className = 'key-row'
+      const keyInput = document.createElement('input')
+      keyInput.type = 'password'
+      keyInput.className = 'key-input'
+      keyInput.placeholder = p.apiKeyEnv
+        ? I.t('settings.model.fillKeyPlaceholder', p.apiKeyEnv)
+        : I.t('settings.model.apiKeyPlaceholder')
+      keyInput.value = p.hasKey ? '********' : ''
+      keyRow.appendChild(keyInput)
+      body.appendChild(keyRow)
+
+      // 操作
+      const actions = document.createElement('div')
+      actions.className = 'actions'
+      const saveBtn = document.createElement('button')
+      saveBtn.className = 'primary'
+      saveBtn.textContent = I.t('settings.common.save')
+      saveBtn.addEventListener('click', async () => {
+        // 密钥：填了新值才更新；保留 **** 表示不改
+        const v = keyInput.value.trim()
+        if (v && v !== '********') {
+          await window.svsettings.setProviderKey(p.id, p.apiKeyEnv, v)
+        }
+        // ⚠️ `selectedModel` 为空（模型列表为空）时传 undefined ⇒ 后端只切提供方、**不动 model 字段**
+        //   （`setDefaultProvider` 的 `modelId || 原有值`）——别把空串写进去。
+        await window.svsettings.setDefaultProvider(p.id, selectedModel || undefined)
+        loadProviders()
+      })
+      actions.appendChild(saveBtn)
+      const closeBtn = document.createElement('button')
+      closeBtn.textContent = I.t('settings.common.close')
+      closeBtn.addEventListener('click', () => {
+        openEditId = null
+        renderProviders()
+      })
+      actions.appendChild(closeBtn)
+      body.appendChild(actions)
+
+      const tip = document.createElement('div')
+      tip.className = 'save-tip'
+      tip.textContent = p.kind === 'pi-ai'
+        ? I.t('settings.model.tipPiAi')
+        : I.t('settings.model.tipDeepseek')
+      body.appendChild(tip)
+
+      card.appendChild(body)
+    }
+    return card
+  }
+
+  function renderPresets() {
+    const grid = $('preset-grid')
+    grid.innerHTML = ''
+    const existing = new Set(providersData.providers.map((p) => p.id))
+    for (const route of providersData.presets) {
+      if (existing.has(route)) continue
+      const chip = document.createElement('button')
+      chip.className = 'preset-chip'
+      chip.textContent = route
+      chip.addEventListener('click', async () => {
+        const keyEnv = route.toUpperCase() + '_API_KEY'
+        const r = await window.svsettings.addPiProvider(route, {
+          displayName: route,
+          apiKeyEnv: keyEnv,
+        })
+        $('preset-tip').textContent = r.ok
+          ? I.t('settings.model.presetAdded', route, keyEnv)
+          : (r.error || I.t('settings.common.addFailed'))
+        loadProviders()
+      })
+      grid.appendChild(chip)
+    }
+  }
+
+  /* ── 添加提供方（预设） ── */
+  $('btn-add-provider').addEventListener('click', () => {
+    const f = $('preset-form')
+    f.style.display = f.style.display === 'none' ? 'block' : 'none'
+  })
+
+  /* ── 添加自定义提供方 ── */
+  $('btn-add-custom-provider').addEventListener('click', () => {
+    const f = $('custom-form')
+    f.style.display = f.style.display === 'none' ? 'flex' : 'none'
+  })
+  $('btn-cancel-custom').addEventListener('click', () => {
+    $('custom-form').style.display = 'none'
+  })
+  $('btn-save-custom').addEventListener('click', async () => {
+    const tip = $('custom-tip')
+    tip.textContent = ''
+    const route = $('custom-route').value.trim()
+    if (!route) { tip.textContent = I.t('settings.model.routeRequired'); return }
+    const apiKeyEnv = $('custom-keyenv').value.trim()
+    const key = $('custom-key').value.trim()
+    const r = await window.svsettings.addPiProvider(route, {
+      displayName: $('custom-name').value.trim() || route,
+      apiKeyEnv: apiKeyEnv || undefined,
+      api: $('custom-api').value.trim() || undefined,
+      baseURL: $('custom-baseurl').value.trim() || undefined,
+    })
+    if (r.ok) {
+      if (key) await window.svsettings.setProviderKey(route, apiKeyEnv || route.toUpperCase() + '_API_KEY', key)
+      $('custom-route').value = ''
+      $('custom-name').value = ''
+      $('custom-keyenv').value = ''
+      $('custom-api').value = ''
+      $('custom-baseurl').value = ''
+      $('custom-key').value = ''
+      $('custom-form').style.display = 'none'
+      tip.textContent = I.t('settings.model.customAdded', route)
+      loadProviders()
+    } else {
+      tip.textContent = r.error || I.t('settings.common.addFailed')
+    }
+  })
+
+  /* ── 状态 ── */
+  /* 主进程最后一次推的状态：切语种时要按它把徽标/提示重排成新语言 */
+  let lastHost = null
+  let lastBridge = null
+
+  function renderHostStatus() {
+    if (!lastHost) return
+    setBadge($('host-badge'), lastHost.ready ? I.t('settings.status.ready') : I.t('settings.status.notReady'), lastHost.ready)
+    $('host-url').textContent = lastHost.ready ? lastHost.url : I.t('settings.status.waiting')
+  }
+
+  function renderBridgeStatus() {
+    if (!lastBridge) return
+    setBadge($('bridge-badge'), lastBridge.ok ? I.t('settings.status.connected') : I.t('settings.status.notConnected'), lastBridge.ok)
+    if (lastBridge.msg) $('bridge-hint').textContent = lastBridge.msg
+    $('bridge-badge').title = lastBridge.msg || ''
+  }
+
+  window.svsettings.onHostStatus((ready, url) => {
+    lastHost = { ready: !!ready, url: String(url || '') }
+    renderHostStatus()
+  })
+  $('btn-check-bridge').addEventListener('click', () => {
+    setBadge($('bridge-badge'), I.t('settings.status.checking'), false)
+    $('bridge-hint').textContent = I.t('settings.status.checkingHint')
+    window.svsettings.checkBridge()
+  })
+  window.svsettings.onBridgeStatus((ok, msg) => {
+    // 详情直接显示在 hint 行（原来只塞进 tooltip，得悬停才看得到 ⇒ 容易误以为"点一下就自己连上了"）
+    lastBridge = { ok: !!ok, msg: msg || '' }
+    renderBridgeStatus()
+  })
+  /** 打开「状态」页时自动检查一次，避免徽标长期停在"未知" */
+  function autoCheckBridgeOnStatusPage(name) {
+    if (name !== 'status') return
+    setBadge($('bridge-badge'), I.t('settings.status.checking'), false)
+    $('bridge-hint').textContent = I.t('settings.status.checkingHint')
+    window.svsettings.checkBridge()
+  }
+
+  $('btn-open-chat').addEventListener('click', () => window.svsettings.openChat())
+
+  /* ── 悬浮球设置：按钮文案一律以主进程回读的真实状态为准 ──
+   * 旧实现：按钮文案是写死的，主进程改完不回话 ⇒ 点完毫无变化（用户报「两个按钮点不动」）。
+   * 现在：加载时 getOrbState() 查一次，之后每次切换听主进程的 changed 推送。 */
+  const orbState = { autostart: false, alwaysOnTop: false, loaded: false }
+  function orbTip(msg) { $('orb-tip').textContent = msg || '' }
+  function renderOrbState() {
+    if (!orbState.loaded) return   // 真实状态还没读回来时，保留按钮上的「读取中…」
+    const a = $('btn-autostart')
+    a.textContent = orbState.autostart ? I.t('settings.status.enabled') : I.t('settings.status.enable')
+    a.classList.toggle('primary', orbState.autostart)
+    const t = $('btn-always-top')
+    t.textContent = orbState.alwaysOnTop ? I.t('settings.status.alwaysTopOn') : I.t('settings.status.alwaysTopOff')
+    t.classList.toggle('primary', orbState.alwaysOnTop)
+  }
+  window.svsettings.getOrbState().then((s) => {
+    if (s) {
+      orbState.autostart = !!s.autostart
+      orbState.alwaysOnTop = !!s.alwaysOnTop
+    }
+    orbState.loaded = true
+    renderOrbState()
+  })
+  window.svsettings.onAutostartChanged((on) => {
+    orbState.autostart = on
+    renderOrbState()
+    orbTip(on ? I.t('settings.status.autostartOn') : I.t('settings.status.autostartOff'))
+  })
+  window.svsettings.onAlwaysTopChanged((on) => {
+    orbState.alwaysOnTop = on
+    renderOrbState()
+    orbTip(on ? I.t('settings.status.topOnTip') : I.t('settings.status.topOffTip'))
+  })
+  window.svsettings.onOrbPositionReset((ok) => {
+    orbTip(ok ? I.t('settings.status.resetOk') : I.t('settings.status.resetFail'))
+  })
+  $('btn-autostart').addEventListener('click', () => {
+    orbTip(I.t('settings.status.writingRegistry'))
+    window.svsettings.toggleAutostart()
+  })
+  $('btn-always-top').addEventListener('click', () => window.svsettings.toggleAlwaysTop())
+  $('btn-orb-reset').addEventListener('click', () => window.svsettings.resetOrbPosition())
+  $('btn-bridge-doc').addEventListener('click', (e) => { e.preventDefault(); window.svsettings.openBridgeDoc() })
+  /* 关于页的「反馈 / 联系」链接：交给主进程开系统浏览器（渲染进程不许自己开） */
+  $('link-feedback').addEventListener('click', (e) => { e.preventDefault(); window.svsettings.openExternal($('link-feedback').href) })
+
+  window.svsettings.getVersion().then((v) => {
+    if (v) { $('ver').textContent = 'v' + v; $('ver-val').textContent = v }
+  })
+  loadProviders()
+  // 对话设置：语言 + 推理等级（可编辑，写 settings.yaml）
+  window.svsettings.getProviders().then((d) => {
+    $('lang-select').value = d.language || 'zh'
+    $('effort-select').value = d.reasoningEffort || 'high'
+  })
+  $('lang-select').addEventListener('change', async (e) => {
+    await window.svsettings.setLanguage(e.target.value)
+  })
+  $('effort-select').addEventListener('change', async (e) => {
+    await window.svsettings.setReasoningEffort(e.target.value)
+  })
+
+  /* ── 客户端界面语言（悬浮球 / 设置窗 / 托盘；与 DSH 的 locale.preference 无关） ──
+   * 选项一律由主进程给（语言名用各语言自身写法），页面不写死。 */
+  function uiLocaleTip(msg) { $('ui-locale-tip').textContent = msg || '' }
+
+  async function initUiLocale() {
+    const sel = $('locale-select')
+    if (!sel || !window.svsettings || !window.svsettings.getUiPrefs) return
+    let p = null
+    try { p = await window.svsettings.getUiPrefs() } catch { p = null }
+    if (!p || !Array.isArray(p.locales) || !p.locales.length) return
+    sel.innerHTML = ''
+    for (const l of p.locales) {
+      const opt = document.createElement('option')
+      opt.value = l.id
+      opt.textContent = l.label
+      sel.appendChild(opt)
+    }
+    sel.value = p.locale || I.locale
+  }
+
+  $('locale-select').addEventListener('change', async (e) => {
+    const next = e.target.value
+    if (!window.svsettings || !window.svsettings.setUiLocale) return
+    const r = await window.svsettings.setUiLocale(next)
+    // 切语种**不重载窗口**：主进程广播 → I.onChange 里 apply() + 重排动态文案。
+    // 下拉框自己不带 data-i18n，但要停在用户刚选的那一项。
+    $('locale-select').value = next
+    uiLocaleTip(r && r.ok
+      ? I.t('settings.conv.uiLocaleSwitched')
+      : I.t('settings.conv.uiLocaleFailed', (r && r.error) || ''))
+  })
+  initUiLocale()
+
+  /* ── 语音输入（STT）模型管理 ── */
+  let sttData = null
+
+  function renderStt(status) {
+    if (!status) return
+    sttData = status
+    const sel = $('stt-model-select')
+    // 填充已安装模型到下拉
+    sel.innerHTML = ''
+    const installedModels = status.installedModels || []
+    const models = status.models || []
+    if (installedModels.length === 0) {
+      const opt = document.createElement('option')
+      opt.value = ''
+      opt.textContent = I.t('settings.conv.sttNoModel')
+      sel.appendChild(opt)
+      sel.disabled = true
+    } else {
+      sel.disabled = false
+      for (const id of installedModels) {
+        const def = models.find((m) => m.id === id)
+        const opt = document.createElement('option')
+        opt.value = id
+        // 模型名按界面语言渲染（主进程给 nameKey；老数据只有 label 时退回中文并按「，」切分）
+        opt.textContent = def ? (def.nameKey ? I.t(def.nameKey) : def.label.split('，')[0]) : id
+        if (id === status.activeId) opt.selected = true
+        sel.appendChild(opt)
+      }
+    }
+    // 语音为什么不可用：主进程把原因带在 status.error 上（打包版曾因 asar 路径静默失败，用户只看到"加载中"）
+    if (status && status.error) $('stt-tip').textContent = status.error
+    // 渲染模型列表（每档一行：名称 + 状态 + 下载/删除按钮）
+    const list = $('stt-model-list')
+    list.innerHTML = ''
+    if (models.length === 0) {
+      // notifySttStatus 推送的简化 status 没有 models：补一次完整查询（防循环）
+      if (!renderStt.refreshing) {
+        renderStt.refreshing = true
+        refreshStt().finally(() => { renderStt.refreshing = false })
+      }
+      return
+    }
+    for (const m of models) {
+      const row = document.createElement('div')
+      row.className = 'stt-model-row'
+      const info = document.createElement('div')
+      const name = document.createElement('div')
+      name.className = 'm-name'
+      name.textContent = m.nameKey ? I.t(m.nameKey) : m.label.split('，')[0]
+      info.appendChild(name)
+      const sub = document.createElement('div')
+      sub.className = 'm-sub'
+      sub.textContent = m.installed
+        ? (m.id === status.activeId
+          ? (status.ready ? I.t('settings.stt.active') : I.t('settings.stt.loading'))
+          : I.t('settings.stt.downloaded'))
+        : (m.descKey ? I.t(m.descKey) : m.label.split('，').slice(1).join('，'))
+      info.appendChild(sub)
+      row.appendChild(info)
+      const acts = document.createElement('div')
+      acts.className = 'm-actions'
+      if (!m.installed) {
+        const dl = document.createElement('button')
+        dl.className = 'primary'
+        dl.textContent = I.t('settings.common.download')
+        dl.addEventListener('click', async () => {
+          dl.disabled = true
+          dl.textContent = I.t('settings.stt.downloading')
+          $('stt-tip').textContent = I.t('settings.stt.downloadingTip', m.id)
+          const r = await window.svsettings.sttDownload(m.id)
+          dl.disabled = false
+          dl.textContent = I.t('settings.common.download')
+          $('stt-tip').textContent = r.ok
+            ? I.t('settings.stt.downloadOk', m.id)
+            : I.t('settings.stt.downloadFailed', r.error || I.t('settings.stt.unknownError'))
+          refreshStt()
+        })
+        acts.appendChild(dl)
+      } else {
+        const rm = document.createElement('button')
+        rm.textContent = I.t('settings.common.delete')
+        rm.style.color = 'var(--danger)'
+        rm.addEventListener('click', async () => {
+          if (!confirm(I.t('settings.stt.confirmRemove', m.id))) return
+          await window.svsettings.sttRemove(m.id)
+          $('stt-tip').textContent = I.t('settings.stt.removed', m.id)
+          refreshStt()
+        })
+        acts.appendChild(rm)
+      }
+      row.appendChild(acts)
+      list.appendChild(row)
+    }
+    if (installedModels.length === 0) {
+      $('stt-tip').textContent = I.t('settings.stt.downloadAnyHint')
+    }
+  }
+
+  async function refreshStt() {
+    renderStt(await window.svsettings.sttStatus())
+  }
+
+  $('stt-model-select').addEventListener('change', async (e) => {
+    if (!e.target.value) return
+    const r = await window.svsettings.sttSelect(e.target.value)
+    $('stt-tip').textContent = r.ok
+      ? I.t('settings.stt.switched', e.target.value)
+      : I.t('settings.stt.switchFailed', r.error || '')
+    refreshStt()
+  })
+
+  window.svsettings.onSttStatus((s) => renderStt(s))
+  refreshStt()
+
+  /* ── SV 集成 ── */
+  let svConfig = null
+
+  function svBadge(ok, text) {
+    const b = document.createElement('span')
+    b.className = 'badge ' + (ok ? 'ok' : 'bad')
+    b.innerHTML = '<span class="dot"></span><span>' + text + '</span>'
+    return b
+  }
+
+  function renderSvConfig() {
+    if (!svConfig) return
+    // 桥脚本源
+    const hasSrc = !!svConfig.bridgeSource
+    setBadge($('sv-bridge-badge'), hasSrc ? I.t('settings.sv.available') : I.t('settings.sv.missing'), hasSrc)
+    $('sv-bridge-src').textContent = hasSrc ? svConfig.bridgeSource : I.t('settings.sv.bridgeNotFound')
+    // 目录列表
+    const list = $('sv-dir-list')
+    list.innerHTML = ''
+    if (!svConfig.entries.length) {
+      const tip = document.createElement('div')
+      tip.className = 'save-tip'
+      tip.textContent = I.t('settings.sv.noDirs')
+      list.appendChild(tip)
+    }
+    for (const e of svConfig.entries) {
+      const row = document.createElement('div')
+      row.className = 'row'
+      const info = document.createElement('div')
+      info.style.cssText = 'min-width:0'
+      const label = document.createElement('div')
+      label.className = 'label'
+      label.textContent = e.scriptsDir
+      label.style.cssText = 'word-break:break-all'
+      info.appendChild(label)
+      const hint = document.createElement('div')
+      hint.className = 'hint'
+      hint.textContent = I.t('settings.sv.agentDir', e.agentDir)
+      info.appendChild(hint)
+      row.appendChild(info)
+      const right = document.createElement('div')
+      right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0'
+      if (!e.exists) right.appendChild(svBadge(false, I.t('settings.sv.dirMissing')))
+      else if (e.bridgeInstalled) right.appendChild(svBadge(true, I.t('settings.sv.bridgeDeployed')))
+      else right.appendChild(svBadge(false, I.t('settings.sv.notDeployed')))
+      const del = document.createElement('button')
+      del.textContent = I.t('settings.common.remove')
+      del.style.color = 'var(--danger)'
+      del.addEventListener('click', async () => {
+        await window.svsettings.removeSvScriptsDir(e.scriptsDir)
+        svConfig = await window.svsettings.getSvConfig()
+        renderSvConfig()
+      })
+      right.appendChild(del)
+      row.appendChild(right)
+      list.appendChild(row)
+    }
+  }
+
+  async function loadSvConfig() {
+    svConfig = await window.svsettings.getSvConfig()
+    renderSvConfig()
+  }
+
+  /** 把用户选/输入的目录加进配置（两条入口——手打路径 与 系统选择器——共用）*/
+  async function addSvDir(dir) {
+    const r = await window.svsettings.addSvScriptsDir(dir)
+    if (!r.ok) { $('sv-dir-tip').textContent = r.error || I.t('settings.common.addFailed'); return false }
+    $('sv-dir-tip').textContent = r.already ? I.t('settings.sv.dirAlready') : I.t('settings.sv.dirAdded')
+    svConfig = await window.svsettings.getSvConfig()
+    renderSvConfig()
+    return true
+  }
+
+  /** 弹系统目录选择器（「浏览…」按钮，以及「添加」时输入框为空时走）
+   *  用户 2026-09-14 要求：留空别逼人手打路径，直接给系统的目录选择框。*/
+  async function pickSvDir() {
+    $('sv-dir-tip').textContent = I.t('settings.sv.picking')
+    const r = await window.svsettings.pickDirectory({ purpose: 'scripts' })
+    if (!r || !r.ok) {
+      $('sv-dir-tip').textContent = r && r.error ? r.error : I.t('settings.sv.pickCancelled')
+      return
+    }
+    $('sv-dir-input').value = r.path
+    await addSvDir(r.path)
+  }
+
+  $('btn-sv-add').addEventListener('click', async () => {
+    const dir = $('sv-dir-input').value.trim()
+    if (!dir) { await pickSvDir(); return }   // 留空 ⇒ 弹系统目录选择器
+    if (await addSvDir(dir)) $('sv-dir-input').value = ''
+  })
+
+  $('btn-sv-browse').addEventListener('click', pickSvDir)
+
+  $('btn-sv-scan').addEventListener('click', async () => {
+    $('sv-dir-tip').textContent = I.t('settings.sv.detecting')
+    const r = await window.svsettings.scanSvScripts()
+    if (!r.found.length) { $('sv-dir-tip').textContent = I.t('settings.sv.scanNotFound'); return }
+    for (const d of r.found) await window.svsettings.addSvScriptsDir(d)
+    $('sv-dir-tip').textContent = I.t('settings.sv.scanFound',
+      r.found.length, r.found.join(I.t('settings.common.listSeparator')))
+    svConfig = await window.svsettings.getSvConfig()
+    renderSvConfig()
+  })
+
+  $('btn-sv-deploy').addEventListener('click', async () => {
+    const btn = $('btn-sv-deploy')
+    btn.disabled = true
+    btn.textContent = I.t('settings.sv.deploying')
+    const r = await window.svsettings.deploySvBridge()
+    const box = $('sv-deploy-result')
+    box.innerHTML = ''
+    for (const res of r.results) {
+      const line = document.createElement('div')
+      line.className = 'row'
+      line.style.cssText = 'border:none;padding:4px 0'
+      const info = document.createElement('div')
+      info.style.cssText = 'min-width:0'
+      const label = document.createElement('div')
+      label.className = 'label'
+      label.textContent = res.scriptsDir
+      info.appendChild(label)
+      const hint = document.createElement('div')
+      hint.className = 'hint'
+      hint.textContent = res.ok
+        ? res.steps.join(I.t('settings.common.listSeparator'))
+        : I.t('settings.sv.failedPrefix', res.error)
+      info.appendChild(hint)
+      line.appendChild(info)
+      line.appendChild(svBadge(res.ok, res.ok ? I.t('settings.common.success') : I.t('settings.common.failure')))
+      box.appendChild(line)
+    }
+    btn.disabled = false
+    btn.textContent = I.t('settings.sv.deploy')
+    svConfig = await window.svsettings.getSvConfig()
+    renderSvConfig()
+  })
+
+  loadSvConfig()
+
+  /* ── SV Flat 版：检测 + nofs JSON 编辑 ── */
+  let flatStatus = null    // 主进程最后一次回的状态（切语种时按它重排文案）
+  let flatEditing = null   // { path, data }
+  /** 编辑器及其子元素的**引用**：编辑器会被搬进列表、并在重排时短暂脱离 DOM，
+   *  而**脱离文档的元素用 getElementById 连子元素都取不到**（返回 null）。
+   *  ⚠️ 2026-09-14 实测踩过：先取子元素、后插 DOM ⇒ 点「编辑」抛 TypeError、
+   *     表现就是"编辑按钮点不了"。所以这里一律用引用，且**先入 DOM 再填内容**。*/
+  const flatEls = {
+    editor: $('sv-flat-editor'),
+    path: $('sv-flat-edit-path'),
+    area: $('sv-flat-edit-area'),
+    styleData: $('sv-flat-style-data'),
+    styleName: $('sv-flat-style-name'),
+    styleTip: $('sv-flat-style-tip'),
+    copySrc: $('sv-flat-copy-src'),
+    copyName: $('sv-flat-copy-name'),
+    copyHint: $('sv-flat-copy-hint'),
+    tip: $('sv-flat-tip'),
+    list: $('sv-flat-list'),
+    section: $('sv-flat-section'),
+  }
+  /** 真实 nofs 里 styles[].data 一律是 256 个十六进制字符 = 32 个 float32
+   *  （抽查 84 个声库 / 1222 条 style，长度无一例外）*/
+  const STYLE_DATA_HEX = 256
+
+  function renderFlatStatus() {
+    const r = flatStatus
+    if (!r) return
+    // 没检测到 Flat 版（或 nofs 不是 JSON）⇒ **整块隐藏**（用户 2026-09-13 要求）
+    if (!r.ok || !r.isFlat) {
+      flatEls.section.style.display = 'none'
+      flatEls.editor.style.display = 'none'
+      flatEditing = null
+      flatEls.list.innerHTML = ''
+      return
+    }
+    flatEls.section.style.display = ''
+    const box = $('sv-flat-status')
+    box.innerHTML = ''
+    box.appendChild(svBadge(true, I.t('settings.sv.flatDetected')))
+    const meta = document.createElement('div')
+    meta.className = 'hint'
+    meta.style.marginTop = '4px'
+    meta.textContent = I.t('settings.sv.flatMeta',
+      I.t(r.proc ? 'settings.sv.procRunning' : 'settings.sv.procStopped'),
+      r.nofsJson,
+      r.databases.length)
+    box.appendChild(meta)
+    renderFlatList()
+  }
+
+  async function loadFlatStatus() {
+    flatStatus = await window.svsettings.svFlatStatus()
+    renderFlatStatus()
+  }
+
+  function renderFlatList() {
+    const list = flatEls.list
+    // 编辑器可能正挂在列表里：清空前先摘下来（元素对象与它的事件都还在），清完再贴回去
+    if (flatEls.editor.parentElement) flatEls.editor.remove()
+    list.innerHTML = ''
+    if (!flatStatus || !flatStatus.databases) return
+    for (const db of flatStatus.databases) {
+      for (const nf of db.nofs) {
+        const row = document.createElement('div')
+        row.className = 'row'
+        row.style.cssText = 'border:none;padding:5px 0'
+        row.dataset.path = nf.path
+        const info = document.createElement('div')
+        info.style.cssText = 'min-width:0'
+        const label = document.createElement('div')
+        label.className = 'label'
+        label.textContent = `${db.name} / ${nf.file}`
+        info.appendChild(label)
+        row.appendChild(info)
+        const btn = document.createElement('button')
+        btn.textContent = I.t('settings.common.edit')
+        btn.addEventListener('click', () => openFlatEditor(nf.path, row))
+        row.appendChild(btn)
+        list.appendChild(row)
+        // 正在编辑的就是这一行 ⇒ 编辑器贴回它正下方（切语种重排列表后位置不丢）
+        if (flatEditing && flatEditing.path === nf.path) attachEditorAfter(row)
+      }
+    }
+  }
+
+  /** 把编辑器插到指定行正下方，并高亮该行（其余行取消高亮）*/
+  function attachEditorAfter(rowEl) {
+    rowEl.insertAdjacentElement('afterend', flatEls.editor)
+    for (const r of document.querySelectorAll('#sv-flat-list .row')) {
+      r.classList.toggle('active-row', r === rowEl)
+    }
+  }
+
+  async function openFlatEditor(p, rowEl) {
+    const r = await window.svsettings.readNofs(p)
+    if (!r.ok) { flatEls.tip.textContent = I.t('settings.sv.readFailed', r.error || ''); return }
+    flatEditing = { path: p, data: r.data }
+    // **先入 DOM 再填内容**：编辑器可能正脱离文档（上次重排后没贴回），
+    // 那时候用 getElementById 取子元素全是 null（2026-09-14 踩过）。
+    if (rowEl) attachEditorAfter(rowEl)
+    else if (!flatEls.editor.parentElement) flatEls.list.appendChild(flatEls.editor)
+    flatEls.editor.style.display = 'block'
+    flatEls.path.textContent = p
+    flatEls.area.value = JSON.stringify(r.data, null, 2)
+    flatEls.tip.textContent = ''
+    // 加 style 的临时输入与提示不跨文件残留
+    flatEls.styleData.value = ''
+    flatEls.styleName.value = ''
+    flatEls.styleTip.textContent = ''
+    flatEls.copyName.value = ''
+    // 复制来源列表按**当前这个文件的 vocoder** 过滤：先出提示，再拉全量扫描结果
+    //（force：上次打开时的缓存可能是空列表，别让空缓存一直占着）
+    renderCopySources()
+    await loadFlatStyles(true)
+  }
+
+  /** 往当前编辑中的 nofs JSON 的 styles 数组里加一条（**只收 data 十六进制 + name**）。
+   *  只改文本框内容，**不落盘** —— 用户确认无误后点「保存」才写文件。*/
+  function addStyleToEditor() {
+    const tip = flatEls.styleTip
+    const dataEl = flatEls.styleData
+    const nameEl = flatEls.styleName
+    const hex = dataEl.value.trim().replace(/\s+/g, '')
+    const name = nameEl.value.trim()
+
+    if (!name) { tip.textContent = I.t('settings.sv.styleNeedName'); nameEl.focus(); return }
+    if (!/^[0-9a-fA-F]+$/.test(hex)) { tip.textContent = I.t('settings.sv.styleBadHex'); dataEl.focus(); return }
+    if (hex.length !== STYLE_DATA_HEX) {
+      tip.textContent = I.t('settings.sv.styleBadLen', STYLE_DATA_HEX, hex.length)
+      dataEl.focus()
+      return
+    }
+    let obj
+    try { obj = JSON.parse(flatEls.area.value) }
+    catch { tip.textContent = I.t('settings.sv.jsonSyntaxError'); return }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+      tip.textContent = I.t('settings.sv.styleNotObject')
+      return
+    }
+    if (!Array.isArray(obj.styles)) obj.styles = []
+    if (obj.styles.some((s) => s && String(s.name) === name)) {
+      tip.textContent = I.t('settings.sv.styleDup', name)
+      return
+    }
+    obj.styles.push({ name, data: hex.toUpperCase() })   // 文件里 data 一贯大写
+    flatEls.area.value = JSON.stringify(obj, null, 2)
+    dataEl.value = ''
+    nameEl.value = ''
+    tip.textContent = I.t('settings.sv.styleAdded', name, obj.styles.length)
+  }
+
+  $('btn-sv-flat-add-style').addEventListener('click', addStyleToEditor)
+  // 在 name 里回车 = 点按钮（手不停，先贴 data 再敲名字回车）
+  $('sv-flat-style-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addStyleToEditor() }
+  })
+
+  /* ── 从现有 style 复制 ───────────────────────────────────────────────
+   * 约束（用户 2026-09-14 强调）：**必须同 vocoder** —— 风格向量与声学模型绑定，
+   * 跨 vocoder 复制没有意义（实测结论：风格移植的唯一合法范围 = 同 vocoder）。
+   * 所以下拉里**只列同 vocoder 的声库/styles**，且点击时**再校验一次**
+   *（防用户手改了 JSON 里的 vocoder 后还能靠旧列表复制）。*/
+  let flatStylesAll = null        // 主进程扫来的全部条目
+  const curVocoder = () => {
+    try {
+      const o = JSON.parse(flatEls.area.value)
+      return o && typeof o === 'object' && !Array.isArray(o) && o.vocoder ? String(o.vocoder) : ''
+    } catch { return '' }
+  }
+
+  /** 拉取全量 styles（**force=true 强制重扫**：缓存可能过期，或被上次的失败结果占住）*/
+  async function loadFlatStyles(force) {
+    if (force || !flatStylesAll) {
+      const r = await window.svsettings.listFlatStyles()
+      flatStylesAll = (r && r.ok && Array.isArray(r.items)) ? r.items : []
+    }
+    renderCopySources()
+  }
+
+  function renderCopySources() {
+    const sel = flatEls.copySrc
+    const hint = flatEls.copyHint
+    if (!sel || !hint) return
+    const voc = curVocoder()
+    sel.innerHTML = ''
+    if (!voc) {
+      hint.textContent = I.t('settings.sv.copyNoVocoder')
+      return
+    }
+    if (flatStylesAll === null) {          // 还没扫完，别急着说"没有同源"
+      hint.textContent = I.t('settings.sv.copyScanning')
+      return
+    }
+    let n = 0
+    for (const it of flatStylesAll || []) {
+      if (it.vocoder !== voc) continue          // ⛔ 跨 vocoder 一律不出现在列表里
+      const grp = document.createElement('optgroup')
+      grp.label = it.db
+      for (const name of it.styles) {
+        const opt = document.createElement('option')
+        opt.value = `${it.path}\u0000${name}`      // 路径 + style 名（\0 分隔，名字里可能有 / ）
+        opt.textContent = name
+        grp.appendChild(opt)
+        n++
+      }
+      if (grp.children.length) sel.appendChild(grp)
+    }
+    hint.textContent = n
+      ? I.t('settings.sv.copySameVocoder', voc.slice(0, 8), n)
+      : I.t('settings.sv.copyNoSameVocoder', voc.slice(0, 8))
+  }
+
+  flatEls.copySrc.addEventListener('change', () => {
+    // 选好来源就把新名字预填成「源名 copy」，省得手打
+    const v = flatEls.copySrc.value
+    if (!v) return
+    const src = v.split('\u0000')[1] || ''
+    flatEls.copyName.value = src ? src + ' copy' : ''
+  })
+
+  async function copyStyleFromSource() {
+    const tip = flatEls.styleTip
+    const raw = flatEls.copySrc.value
+    if (!raw) { tip.textContent = I.t('settings.sv.copyNoSource'); return }
+    const [srcPath, srcName] = raw.split('\u0000')
+    const newName = flatEls.copyName.value.trim()
+    if (!newName) { tip.textContent = I.t('settings.sv.copyNeedName'); flatEls.copyName.focus(); return }
+
+    // 当前 JSON 必须是对象，且**vocoder 必须与来源一致**（点击时再校验，别只信下拉）
+    let obj
+    try { obj = JSON.parse(flatEls.area.value) }
+    catch { tip.textContent = I.t('settings.sv.jsonSyntaxError'); return }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) { tip.textContent = I.t('settings.sv.styleNotObject'); return }
+    const voc = String(obj.vocoder || '')
+    const meta = (flatStylesAll || []).find((it) => it.path === srcPath)
+    if (!voc || !meta || meta.vocoder !== voc) {
+      tip.textContent = I.t('settings.sv.copyDiffVocoder', String((meta && meta.vocoder) || '?').slice(0, 8), voc.slice(0, 8) || '?')
+      return
+    }
+    if (!Array.isArray(obj.styles)) obj.styles = []
+    if (obj.styles.some((s) => s && String(s.name) === newName)) {
+      tip.textContent = I.t('settings.sv.styleDup', newName)
+      return
+    }
+    const r = await window.svsettings.readNofs(srcPath)
+    if (!r.ok) { tip.textContent = I.t('settings.sv.readFailed', r.error || ''); return }
+    const src = (r.data.styles || []).find((s) => s && String(s.name) === srcName)
+    if (!src) { tip.textContent = I.t('settings.sv.copySourceGone', srcName); return }
+    // 忠实复制：name/data 必带，extra（8 hex，可选）有就一起带
+    const entry = { name: newName, data: String(src.data || '').toUpperCase() }
+    if (src.extra) entry.extra = String(src.extra).toUpperCase()
+    obj.styles.push(entry)
+    flatEls.area.value = JSON.stringify(obj, null, 2)
+    flatEls.styleTip.textContent = I.t('settings.sv.copyDone', newName, srcName, obj.styles.length) +
+      (entry.extra ? I.t('settings.sv.copyKeptExtra') : '')
+  }
+
+  $('btn-sv-flat-copy-style').addEventListener('click', copyStyleFromSource)
+
+  $('btn-sv-flat-save').addEventListener('click', async () => {
+    if (!flatEditing) return
+    let parsed
+    try { parsed = JSON.parse(flatEls.area.value) }
+    catch { flatEls.tip.textContent = I.t('settings.sv.jsonSyntaxError'); return }
+    const r = await window.svsettings.writeNofs(flatEditing.path, parsed)
+    flatEls.tip.textContent = r.ok
+      ? I.t('settings.sv.savedWithBackup', r.backup)
+      : I.t('settings.sv.saveFailed', r.error || '')
+    // 刚写进去的 style 要立刻能在"复制来源"里选到（主进程缓存已在写时失效）
+    if (r.ok) await loadFlatStyles(true)
+  })
+  $('btn-sv-flat-cancel').addEventListener('click', () => {
+    flatEls.editor.style.display = 'none'
+    flatEditing = null
+    // 取消高亮：没有"正在编辑的行"了
+    for (const r of document.querySelectorAll('#sv-flat-list .row')) r.classList.remove('active-row')
+    flatEls.tip.textContent = ''
+    flatEls.styleTip.textContent = ''
+  })
+  $('btn-sv-flat-reload').addEventListener('click', () => {
+    if (flatEditing) openFlatEditor(flatEditing.path)
+  })
+
+  loadFlatStatus()
+  window.svsettings.requestStatus()
+
+  /* ── 界面语言：先把 [data-i18n] 刷成当前语种，再注册切语种回调 ──
+   * 切语种**不重载窗口**：这里 apply() 静态文案 + 重排所有 JS 生成的动态部分。
+   * ⚠️ 每个重渲染各自 try/catch：某个渲染函数抛错（数据没到位等）不能让**后面的一整串**
+   *    留在旧语种上——2026-09-13 实测踩过（renderFlatStatus 抛错 ⇒ STT 下拉没跟着切）。 */
+  const safeRedraw = (label, fn) => {
+    try { fn() } catch (e) { console.error('[i18n] 重排 ' + label + ' 失败：' + e.message) }
+  }
+  I.apply()
+  I.onChange(() => {
+    I.apply()
+    safeRedraw('hostStatus', renderHostStatus)
+    safeRedraw('bridgeStatus', renderBridgeStatus)
+    safeRedraw('providers', () => { if (providersData) renderProviders() })
+    safeRedraw('orbState', renderOrbState)
+    safeRedraw('svConfig', renderSvConfig)
+    safeRedraw('flatStatus', renderFlatStatus)
+    safeRedraw('flatCopy', renderCopySources)
+    safeRedraw('stt', () => { if (sttData) renderStt(sttData) })
+  })
+</script>
+</body>
+</html>

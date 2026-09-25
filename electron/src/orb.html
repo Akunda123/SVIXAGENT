@@ -1,0 +1,1305 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin:0; padding:0; background:transparent; overflow:hidden; width:100%; height:100%; }
+  * { -webkit-user-select: none; }
+
+  /* ── 主题色变量：默认 SV 绿；body[data-host="instrument-x"] 切换为 IX logo 蓝 ── */
+  :root {
+    --theme: #79d825;               /* 主色（按钮/强调） */
+    --theme-rgb: 121,216,37;        /* 主色 RGB（rgba 透明变体用） */
+    --theme-btn-fg: #1a1d29;        /* 主色按钮上的深色文字 */
+    --theme-soft: rgb(160,230,90);  /* 柔和强调文字（opt-btn.allow 等） */
+    --dot: #3ddc84;                 /* 状态绿点（host 就绪 + 桥心跳新鲜） */
+    --dot-warn: #f0b429;            /* 状态黄点（host 就绪，但桥心跳过期/没跑过桥脚本） */
+  }
+  body[data-host="instrument-x"] {
+    --theme: #00AEFF;
+    --theme-rgb: 0,174,255;
+    --theme-btn-fg: #1a1d29;
+    --theme-soft: rgb(120,200,255);
+    --dot: #00AEFF;
+    --dot-warn: #f0b429;
+  }
+
+  /* ── 悬浮球 + label 组合（右侧；右端贴窗口右缘，避免 64px 窗口裁切） ── */
+  #orb-zone {
+    position:absolute; right:0; bottom:0; width:190px; height:64px;
+  }
+  #orb {
+    position:absolute; right:0; bottom:4px;   /* orb 贴窗口最右，label 在它左边 */
+    z-index:1;                                   /* orb 盖在 label 之上（右段藏进圈内） */
+    width:56px; height:56px; border-radius:50%;
+    background:#353837; border:1.5px solid rgba(255,255,255,.35);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    box-shadow:0 3px 12px rgba(0,0,0,.55), inset 0 0 4px rgba(255,255,255,.06);
+    transition:transform .18s ease;
+    /* orb 保留点击展开面板，不做 drag */
+  }
+  #orb .logo { width:44px; height:auto; display:block; pointer-events:none; }
+  #orb .dot {
+    position:absolute; right:1px; bottom:1px; width:13px; height:13px;
+    border-radius:50%; background:#5a5a5a; border:2px solid #fff;
+  }
+  #orb.ready .dot { background:var(--dot); }
+  /* 黄点：host 就绪但桥不在线（心跳过期/没运行过桥脚本）—— 只提示，不是错误（IX 桥要手动起） */
+  #orb.ready.warn .dot { background:var(--dot-warn); }
+
+  /* hover 展开的 label（右段藏进圈内，从右往左弹出，与 orb 垂直居中）
+     拖动平移：按住 label 手动拖动窗口（原生 drag 在透明窗口失效，
+     改用 mousedown + 主进程绝对坐标定位，所有竞争已冻结） */
+  #orb-label {
+    position:absolute; right:40px; top:50%;
+    transform:translateY(-50%) scaleX(0); transform-origin:right center;
+    z-index:0;
+    opacity:0; white-space:nowrap;
+    background:#2e2e2e; border-radius:12px; height:46px;
+    display:flex; align-items:center; padding:0 24px 0 14px;   /* 右 padding 大：藏进圈内的只有留白，文字完整可见 */
+    box-shadow:0 2px 8px rgba(0,0,0,.4);
+    transition:transform .25s ease, opacity .18s ease;
+  }
+  #orb-label img { height:14px; width:auto; display:block; pointer-events:none; }
+  /* label 折叠时不可交互（pointer-events:none），展开后可交互（拖动） */
+  #orb-label { pointer-events:none; }
+  #orb-zone:hover #orb-label { transform:translateY(-50%) scaleX(1); opacity:1; pointer-events:auto; cursor:grab; }
+  #orb-zone:hover #orb { transform:scale(1.06); }
+
+  /* ── 对话面板（圆圈上方，从下往上弹出） ── */
+  #chat-overlay {
+    position:absolute; left:0; bottom:68px;
+    transform-origin:bottom left;
+    transform:scaleY(0);
+    opacity:0; pointer-events:none;
+    transition:transform .25s ease, opacity .2s ease;
+  }
+  #chat-overlay.open { transform:scaleY(1); opacity:1; pointer-events:auto; }
+  #chat-panel {
+    width:340px; height:440px;
+    background:#2e2e2e; border-radius:14px;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    box-shadow:0 8px 30px rgba(0,0,0,.55);
+    color:rgb(179,179,179);
+    font-family:system-ui, sans-serif;
+  }
+  .chat-head {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    font-weight:600; font-size:13px; color:rgb(200,200,200);
+  }
+  .chat-head button {
+    background:none; border:none; color:rgb(179,179,179);
+    font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px;
+  }
+  .chat-head button:hover { background:rgba(255,255,255,.1); }
+  /* ── 连接状态横幅（host 未就绪时显示"正在连接"，就绪后显示"连接完成"） ── */
+  #conn-banner {
+    display:flex; align-items:center; gap:6px;
+    margin:8px 12px 0; padding:7px 10px; border-radius:8px;
+    background:rgba(255,255,255,.05); font-size:11px; color:rgb(140,140,140);
+    transition:opacity .5s ease;
+  }
+  #conn-banner.connected { color:var(--theme); background:rgba(var(--theme-rgb),.1); }
+  #conn-banner.hidden { opacity:0; pointer-events:none; }
+  #conn-banner .spin {
+    width:9px; height:9px; border-radius:50%; flex-shrink:0;
+    border:2px solid rgba(140,140,140,.3); border-top-color:rgb(179,179,179);
+    animation:think-spin .9s linear infinite;
+  }
+  #conn-banner.connected .spin { display:none; }
+  .chat-body {
+    flex:1; overflow-y:auto; padding:14px 16px;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  /* 滚动条：背景空、无上下指示、滑块未选中 96 / 悬停选中 125 */
+  .chat-body::-webkit-scrollbar { width:4px; background:transparent; }
+  .chat-body::-webkit-scrollbar-track { background:transparent; }
+  .chat-body::-webkit-scrollbar-button { display:none; }
+  .chat-body::-webkit-scrollbar-thumb {
+    background:rgb(96,96,96); border-radius:4px;
+  }
+  .chat-body::-webkit-scrollbar-thumb:hover,
+  .chat-body::-webkit-scrollbar-thumb:active { background:rgb(125,125,125); }
+  .msg { max-width:85%; padding:8px 12px; border-radius:10px; line-height:1.5; font-size:13px; white-space:pre-wrap; overflow-wrap:anywhere; }
+  /* 段分隔线：跨工程/新会话/导出边界（显示层全量时间线的分界） */
+  .seg-sep {
+    align-self:center; margin:10px 0 6px; padding:2px 10px; font-size:11px; letter-spacing:.5px;
+    color:rgb(140,140,140); border-top:1px solid rgba(255,255,255,.12);
+    border-bottom:1px solid rgba(255,255,255,.12); max-width:100%; text-align:center;
+  }
+  .msg.assistant { align-self:flex-start; background:rgba(255,255,255,.06); max-width:92%; }
+  .msg.user { align-self:flex-end; background:rgba(var(--theme-rgb),.15); color:rgb(200,200,200); }
+
+  /* ── agent 消息内部三区：think（可折叠）/ 工具行 / 输出 ── */
+  .think-row { margin:-2px 0 4px; }
+  .think-head {
+    background:none; border:none; color:rgb(130,130,130); font-size:11px;
+    cursor:pointer; padding:2px 6px; border-radius:6px; display:flex; align-items:center; gap:4px;
+  }
+  .think-head:hover { background:rgba(255,255,255,.08); color:rgb(170,170,170); }
+  .think-head .spin {
+    width:9px; height:9px; border-radius:50%;
+    border:2px solid rgba(140,140,140,.3); border-top-color:rgb(179,179,179);
+    animation:think-spin .9s linear infinite; display:inline-block;
+  }
+  @keyframes think-spin { to { transform:rotate(360deg) } }
+  .think-body {
+    display:none; margin:4px 0 2px; padding:8px 10px; background:rgba(0,0,0,.22);
+    border-radius:8px; font-size:12px; line-height:1.55; color:rgb(150,150,150);
+    white-space:pre-wrap; word-break:break-all; overflow-wrap:anywhere; max-height:220px; overflow-y:auto;
+  }
+  .think-row.open .think-body { display:block; }
+  .tool-line {
+    display:flex; align-items:center; gap:6px; margin:2px 0;
+    font-size:11px; color:rgb(130,130,130);
+  }
+  .tool-line .tl-name { font-family:ui-monospace, monospace; }
+  .tool-line .tl-state { color:rgb(170,170,170); }
+  .tool-line.done .tl-state { color:var(--theme); }
+  .tool-line.err { color:rgb(229,72,77); }
+  .tool-line.err .tl-state { color:rgb(229,72,77); }
+  .out-text { white-space:pre-wrap; word-break:break-all; overflow-wrap:anywhere; }
+  .out-text .cursor {
+    display:inline-block; width:6px; height:13px; background:rgb(179,179,179);
+    vertical-align:-2px; animation:think-spin 0s; opacity:.8;
+  }
+  .err-line {
+    align-self:flex-start; max-width:92%; padding:8px 12px; border-radius:10px;
+    background:rgba(229,72,77,.12); color:rgb(229,72,77); font-size:12px; line-height:1.5;
+    white-space:pre-wrap; word-break:break-word;
+  }
+
+  /* ── 选项区（approval / question 按钮） ── */
+  .opt-panel {
+    align-self:stretch; margin-top:2px; padding:10px 12px; border-radius:10px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .opt-title { font-size:12px; color:rgb(200,200,200); font-weight:600; }
+  .opt-detail { font-size:11px; color:rgb(140,140,140); line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  .opt-actions { display:flex; flex-wrap:wrap; gap:6px; }
+  .opt-btn {
+    background:rgba(255,255,255,.09); color:rgb(200,200,200);
+    border:1px solid rgba(255,255,255,.14); border-radius:8px;
+    padding:5px 12px; font-size:12px; cursor:pointer;
+  }
+  .opt-btn:hover { background:rgba(255,255,255,.16); }
+  .opt-btn.allow { background:rgba(var(--theme-rgb),.18); color:var(--theme-soft); border-color:rgba(var(--theme-rgb),.35); }
+  .opt-btn.allow:hover { background:rgba(var(--theme-rgb),.3); }
+  .opt-btn.deny { background:rgba(229,72,77,.14); color:rgb(235,110,115); border-color:rgba(229,72,77,.3); }
+  .opt-btn.deny:hover { background:rgba(229,72,77,.26); }
+  .opt-btn.selected { background:rgba(var(--theme-rgb),.28); color:var(--theme-soft); border-color:rgba(var(--theme-rgb),.5); }
+  .opt-btn:disabled { opacity:.45; cursor:default; }
+  .opt-input {
+    background:#353837; border:1px solid rgba(255,255,255,.12); color:rgb(179,179,179);
+    border-radius:6px; padding:5px 8px; font-size:12px; outline:none;
+    -webkit-user-select:text;
+    /* 有选项时它和按钮同处 flex-wrap 行里 —— 占满剩余宽度、放不下就换行 */
+    flex:1 1 140px; min-width:120px;
+  }
+  .opt-submit {
+    align-self:flex-end; background:var(--theme); color:var(--theme-btn-fg); border:none;
+    border-radius:8px; padding:5px 14px; font-size:12px; font-weight:600; cursor:pointer;
+  }
+  .opt-submit:disabled { opacity:.45; cursor:default; }
+  /* ⚠️ 这一行的**行高必须固定**：停止按钮（#chat-stop）是靠 `display` 切换出现的（见 setSendEnabled），
+   *   原来没有固定行高、全靠 flex 各自撑 ⇒ 它一出现/消失整行高度就跳（用户 2026-09-20 报「会改变行高」）。
+   *   做法：**子元素一律 34px + border-box，行高钉死** ⇒ 无论行里有几个按钮，行高都不变。
+   *   ⚠️ 59 = 子元素 34 + 上下 padding 12×2 + **border-top 1** —— `box-sizing:border-box` 把边框算在
+   *   height 里，写成 58 会让内容区只剩 33 ⇒ 34px 的子元素溢出 1px（边框被裁）。改这里别把 height/box-sizing 拿掉。 */
+  .chat-input {
+    display:flex; gap:8px; padding:12px;
+    border-top:1px solid rgba(255,255,255,.08);
+    height:59px; box-sizing:border-box; align-items:center;
+  }
+  .chat-input input,
+  .chat-input button {
+    height:34px; box-sizing:border-box;
+  }
+  .chat-input input {
+    /* ⚠️ `min-width` 必须显式写成 0：flex 项默认 min-width:auto，输入框不肯缩 ⇒ 压力全给按钮，
+     *   发送按钮被压到文字折行（用户 2026-09-20 报「发送会在有中断时变成两行」）。 */
+    flex:1 1 auto; min-width:0;
+    background:#353837; border:1px solid rgba(255,255,255,.12);
+    border-radius:8px; padding:0 12px; line-height:32px; color:rgb(179,179,179); outline:none;
+    -webkit-user-select:text;
+  }
+  .chat-input button {
+    /* ⚠️ 按钮**不参与伸缩、文字不换行**：否则多一个按钮（#chat-stop）就会把"发送"挤成两行 */
+    flex:0 0 auto; white-space:nowrap;
+    background:var(--theme); color:var(--theme-btn-fg); border:none;
+    border-radius:8px; padding:0 14px; font-weight:600; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  #chat-mic {
+    background:rgba(255,255,255,.08); color:rgb(179,179,179);
+    border:none; border-radius:8px; width:34px; padding:0; cursor:pointer;
+  }
+  /* 停止本轮：只在有轮次在跑时显示（display 由 setSendEnabled() 控制）；
+     高度/盒模型继承上面的统一规则 ⇒ 不参与撑行高 */
+  #chat-stop {
+    background:rgba(229,72,77,.18); color:#e5484d;
+    border:1px solid rgba(229,72,77,.35);
+    padding:0 12px; font-size:12px; line-height:1;
+  }
+  #chat-stop:hover { background:rgba(229,72,77,.3); }
+  #chat-mic:hover { background:rgba(255,255,255,.14); color:rgb(220,220,220); }
+  #chat-mic.recording {
+    background:rgba(229,72,77,.2); color:#e5484d;
+    animation:mic-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes mic-pulse { 0%,100% { opacity:1 } 50% { opacity:.55 } }
+</style>
+</head>
+<body>
+
+<!-- 悬浮球 + hover label（左下锚定） -->
+<div id="orb-zone">
+  <div id="orb" title="Synthesizer V  AI Agent">
+    <img class="logo" src="sv-monogram-anim.svg" alt="Synthesizer V  AI Agent">
+    <span class="dot"></span>
+  </div>
+  <div id="orb-label">
+    <img src="akdagent-text.svg" alt="ynthesizer V Studio">
+  </div>
+</div>
+
+<!-- 对话面板（圆圈上方弹出） -->
+<div id="chat-overlay">
+  <div id="chat-panel">
+    <div class="chat-head">
+      <span id="chat-title">Synthesizer V  AI Agent</span>
+      <div style="display:flex;align-items:center;gap:2px">
+        <button id="chat-reload" title="恢复聊天记录（重新加载全部段的历史）" data-i18n-title="orb.toolbar.reloadTitle">⟳</button>
+        <button id="chat-new" title="新会话（在当前工程段内插一个分界，不清空显示）" data-i18n-title="orb.toolbar.newTitle">↻</button>
+        <button id="chat-export" title="导出本工程会话为 md（导出后该段不再喂模型）" data-i18n-title="orb.toolbar.exportTitle">⇩</button>
+        <button id="chat-close" title="关闭" data-i18n-title="orb.toolbar.closeTitle">✕</button>
+      </div>
+    </div>
+    <!-- 初始文案由 data-i18n 给（I.apply()）；之后 setText 会带 data-i18n-key 由 redrawDynamic() 重排 -->
+    <div id="conn-banner"><span class="spin"></span><span id="conn-text" data-i18n="orb.status.connecting">正在连接 DSH…</span></div>
+    <div class="chat-body" id="chat-body">
+    </div>
+    <div class="chat-input">
+      <!-- 麦克风的 title / aria-label 由脚本 renderMicButton() 按状态 + 语种设置（不挂 data-i18n-title，避免与状态文案打架） -->
+      <button id="chat-mic" title="语音输入" aria-label="语音输入" style="display:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+        </svg>
+      </button>
+      <input id="chat-text" type="text" placeholder="向智能体发送消息" data-i18n-ph="orb.input.placeholder">
+      <!-- 停止按钮：**只在有轮次在跑时出现**（由 setSendEnabled() 统一切 display）。点它 → agentCancel
+           → 主进程 dshCall('session/cancel')。2026-09-19 用户反馈「悬浮球没有中断」补上。 -->
+      <button id="chat-stop" title="停止本轮（中断智能体）" data-i18n-title="orb.toolbar.stopTitle" style="display:none">■</button>
+      <button id="chat-send" data-i18n="orb.toolbar.send">发送</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* akdagent API 由 preload 注入：resize / setIgnore / dragStart / dragMove / dragEnd / onStatus */
+  const orb = document.getElementById('orb')
+  const zone = document.getElementById('orb-zone')
+  const chatOverlay = document.getElementById('chat-overlay')
+  const chatBody = document.getElementById('chat-body')
+  const chatText = document.getElementById('chat-text')
+  const chatStop = document.getElementById('chat-stop')
+
+  /* ── 界面语言（i18n）────────────────────────────────────────────────
+     字典与 I.apply() 由 preload 注入（见 src/i18n/README.md）；preload 缺失时退化为「取 key」，
+     脚本仍能跑。切语种**不重载窗口**（重载会丢掉没发出去的草稿），动态文案靠 onChange 重排。 */
+  const I = window.svi18n || { t: (k) => k, apply: () => {}, onChange: () => {}, locale: 'zh-Hans' }
+
+  /* 脚本生成的文案节点：写文本的同时记住 key/参数，切语种时统一重排。
+     只用于**动态节点**（data-i18n-key），静态 HTML 的 data-i18n* 由 I.apply() 负责，两套互不干扰。 */
+  function setText(el, key, ...args) {
+    const a = args.map((v) => String(v))
+    el.setAttribute('data-i18n-key', key)
+    el.setAttribute('data-i18n-args', JSON.stringify(a))
+    el.textContent = I.t(key, ...a)
+    return el
+  }
+  /* 同上，但文案里含内联标签（如工具名的等宽 span），需保留 HTML */
+  function setHtml(el, key, ...args) {
+    const a = args.map((v) => String(v))
+    el.setAttribute('data-i18n-key', key)
+    el.setAttribute('data-i18n-args', JSON.stringify(a))
+    el.setAttribute('data-i18n-html', '1')
+    el.innerHTML = I.t(key, ...a)
+    return el
+  }
+
+  /* 段分隔线节点 → 段对象（切语种时按新语种重算文本；节点被移除后由 GC 回收） */
+  const segStore = new WeakMap()
+
+  /* 切语种后重排时间线里**已经渲染出来**的动态文案：
+     ① 记忆了 key 的节点直接按新语种重填；② 段分隔线按存的段对象重算；③ 麦克风按钮按状态重设。
+     选这个方案（就地重排，不重渲染整个时间线）是为了不打断正在流式的回合、也不丢任何节点。 */
+  function redrawDynamic() {
+    chatBody.querySelectorAll('[data-i18n-key]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-key')
+      let args = []
+      try { args = JSON.parse(el.getAttribute('data-i18n-args') || '[]') } catch { args = [] }
+      if (el.hasAttribute('data-i18n-html')) el.innerHTML = I.t(key, ...args)
+      else el.textContent = I.t(key, ...args)
+    })
+    chatBody.querySelectorAll('.seg-sep').forEach((el) => {
+      el.textContent = '—— ' + segLabel(segStore.get(el)) + ' ——'
+    })
+    renderMicButton()
+  }
+
+  let chatOpen = false
+  let labelShown = false
+  let zoneHovered = false
+  let lastAnimAt = 0
+  let lastIgnore = true
+  let zoneResizeTimer = null
+
+  /* ── 动态窗口尺寸（主进程保持左下角锚定） ── */
+  function updateLayout() {
+    const w = chatOpen ? 372 : (labelShown ? 190 : 64)
+    const h = chatOpen ? 512 : 64
+    window.akdagent.resize(w, h)
+  }
+
+  /* ── 区域外点击穿透：仅 orb/label/对话面板响应鼠标 ── */
+  function setIgnore(ignore) {
+    if (ignore !== lastIgnore) {
+      lastIgnore = ignore
+      window.akdagent.setIgnore(ignore)
+    }
+  }
+  window.addEventListener('mousemove', (e) => {
+    const interactive = e.target.closest('#orb, #orb-label, #chat-overlay')
+    setIgnore(!interactive)
+  })
+  window.addEventListener('mouseleave', () => setIgnore(true))
+
+  /* ── hover 展开 label（同步调整窗口宽度）；fresh 守卫 + 500ms 防抖，
+        窗口 resize 引起的 mouseenter 重入不会重放动画 ── */
+  zone.addEventListener('mouseenter', () => {
+    const fresh = !zoneHovered
+    zoneHovered = true
+    labelShown = true
+    // 延迟 resize：等 label 展开动画启动后再改窗口，避免 resize 与动画同步抢导致跳动
+    clearTimeout(zoneResizeTimer)
+    zoneResizeTimer = setTimeout(updateLayout, 120)
+    if (fresh) restartLabelAnim()
+  })
+  zone.addEventListener('mouseleave', () => {
+    zoneHovered = false
+    labelShown = false
+    clearTimeout(zoneResizeTimer)
+    updateLayout()
+  })
+
+  /* 每次「真正的新 hover」重放 orb logo 动画；label 文字是静态图，不重载 src（避免跳动） */
+  function restartLabelAnim() {
+    const now = Date.now()
+    if (now - lastAnimAt < 500) return
+    lastAnimAt = now
+    const logo = document.querySelector('#orb .logo')
+    if (logo) {
+      logo.src = logo.src.split('?')[0] + '?v=' + Date.now()
+    }
+  }
+
+  /* ── 拖动：按住 label 拖动窗口 ──
+     主进程 drag-start 后启动定时器轮询光标绝对定位（不依赖渲染层 mousemove，
+     避免窗口移动污染事件坐标导致反馈循环漂移）。
+     orb 球不拖动，点击展开面板。 */
+  const orbLabel = document.getElementById('orb-label')
+  let labelDragging = false
+
+  orbLabel.addEventListener('mousedown', (e) => {
+    labelDragging = true
+    setIgnore(false)                 // 强制可交互，防 mouseup 丢失
+    window.akdagent.dragStart()
+    e.preventDefault()
+  })
+  window.addEventListener('mouseup', (e) => {
+    if (labelDragging) {
+      labelDragging = false
+      window.akdagent.dragEnd()
+      // 恢复穿透检测（按鼠标当前位置）
+      const hit = document.elementFromPoint(e.clientX, e.clientY)
+      const interactive = !!(hit && hit.closest && hit.closest('#orb, #orb-label, #chat-overlay'))
+      setIgnore(!interactive)
+    }
+  })
+  // 兜底：拖动中鼠标滑出窗口 → mouseup 丢失 → 强制结束拖动（停掉主进程轮询）
+  window.addEventListener('mouseleave', () => {
+    if (labelDragging) {
+      labelDragging = false
+      window.akdagent.dragEnd()
+    }
+  })
+
+  /* ── 点击 orb：开/关对话面板 ── */
+  function setChatOpen(open) {
+    chatOpen = !!open
+    chatOverlay.classList.toggle('open', chatOpen)
+    updateLayout()
+    if (chatOpen) {
+      chatText.focus()
+      loadHistory()
+    }
+  }
+  orb.addEventListener('click', () => {
+    setChatOpen(!chatOpen)
+  })
+  document.getElementById('chat-close').addEventListener('click', () => {
+    setChatOpen(false)
+  })
+  // 主进程右键菜单「显示/隐藏聊天」→ 切换文本面板
+  window.akdagent.onTogglePanel(() => setChatOpen(!chatOpen))
+
+  /* ── 新会话按钮：**在当前工程段内插一个新段**（不清空面板，只画分界线）── */
+  let projectLabel = null   // 当前显示的工程名
+  let curSegId = null       // 当前段 id（主进程段表）
+  document.getElementById('chat-new').addEventListener('click', async () => {
+    curTurn = null
+    busy = false
+    lastSentText = null
+    window.akdagent.agentNew().then((r) => {
+      if (!r.ok) { appendErr('orb.err.newSession', r.error || ''); setSendEnabled(); return }
+      curSegId = r.segId || curSegId
+      mySessionId = r.sessionId || mySessionId
+      if (r.project) projectLabel = r.project
+      // 显示层继续追加：画一条"新会话"分界，不丢之前的内容
+      appendSegSeparator({ kind: 'manual-split', projectKey: r.project, projectName: r.projectName || projectLabel, gen: r.gen })
+      setSendEnabled()
+    })
+  })
+
+  /* ── 导出按钮：把当前工程段写成 md（导出后该段不再喂模型）── */
+  const exportBtn = document.getElementById('chat-export')
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      exportBtn.disabled = true
+      window.akdagent.agentExport().then((r) => {
+        exportBtn.disabled = false
+        if (!r.ok) { appendErr('orb.err.export', r.error || ''); return }
+        appendSegSeparator({ kind: 'exported', projectKey: null, projectName: I.t('orb.seg.exportedMark'), exportedUpToSeq: r.exportedUpToSeq })
+        appendInfo('orb.info.exported', r.file, r.gen)
+      }).catch((e) => { exportBtn.disabled = false; appendErr('orb.err.exportException', e.message || e) })
+    })
+  }
+
+  /* ── 恢复聊天记录按钮：清空面板并强制重新加载当前会话历史 ── */
+  document.getElementById('chat-reload').addEventListener('click', () => {
+    chatBody.innerHTML = ''
+    historyLoaded = false
+    curTurn = null
+    busy = false
+    mySessionId = null
+    lastSentText = null
+    appendInfo('orb.info.reloading')
+    loadHistory()
+  })
+
+  /* ── 右键菜单（orb / label / 对话面板上均可触发）── */
+  zone.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    window.akdagent.showContextMenu(e.screenX, e.screenY)
+  })
+
+  /* ── 真实 Agent 对话（主进程代理 DSH host，三区渲染） ── */
+  let mySessionId = null          // 当前绑定的 DSH 会话
+  let curTurn = null              // 当前回合的 assistant 渲染节点
+  let busy = false                // agent 是否正在跑（**不再用来禁止发送** —— 见 setSendEnabled）
+  let sending = false             // 本次发送是否在处理中（只防"同一次提交被重复触发"）
+  let historyLoaded = false
+  let agentReady = false          // host + mux 是否就绪
+  let connHideTimer = null
+
+  function scrollToBottom() { chatBody.scrollTop = chatBody.scrollHeight }
+
+  function appendMsg(role, text) {
+    const m = document.createElement('div')
+    m.className = 'msg ' + role
+    m.textContent = text
+    chatBody.appendChild(m)
+    scrollToBottom()
+    return m
+  }
+
+  /* 错误/提示行：传 i18n key + 占位符参数（切语种时按存的 key 重排） */
+  function appendErr(key, ...args) {
+    const e = document.createElement('div')
+    e.className = 'err-line'
+    setText(e, key, ...args)
+    chatBody.appendChild(e)
+    scrollToBottom()
+    return e
+  }
+
+  function appendInfo(key, ...args) {
+    const e = document.createElement('div')
+    e.className = 'err-line'
+    // 用当前主题主色（SV 绿 / IX 蓝），从 body 的 CSS 变量读取
+    const cs = getComputedStyle(document.body)
+    const themeRgb = cs.getPropertyValue('--theme-rgb').trim() || '121,216,37'
+    const soft = cs.getPropertyValue('--theme-soft').trim() || 'rgb(160,230,90)'
+    e.style.cssText = `background:rgba(${themeRgb},.08);color:${soft};font-size:11px`
+    setText(e, key, ...args)
+    chatBody.appendChild(e)
+    scrollToBottom()
+    return e
+  }
+
+  /* 新建 assistant 节点（含 think / 工具 / 输出三区） */
+  function newAssistantNode(turn) {
+    const el = document.createElement('div')
+    el.className = 'msg assistant'
+    el.innerHTML =
+      '<div class="think-row">' +
+      '  <button class="think-head"><span class="spin"></span><span class="think-label"></span></button>' +
+      '  <div class="think-body"></div>' +
+      '</div>' +
+      '<div class="tool-area" style="display:none"></div>' +
+      '<div class="out-text"></div>'
+    chatBody.appendChild(el)
+    const node = {
+      el, turn,
+      thinkRow: el.querySelector('.think-row'),
+      thinkHead: el.querySelector('.think-head'),
+      thinkLabel: el.querySelector('.think-label'),
+      thinkBody: el.querySelector('.think-body'),
+      thinkText: '',
+      toolArea: el.querySelector('.tool-area'),
+      outEl: el.querySelector('.out-text'),
+      outText: '',
+      toolLines: [],
+      finished: false,
+    }
+    node.thinkHead.addEventListener('click', () => {
+      node.thinkRow.classList.toggle('open')
+      const open = node.thinkRow.classList.contains('open')
+      setText(node.thinkLabel, open ? 'orb.think.collapse' : 'orb.think.done', node.thinkText.length)
+    })
+    // 初始「思考中…」（无字数）
+    setText(node.thinkLabel, 'orb.think.thinking')
+    scrollToBottom()
+    return node
+  }
+
+  /* 轮次活跃 —— **任何来源**都要亮出「停止」按钮：球上发送（doSend 已置 busy）、
+   * 侧栏面板发起的轮次（球只收事件、自己不置 busy ⇒ 旧实现这里永远不亮）、恢复历史流。
+   * 因为球没有 `turn/start` 分支（DSH 侧从 rc.5 起就没这个 case 走通），
+   * 就把 `ensureTurn()` 当"轮次开始"的汇聚点 —— 它只在**活的**事件（chunk / tool call）上调用，
+   * 历史渲染走 `newAssistantNode()` 不经过这里。幂等：已经在跑就直接返回。 */
+  function markTurnActive() {
+    if (busy) return
+    busy = true
+    setSendEnabled()
+  }
+
+  function ensureTurn(turn) {
+    markTurnActive()
+    if (curTurn && curTurn.turn === turn && !curTurn.finished) return curTurn
+    curTurn = newAssistantNode(turn)
+    // ⚠️ 侧栏面板的「正在处理中…」**不在这里推**（2026-09-17 消息对齐）：
+    //    面板消息已改由主进程 `panel-bridge.js` 直接镜像 mux 会话（单一真相源）。
+    //    这里再推一次就会一轮出两条；悬浮球关着时也没人推 ⇒ 旧路径正是"两边不一样"的根因。
+    return curTurn
+  }
+
+  /* ── 事件分派 ── */
+  function handleSessionEvent(ev) {
+    const d = ev.data || {}
+    switch (ev.type) {
+      // 助手流式正文。⚠️ 双名 + 三形状兼容（2026-09-18）：
+      //   rc.5 发 `assistant/chunk`；0.1.5-rc.2 的 SessionEventMap 已无此名、客户端侧是 `assistant/live-chunk`。
+      //   形状容忍 `{chunk:{type,text}}` / `{type,text}` / `{stream:[…]}` ⇒ 升级前后同一份代码都能跑。
+      case 'assistant/chunk':
+      case 'assistant/live-chunk': {
+        const parts = Array.isArray(d.stream) ? d.stream : (d.chunk ? [d.chunk] : (d.type ? [d] : []))
+        const node = ensureTurn(d.turn)
+        for (const c of parts) {
+          if (!c) continue
+          if (c.type === 'text-delta') {
+            node.outText += (c.text || '')
+            node.outEl.textContent = node.outText
+            scrollToBottom()
+          } else if (c.type === 'reasoning-delta') {
+            node.thinkText += (c.text || '')
+            node.thinkBody.textContent = node.thinkText
+            setText(node.thinkLabel, 'orb.think.streaming', node.thinkText.length)
+          }
+        }
+        break
+      }
+      case 'tool/call': {
+        const node = ensureTurn(d.turn)
+        node.toolArea.style.display = ''
+        const line = document.createElement('div')
+        line.className = 'tool-line'
+        line.innerHTML = `<span class="tl-name">${escapeHtml(d.name)}</span><span class="tl-state"></span>`
+        setText(line.querySelector('.tl-state'), 'orb.tool.running')
+        node.toolArea.appendChild(line)
+        node.toolLines.push(line)
+        scrollToBottom()
+        break
+      }
+      case 'tool/result': {
+        if (!curTurn) break
+        const line = curTurn.toolLines.pop()
+        if (!line) break
+        const failed = !!(d.error || (d.message && d.message.isError))
+        line.classList.add(failed ? 'err' : 'done')
+        const stateEl = line.querySelector('.tl-state')
+        if (stateEl) setText(stateEl, failed ? 'orb.tool.failed' : 'orb.tool.done')
+        break
+      }
+      case 'turn/end': {
+        const kind = d.reason && d.reason.kind
+        if (curTurn) {
+          curTurn.finished = true
+          curTurn.thinkHead.querySelector('.spin')?.remove()
+          if (curTurn.thinkText) {
+            setText(curTurn.thinkLabel, 'orb.think.done', curTurn.thinkText.length)
+          } else {
+            curTurn.thinkRow.style.display = 'none'
+          }
+        }
+        if (kind && kind !== 'completed') {
+          appendErr('orb.turn.end', kind)
+        }
+        // ⚠️ 侧栏面板的一轮结束文本**不在这里推**（2026-09-17 消息对齐）：
+        //    主进程 panel-bridge 自己累积 `assistant/chunk`(text-delta) 并在 turn/end 一次性
+        //    追加（同样不含 think）。这里再推就重复了 —— 面板只该有一个消息来源。
+        busy = false
+        setSendEnabled()
+        curTurn = null
+        break
+      }
+      case 'user/message': {
+        const text = extractText(d.message)
+        if (text && text !== lastSentText) appendMsg('user', text)
+        break
+      }
+      case 'assistant/message': {
+        // live 流式时 chunk 已渲染完该消息，这里跳过（避免重复节点）
+        if (curTurn && curTurn.turn === d.turn) break
+        renderHistoryAssistant(ev)
+        break
+      }
+      default: break
+    }
+  }
+
+  function onAgentEvent(frame) {
+    const p = frame && frame.payload
+    if (!p) return
+    // 会话过滤：普通 session/event 只渲染绑定会话的帧。
+    // 提问/确认也**按会话过滤**（2026-09-17 用户实测"一直在问我上个工程的问题"）——
+    // 只在 mySessionId 还没绑定时放行（那时不知道是哪个会话，宁可显示也别吞掉）。
+    if (p.sessionId) {
+      if (mySessionId) { if (p.sessionId !== mySessionId) return }
+      else if (p.type !== 'approval/requested' && p.type !== 'question/requested') return
+    }
+    switch (p.type) {
+      case 'session/event':
+        handleSessionEvent(p.event)
+        break
+      case 'approval/requested':
+        renderApproval(frame.rpcId, p)
+        break
+      case 'approval/resolved':
+        clearOptionPanels()
+        break
+      case 'question/requested':
+        renderQuestion(frame.rpcId, p)
+        break
+      case 'question/resolved':
+        clearOptionPanels()
+        break
+      case 'stream/error':
+        appendErr('orb.err.stream', (p.error && (p.error.message || p.error.code)) || I.t('orb.err.unknown'))
+        busy = false
+        setSendEnabled()
+        break
+      default: break
+    }
+  }
+
+  /* ── approval / question 渲染 ── */
+  function clearOptionPanels() {
+    document.querySelectorAll('.opt-panel').forEach((el) => el.remove())
+  }
+
+  function renderApproval(rpcId, p) {
+    clearOptionPanels()
+    const panel = document.createElement('div')
+    panel.className = 'opt-panel'
+    const toolName = escapeHtml(p.toolName || I.t('orb.approval.toolFallback'))
+    panel.innerHTML =
+      '<div class="opt-title"></div>' +
+      (p.reason ? `<div class="opt-detail">${escapeHtml(p.reason)}</div>` : '') +
+      '<div class="opt-actions">' +
+      '  <button class="opt-btn allow" data-v="allow"></button>' +
+      '  <button class="opt-btn deny" data-v="deny"></button>' +
+      '</div>'
+    // 工具名带等宽 span：整句做成带 {0} 的 key，把 span 当参数塞进去（保住原样式与语序）
+    setHtml(panel.querySelector('.opt-title'), 'orb.approval.title',
+      `<span style="font-family:ui-monospace,monospace">${toolName}</span>`)
+    setText(panel.querySelector('.allow'), 'orb.approval.allowOnce')
+    setText(panel.querySelector('.deny'), 'orb.approval.deny')
+    const act = (outcome) => {
+      setPanelBusy(panel, true)
+      window.akdagent.agentRespond(rpcId, {
+        sessionId: p.sessionId, approvalId: p.approvalId, outcome,
+      }).then((r) => {
+        if (r.ok) panel.remove()
+        else { setPanelBusy(panel, false); appendErr('orb.err.respond', r.error || '') }
+      })
+    }
+    panel.querySelector('.allow').addEventListener('click', () => act('allowed-once'))
+    panel.querySelector('.deny').addEventListener('click', () => act('rejected'))
+    chatBody.appendChild(panel)
+    scrollToBottom()
+  }
+
+  function renderQuestion(rpcId, p) {
+    clearOptionPanels()
+    const qs = Array.isArray(p.questions) ? p.questions : []
+    if (qs.length === 0) return
+    // 单个 panel 承载全部问题：DSH ask() 要求整批回答（answers 与 questions 一一对应）
+    const panel = document.createElement('div')
+    panel.className = 'opt-panel'
+    panel.dataset.rpcId = rpcId
+    panel.innerHTML = '<div class="opt-title"></div><div class="opt-list"></div><div class="opt-actions"></div>'
+    setText(panel.querySelector('.opt-title'), 'orb.question.title')
+    const list = panel.querySelector('.opt-list')
+    /* ⚠️ 面板级按钮行必须**显式取直接子元素**（`:scope >`）：
+     * 每道题自己的 `.opt-actions` 也在文档里、且排在前面 ⇒ 旧的 `panel.querySelector('.opt-actions')`
+     * 会命中**第一道题**那一行，于是"提交"按钮被塞进第 1 题的按钮旁边
+     * （用户 2026-09-19 报：「llm 一次问出多个选项时提交只在第一个的位置」）。 */
+    const panelActions = panel.querySelector(':scope > .opt-actions')
+    const perQ = []
+    for (const q of qs) {
+      const block = document.createElement('div')
+      block.className = 'opt-q'
+      block.style.marginBottom = '8px'
+      const detail = document.createElement('div')
+      detail.className = 'opt-detail'
+      detail.textContent = q.header ? `${q.header}：${q.question}` : q.question
+      block.appendChild(detail)
+      if (q.detail) {
+        const sub = document.createElement('div')
+        sub.className = 'opt-detail'
+        sub.style.color = 'rgb(120,120,120)'
+        sub.textContent = q.detail
+        block.appendChild(sub)
+      }
+      const actions = document.createElement('div')
+      actions.className = 'opt-actions'
+      const entry = { q, selected: new Set() }
+      perQ.push(entry)
+      const opts = Array.isArray(q.options) ? q.options : []
+      if (opts.length > 0) {
+        for (const o of opts) {
+          const b = document.createElement('button')
+          b.className = 'opt-btn'
+          b.textContent = o.label
+          b.title = o.description || ''
+          b.addEventListener('click', () => {
+            if (q.multiSelect) {
+              if (entry.selected.has(o.label)) { entry.selected.delete(o.label); b.classList.remove('selected') }
+              else { entry.selected.add(o.label); b.classList.add('selected') }
+            } else {
+              entry.selected.clear()
+              entry.selected.add(o.label)
+              block.querySelectorAll('.opt-btn').forEach((x) => x.classList.remove('selected'))
+              b.classList.add('selected')
+              // ★ 单选：选了选项就清掉"自己输入"（两者不可并存，见下面 input 处的注释）
+              if (entry.input) entry.input.value = ''
+            }
+            updateSubmit()
+          })
+          actions.appendChild(b)
+        }
+      }
+      /* 「自己输入」框 —— **有选项时也要有**（2026-09-19 用户反馈第③件：「提问没有自己输入」）。
+       * 旧实现是 if/else 互斥：有 options 就**只**给按钮 ⇒ 用户只能从给定项里挑、没法自己写。
+       * 但协议本来就允许并存：`dsh-user-questions/lib/types/types.d.ts` 的 selected 注明
+       * "May accompany custom text"、`custom?: string` ⇒ 选一个 + 自己补一句 / 只自己写，都成立。
+       * （submit 时 `selected` 恒存在、可为空数组，满足 schema 的 required。） */
+      const input = document.createElement('input')
+      input.className = 'opt-input'
+      // 用 data-i18n-ph：新建时按当前语种给值，之后切语种由 I.apply() 统一刷新
+      const phKey = opts.length > 0 ? 'orb.question.customPlaceholder' : 'orb.question.inputPlaceholder'
+      input.setAttribute('data-i18n-ph', phKey)
+      input.placeholder = I.t(phKey)
+      entry.input = input
+      input.addEventListener('input', () => {
+        /* ★ **单选时 `custom` 与 `selected` 不可并存** —— 这是宿主的硬校验，不是我们的偏好：
+         * `dsh-host-apiproxy` 的 `matchesQuestions()`（L1385）对 `multiSelect !== true` 的题明确
+         * `if (custom !== undefined && answer.selected.length > 0) return false`。
+         * 不匹配 ⇒ 应答被丢（accepted:false / bad-response）且**该提问永不 resolve** ⇒ agent 永久挂起。
+         * 所以单选下一打字就清掉已选项（反之在选项的 click 里清这里）。多选不受此限。 */
+        if (!q.multiSelect && entry.selected.size > 0) {
+          entry.selected.clear()
+          block.querySelectorAll('.opt-btn').forEach((x) => x.classList.remove('selected'))
+        }
+        updateSubmit()
+      })
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSubmit() })
+      actions.appendChild(input)
+      block.appendChild(actions)
+      list.appendChild(block)
+    }
+    const submitBtn = document.createElement('button')
+    submitBtn.className = 'opt-submit'
+    setText(submitBtn, 'orb.question.submit')
+    submitBtn.disabled = true
+    function updateSubmit() {
+      const all = perQ.every((en) => en.selected.size > 0 || (en.input && en.input.value.trim()))
+      submitBtn.disabled = !all
+    }
+    function doSubmit() {
+      const answers = perQ.map((en) => {
+        const a = { id: en.q.id, selected: [...en.selected] }
+        if (en.input && en.input.value.trim()) a.custom = en.input.value.trim()
+        return a
+      })
+      setPanelBusy(panel, true)
+      // DSH question 应答要求 {sessionId, answer}（questionResponsePayloadSchema）
+      window.akdagent.agentRespond(rpcId, { sessionId: p.sessionId, answer: { answers } }).then((r) => {
+        if (r.ok) panel.remove()
+        else { setPanelBusy(panel, false); appendErr('orb.err.submit', r.error || '') }
+      })
+    }
+    submitBtn.addEventListener('click', doSubmit)
+    panelActions.appendChild(submitBtn)
+    chatBody.appendChild(panel)
+    scrollToBottom()
+  }
+
+  function setPanelBusy(panel, b) {
+    panel.querySelectorAll('button,input').forEach((x) => { x.disabled = b })
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  }
+  function extractText(msg) {
+    if (!msg || !Array.isArray(msg.content)) return ''
+    return msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim()
+  }
+  function extractReasoning(msg) {
+    if (!msg || !Array.isArray(msg.content)) return ''
+    return msg.content.filter((b) => b.type === 'reasoning').map((b) => b.text).join('').trim()
+  }
+
+  let lastSentText = null
+
+  /* ── 连接状态：未就绪显示"正在连接"，就绪显示"连接完成"后淡出 ── */
+  function setConnState(ready) {
+    agentReady = !!ready
+    const banner = document.getElementById('conn-banner')
+    const text = document.getElementById('conn-text')
+    clearTimeout(connHideTimer)
+    if (ready) {
+      banner.classList.add('connected')
+      banner.classList.remove('hidden')
+      setText(text, 'orb.status.connected')
+      connHideTimer = setTimeout(() => banner.classList.add('hidden'), 2500)
+    } else {
+      banner.classList.remove('connected')
+      banner.classList.remove('hidden')
+      setText(text, 'orb.status.connecting')
+    }
+    setSendEnabled()
+  }
+
+  /* 组合区状态 —— **唯一出口**（发送按钮 + 停止按钮都从这里同步）。
+   * ⚠️ 2026-09-19 用户反馈「悬浮球没有插话」的根因就在这里：旧实现按 `!busy` 把发送按钮置灰、
+   *  `sendMsg()` 里 `if (busy) return` **静默丢弃**，于是轮次进行中根本打不进话。
+   *  而主进程本来就是收的 —— `main.js` 用 `session/prompt` 的 **`mode:'queue'`**（返回 accepted）
+   *  ⇒ 闸门放开：**只要 host 就绪就能发**，轮次中的消息由 DSH **排队**（本轮结束后处理）。
+   *  停止按钮则相反：**只在 `busy`（有轮次在跑）时出现**，没得停时不占位。
+   *  ⚠️ 参数 `on` 已作废（历史调用点传的是 `!busy` / `false`）；现在一律按 `agentReady` 判定。 */
+  function setSendEnabled() {
+    const send = document.getElementById('chat-send')
+    const can = !!agentReady
+    send.disabled = !can
+    send.style.opacity = can ? '1' : '.45'
+    if (chatStop) chatStop.style.display = busy ? 'inline-flex' : 'none'
+  }
+
+  function sendMsg() {
+    const t = chatText.value.trim()
+    // 只防"同一次提交被重复触发"（agentSessionState 的 await 窗口）；**不再因轮次在跑而拒收**
+    if (!t || sending) return
+    if (!agentReady) {
+      // host 未就绪：不发请求，显示连接提示（避免"发送失败"误报）
+      const banner = document.getElementById('conn-banner')
+      const text = document.getElementById('conn-text')
+      banner.classList.remove('connected', 'hidden')
+      setText(text, 'orb.status.connectingWait')
+      return
+    }
+    const interject = busy          // 轮次进行中 ⇒ 这是插话（排队语义）
+    sending = true
+    // 发送前**不再清空面板**（2026-09-13 新语义：全量时间线 + 工程分隔线，切工程不丢内容）。
+    // 只刷新一下当前段/工程显示，然后照常发送。
+    window.akdagent.agentSessionState().then((st) => {
+      if (st && st.ok) {
+        if (st.project) projectLabel = st.project
+        if (st.segId) curSegId = st.segId
+      }
+      doSend(t, interject)
+    }).catch(() => doSend(t, interject))
+  }
+
+  function doSend(t, interject) {
+    lastSentText = t
+    appendMsg('user', t)
+    // 插话要给回执：队列语义 = 本轮结束后才处理（旧实现是静默丢弃，用户看不出到底发出去没）
+    if (interject) appendInfo('orb.queued')
+    chatText.value = ''
+    busy = true
+    sending = false
+    setSendEnabled()
+    window.akdagent.agentSend(t)
+      .then((r) => {
+        if (r.ok) {
+          mySessionId = r.sessionId || mySessionId
+        } else {
+          appendErr('orb.err.send', r.error || '')
+          // ⚠️ 插话失败时**不能清 busy** —— 那个轮次还在跑，停了会把"停止"按钮也藏掉
+          if (!interject) busy = false
+          setSendEnabled()
+        }
+      })
+      .catch((e) => {
+        appendErr('orb.err.sendException', e.message || e)
+        if (!interject) busy = false
+        setSendEnabled()
+      })
+  }
+
+  /* 「停止本轮」—— 用户 2026-09-19 反馈的第②件（悬浮球没有中断）。
+   * 后端早就齐：preload `agentCancel` → 主进程 `akdagent-agent-cancel` → `dshCall('session/cancel')`；
+   * 这里只负责点它。`busy` 由随后到达的 `turn/end` 清（reason 可能是 cancelled），不在这里抢着改。 */
+  function stopTurn() {
+    if (chatStop) chatStop.disabled = true
+    window.akdagent.agentCancel()
+      .then((r) => { if (!r || !r.ok) appendErr('orb.err.cancel', (r && r.error) || '') })
+      .catch((e) => appendErr('orb.err.cancel', e.message || e))
+      .finally(() => { if (chatStop) chatStop.disabled = false })
+  }
+
+  function renderHistoryAssistant(ev) {
+    const d = ev.data || {}
+    const msg = d.message || d
+    const node = newAssistantNode(d.turn || -1)
+    node.finished = true
+    const reasoning = extractReasoning(msg)
+    const text = extractText(msg)
+    if (reasoning) {
+      node.thinkText = reasoning
+      node.thinkBody.textContent = reasoning
+      setText(node.thinkLabel, 'orb.think.done', reasoning.length)
+    } else {
+      node.thinkRow.style.display = 'none'
+    }
+    if (text) { node.outText = text; node.outEl.textContent = text }
+  }
+
+  /* 打开面板时恢复历史：**全量时间线**（跨所有段），段边界画「工程分隔线」，不清空 */
+  /* 段文案统一在这里拼（切语种后由 redrawDynamic() 重算已渲染的分隔线）：
+     句子用整句带 {0} 的 key，' · ' 与 '——' 属排版装饰，留在代码里 */
+  function segLabel(s) {
+    if (!s) return I.t('orb.seg.unknown')
+    // 「孤儿段」= 段表外的早期会话（启动时登记进来的），既不属于工程也不是当前临时段
+    if (s.kind === 'orphan') return I.t('orb.seg.orphan')
+    if (s.kind === 'temp' || !s.projectKey) return I.t('orb.seg.tempProject')
+    const name = s.projectName ? String(s.projectName).split(/[\\/]/).pop() : s.projectKey.slice(0, 8)
+    const tag = s.kind === 'manual-split' ? ' · ' + I.t('orb.seg.tagNewSession') : ''
+    // ⚠️ 别用 truthiness：`exportedUpToSeq` 可以是 0（合法区间下界）⇒ 0 为假会让"已导出"不显示
+    const exp = (s.exportedFile || s.exportedUpToSeq != null) ? ' · ' + I.t('orb.seg.exportedSuffix') : ''
+    return I.t('orb.seg.projectLabel', name) + tag + exp
+  }
+
+  function appendSegSeparator(s) {
+    const div = document.createElement('div')
+    div.className = 'seg-sep'
+    segStore.set(div, s)                    // 记住段对象，供切语种重排
+    div.textContent = '—— ' + segLabel(s) + ' ——'
+    chatBody.appendChild(div)
+    chatBody.scrollTop = chatBody.scrollHeight
+  }
+
+  function loadHistory() {
+    if (historyLoaded) return
+    historyLoaded = true
+    // ⚠️ 新语义：**不再因工程切换清空面板**（stale 恒 false）。历史由主进程按段合并返回。
+    window.akdagent.agentHistory().then((r) => {
+      if (!r.ok || !Array.isArray(r.events)) return
+      let lastSegId = null
+      for (const ev of r.events) {
+        if (!ev || typeof ev !== 'object') continue
+        const seg = ev.__seg || null
+        if (seg && seg.segId !== lastSegId) {
+          lastSegId = seg.segId
+          appendSegSeparator(seg)      // 段边界：工程分隔线（含临时/新会话/已导出标注）
+        }
+        if (ev.type === 'user/message') {
+          const t = extractText(ev.data && (ev.data.message || ev.data))
+          if (t) appendMsg('user', t)
+        } else if (ev.type === 'assistant/message') {
+          renderHistoryAssistant(ev)
+        }
+      }
+    })
+  }
+
+  const sendBtn = document.getElementById('chat-send')
+  sendBtn.addEventListener('click', sendMsg)
+  // 「停止本轮」：只在 busy 时可见（可见性由 setSendEnabled 统一管）；aria-label 跟 title 同源
+  chatStop.addEventListener('click', stopTurn)
+  chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle'))
+  I.onChange(() => chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle')))
+  chatText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMsg() })
+  window.akdagent.onAgentEvent(onAgentEvent)
+  /* 会话绑定由主进程下发（唯一权威）——球全靠 mySessionId 过滤帧：
+     只在侧栏面板里打字时，球以前永远不知道是哪个会话 ⇒ 面板的消息在球里看不到（2026-09-17 实测）。
+     拿到绑定后若聊天区还是空的，补拉一次历史（把面板那边已经发生的对话补上）。 */
+  if (window.akdagent.onSessionBound) {
+    window.akdagent.onSessionBound((p) => {
+      const id = p && p.sessionId
+      if (!id || id === mySessionId) return
+      const first = !mySessionId
+      mySessionId = id
+      console.log('[orb] 会话绑定 -> ' + id)
+      if (first && chatBody.children.length === 0) { historyLoaded = false; loadHistory() }
+    })
+  }
+  // 桥推送的工程切换/收编：**只追加分隔线，不清空面板**（2026-09-13 新语义）
+  if (window.akdagent.onProjectSwitched) {
+    window.akdagent.onProjectSwitched((info) => {
+      const obj = (info && typeof info === 'object') ? info : { project: info }
+      if (!obj.project) return                       // 未保存/临时：不画线
+      if (obj.segId && obj.segId === curSegId) return // 同一段（仅改名）⇒ 不重复画
+      curSegId = obj.segId || curSegId
+      appendSegSeparator({ kind: obj.kind || 'project', projectKey: null, projectName: obj.project, gen: obj.gen })
+    })
+  }
+  window.akdagent.onAgentReady(setConnState)
+  // 初始查询一次连接状态（防止加载时错过推送）
+  window.akdagent.agentReadyQuery().then(setConnState)
+
+  /* ── 语音输入（可选：STT 模型就绪后显示图标） ── */
+  const chatMic = document.getElementById('chat-mic')
+  let sttEnabled = false
+  let recording = false
+  let transcribing = false
+  let mediaStream = null
+  let audioCtx = null
+  let recorder = null
+  let pcmChunks = []
+
+  /* 麦克风按钮的提示按「空闲 / 录音中 / 识别中」三态取文案（语种切换时也走这里重排） */
+  function renderMicButton() {
+    const label = I.t(transcribing ? 'orb.mic.transcribing' : recording ? 'orb.mic.stop' : 'orb.mic.title')
+    chatMic.title = label
+    chatMic.setAttribute('aria-label', label)
+  }
+
+  window.akdagent.onSttStatus((enabled) => {
+    sttEnabled = !!enabled
+    chatMic.style.display = sttEnabled ? 'inline-flex' : 'none'
+  })
+  // 加载时主动查询一次状态（防止推送错过导致图标不显示）
+  window.akdagent.sttStatus().then((s) => {
+    const on = !!(s && s.ready && s.activeId)
+    sttEnabled = on
+    chatMic.style.display = on ? 'inline-flex' : 'none'
+  })
+
+  function startRecording() {
+    return navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        mediaStream = stream
+        // 强制 16kHz 采样率（STT 模型输入要求），避免 48k→16k 不匹配导致识别错乱
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 })
+        const src = audioCtx.createMediaStreamSource(stream)
+        const proc = audioCtx.createScriptProcessor(4096, 1, 1)
+        src.connect(proc)
+        proc.connect(audioCtx.destination)
+        pcmChunks = []
+        proc.onaudioprocess = (e) => {
+          pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)))
+        }
+        recorder = proc
+        return true
+      })
+      .catch((err) => {
+        console.error('mic error:', err)
+        alert(I.t('orb.err.mic', err.message || err))
+        return false
+      })
+  }
+
+  function stopRecording() {
+    if (recorder) { recorder.disconnect(); recorder = null }
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null }
+    if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null }
+  }
+
+  function concatPcm(chunks) {
+    let total = 0
+    for (const c of chunks) total += c.length
+    const out = new Float32Array(total)
+    let off = 0
+    for (const c of chunks) { out.set(c, off); off += c.length }
+    return out
+  }
+
+  // 线性降采样到 16kHz（STT 模型输入要求；AudioContext 实际采样率可能不是 16k）
+  function resampleTo16k(src, srcRate) {
+    if (srcRate === 16000) return src
+    const ratio = srcRate / 16000
+    const n = Math.max(1, Math.floor(src.length / ratio))
+    const out = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      const pos = i * ratio
+      const i0 = Math.floor(pos)
+      const i1 = Math.min(src.length - 1, i0 + 1)
+      const frac = pos - i0
+      out[i] = src[i0] * (1 - frac) + src[i1] * frac
+    }
+    return out
+  }
+
+  chatMic.addEventListener('click', () => {
+    if (!recording) {
+      startRecording().then((ok) => {
+        if (!ok) return
+        recording = true
+        chatMic.classList.add('recording')
+        renderMicButton()
+      })
+    } else {
+      recording = false
+      chatMic.classList.remove('recording')
+      renderMicButton()
+      const audioRaw = concatPcm(pcmChunks)
+      const srcRate = audioCtx ? audioCtx.sampleRate : 48000
+      stopRecording()
+      if (audioRaw.length === 0) return
+      // 统一降采样到 16k 再发（修复 48k 直传导致识别错乱）
+      const audio = resampleTo16k(audioRaw, srcRate)
+      chatMic.disabled = true
+      transcribing = true
+      renderMicButton()
+      window.akdagent.sttTranscribe(audio)
+        .then((res) => {
+          if (res.ok && res.text) {
+            chatText.value = (chatText.value ? chatText.value + ' ' : '') + res.text.trim()
+            chatText.focus()
+          } else {
+            console.error('stt:', res.error)
+            alert(I.t('orb.err.stt', res.error || I.t('orb.err.noResult')))
+          }
+        })
+        .finally(() => {
+          chatMic.disabled = false
+          transcribing = false
+          renderMicButton()
+        })
+    }
+  })
+
+  /* ── 桥状态点（三态，2026-09-21 用户选"三态单点"）──
+     绿 = host 就绪 + 桥心跳新鲜 · 黄 = host 就绪但桥心跳过期/没跑过桥脚本 · 灰 = host 未就绪。
+     主进程每 5s 采样两座桥的心跳文件（**不 ping 宿主**）后推 {ready,level,code,args}；
+     这里只上色 + 写 tooltip，**文案在本页用 I.t() 组** ⇒ 切语种时 I.onChange 重排即可
+     （不依赖主进程重推，见下方 I.onChange 里的 renderOrbPill()）。 */
+  let orbPill = { level: 'down', code: 'orb.bridge.hostDown', args: [] }
+
+  function renderOrbPill() {
+    const warn = orbPill.level === 'warn'
+    orb.classList.toggle('ready', orbPill.level !== 'down')  // 绿、黄都算"亮"；灰=host 未就绪
+    orb.classList.toggle('warn', warn)
+    const tip = I.t(orbPill.code, ...(orbPill.args || []))
+    // tooltip = 桥状态 + 应用名（应用名沿用面板标题，onHostType 会把它改成 Instrument X）
+    const titleEl = document.getElementById('chat-title')
+    const appName = (titleEl && titleEl.textContent) || ''
+    const full = appName ? tip + ' · ' + appName : tip
+    orb.title = full
+    orb.setAttribute('aria-label', full)
+  }
+
+  window.akdagent.onStatus((st) => {
+    if (st === null || typeof st !== 'object') {
+      // 兼容旧布尔载荷（历史主进程只推 ready）
+      orbPill = { level: st ? 'ok' : 'down', code: st ? 'orb.bridge.online' : 'orb.bridge.hostDown', args: [] }
+    } else {
+      orbPill = {
+        level: st.level || (st.ready ? 'ok' : 'down'),
+        code: st.code || (st.ready ? 'orb.bridge.online' : 'orb.bridge.hostDown'),
+        args: st.args || [],
+      }
+    }
+    renderOrbPill()
+  })
+
+  /* ── 宿主类型：SV 用 SV 标志，Instrument X 切换为 IX logo ── */
+  const SV_LOGO = 'sv-monogram-anim.svg'
+  const IX_LOGO = 'instrumentx-mark-anim.svg'
+  window.akdagent.onHostType((type) => {
+    const isIX = type === 'instrument-x'
+    // 切主题色：IX 蓝 / SV 绿（body 属性触发 CSS 变量覆盖）
+    document.body.dataset.host = isIX ? 'instrument-x' : 'sv'
+    // 面板标题：默认 SV，检测到 Instrument X 时切换
+    const title = document.getElementById('chat-title')
+    if (title) title.textContent = (isIX ? 'Instrument X  AI Agent' : 'Synthesizer V  AI Agent')
+    // hover label 文字图：IX 用 ixagent-text（X 蓝 + 灰字），SV 用 akdagent-text
+    const labelImg = document.querySelector('#orb-label img')
+    if (labelImg) {
+      const wantText = isIX ? 'ixagent-text.svg' : 'akdagent-text.svg'
+      if (labelImg.dataset.hostType !== wantText) {
+        labelImg.dataset.hostType = wantText
+        labelImg.src = wantText + '?v=' + Date.now()
+      }
+    }
+    const logo = document.querySelector('#orb .logo')
+    if (!logo) return
+    const want = isIX ? IX_LOGO : SV_LOGO
+    // 避免重复设置导致动画重放（restartLabelAnim 用 ?v= 刷新）
+    if (logo.dataset.hostType !== want) {
+      logo.dataset.hostType = want
+      logo.src = want + '?v=' + Date.now()
+      // IX 图形是白色+蓝方块，深色球上清晰；SV 动画是绿色调，无需额外样式
+      logo.style.width = (isIX ? '30px' : '44px')
+    }
+  })
+  // 启动时主动查询一次宿主类型（setOrbStatus 会推送，防错过）
+  // 无法主动 query，靠主进程 setOrbStatus 的 push
+
+  /* ── 界面语言：首屏刷一遍静态文案；切语种时**不重载窗口**（保住未发出的草稿），
+        改为 I.apply() 刷静态节点 + redrawDynamic() 就地重排动态节点 ──
+     重排各自 try/catch：一处抛错不能让剩下的节点留在旧语种。 */
+  I.apply()
+  renderMicButton()
+  renderOrbPill()                 // 首屏先把球涂成灰 + 写 tooltip（主进程推来前也有 title）
+  I.onChange(() => {
+    I.apply()
+    try { redrawDynamic() } catch (e) { console.error('[i18n] 重排动态文案失败：' + e.message) }
+    try { renderOrbPill() } catch (e) { console.error('[i18n] 重排球状态 tooltip 失败：' + e.message) }
+  })
+</script>
+</body>
+</html>

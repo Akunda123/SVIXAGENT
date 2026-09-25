@@ -1,0 +1,37 @@
+{
+  "name": "akdagent-electron",
+  "productName": "AKDAgent",
+  "version": "0.1.0",
+  "private": true,
+  "author": "AKDAgent",
+  "description": "AKDAgent floating client: embedded DSH host for natural-language control of Synthesizer V Studio / Instrument X",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "verify": "node scripts/verify-embed.mjs",
+    "test:i18n": "electron dev/test-i18n.cjs",
+    "check:i18n": "node dev/check-i18n-residue.cjs",
+    "test:settings-ui": "electron dev/test-settings-clicks.cjs",
+    "test:badge": "electron dev/test-badge-layout.cjs",
+    "dist": "electron-builder --win nsis",
+    "dist:msi": "electron-builder --win msi",
+    "dist:mac": "electron-builder --mac dmg zip"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.1",
+    "sherpa-onnx-node": "^1.13.6",
+    "ws": "^8.21.3"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-win-x64": "^1.13.6",
+    "sherpa-onnx-darwin-arm64": "^1.13.6",
+    "sherpa-onnx-darwin-x64": "^1.13.6"
+  }
+}

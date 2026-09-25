@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "title": "SV 自动化参数的单位与真实范围（单一事实源）",
+  "note": "为什么存在：2026-09-20 用户报「音区偏移等参数有 ±400 的上下限，写的时候只写在了 ±1 之间，基本等于没写」。根因 = docs/skills 里把 AKD 示例脚本 helper 的**归一化常量**（VISIBLE_RANGE）当成了参数的单位上下限。本表 + tools/check-param-units.cjs 一起防这类「量纲/量级」错。⚠️ 本表**只收录已核实**单位与范围的参数 —— 没核实的宁可不写，也不编数。",
+  "kinds": {
+    "physical": "**有物理单位**（cent / dB / Hz / 秒）⇒ 数值量级通常是几十 ~ 上千；断言它是 ±1 档一律算矛盾",
+    "normalized": "**归一化档**（−1~1 / 0~1 / 0~2）⇒ ±1 就是它的真实范围（这类参数被写成 ±1 是对的）",
+    "ratio": "**倍率/系数**（如 vibratoEnv 是颤音倍数，默认 1）"
+  },
+  "columns": {
+    "fullRange": "取值全范围（[min, max]）",
+    "visibleRange": "⚠️ **脚本 helper 的归一化常量**（官方 AKD 示例 `VISIBLE_RANGE` 里的那个数）—— **不是参数的单位上下限**，只用于「曲线叠加前先归一化」",
+    "measured": "**磁盘实测**量级（扫用户工程文件里真实写过的点值），用于校准「正常人在用多大」"
+  },
+  "params": [
+    {
+      "name": "pitchDelta",
+      "kind": "physical",
+      "unit": "cent",
+      "fullRange": [-1200, 1200],
+      "visibleRange": 300,
+      "source": "skills/sv-scripting/references/07-melody-accent-pitch-params.md §3.2b · skills/sv-scripting/references/05-params.md 的表",
+      "note": "音高偏移（音分）。±1200 = ±1 个八度。"
+    },
+    {
+      "name": "toneShift",
+      "kind": "physical",
+      "unit": "cent",
+      "fullRange": [-800, 800],
+      "visibleRange": 1,
+      "measured": [-800, 0],
+      "source": "用户 2026-09-20 裁定「ts 上限写到 800」· skills/sv-scripting/references/07-melody-accent-pitch-params.md §3.2h（「**单位是 cent**（1 半音 = 100）」，例子 +400 / −1200）",
+      "note": "🔴 **本例就是 2026-09-20 报的那个 bug**：`visibleRange: 1` 是 AKD 示例 helper 的归一化常量，被文档误记成「同步脚本可见范围 ±1」⇒ 按它写 ±1 等于没写。**范围 = ±800 cent**（用户 2026-09-20 定；此前文档里的「±400」偏低、「−12~12 半音」(=±1200) 偏高，一律以本表为准）。**磁盘实测（51 个工程）**：真实量级 ±100 ~ ±800（`9.28.svp` 与 `一棵稗子的春天_词定稿无参.svp` 都到 **800**，`sv1工程测试.svp` 到 **497.38**）——与「上限 800」互相印证。"
+    },
+    {
+      "name": "loudness",
+      "kind": "physical",
+      "unit": "dB",
+      "fullRange": [-48, 12],
+      "visibleRange": 12,
+      "source": "07 §3.2d · references/05-params.md 的表",
+      "note": "音量。实测工程里落在 −12.7 ~ 0。"
+    },
+    {
+      "name": "vibratoEnv",
+      "kind": "ratio",
+      "unit": "倍率（默认 1）",
+      "fullRange": [0, 2],
+      "visibleRange": 1,
+      "source": "07 §3.2c · references/05-params.md 的表",
+      "note": "颤音**倍数**：有效幅度 = `dF0Vbr` × `vibratoEnv`。单极（0~2）。"
+    },
+    {
+      "name": "tension",
+      "kind": "normalized",
+      "unit": "归一化",
+      "fullRange": [-1, 1],
+      "visibleRange": 1,
+      "source": "07 §3.2e · references/05-params.md 的表",
+      "note": "张力。单极否（−1~1）。"
+    },
+    {
+      "name": "breathiness",
+      "kind": "normalized",
+      "unit": "归一化",
+      "fullRange": [-1, 1],
+      "visibleRange": 1,
+      "source": "07 §3.2f · references/05-params.md 的表",
+      "note": "气声。"
+    },
+    {
+      "name": "voicing",
+      "kind": "normalized",
+      "unit": "归一化",
+      "fullRange": [0, 1],
+      "visibleRange": 1,
+      "source": "07 §3.2f · references/05-params.md 的表",
+      "note": "发声/清浊。**单极**（0~1）。"
+    },
+    {
+      "name": "gender",
+      "kind": "normalized",
+      "unit": "归一化",
+      "fullRange": [-1, 1],
+      "visibleRange": 1,
+      "source": "07 §3.2g · references/05-params.md 的表",
+      "note": "性别/音色宽窄。⚠️ 方向：**上拉 = 更宽**（上游说反，本仓已订正）。"
+    }
+  ],
+  "notYetListed": [
+    "mouthOpening（07 §3.2i；9 键 automation 里有，但本次**没逐字核对**它的范围 ⇒ 宁缺不编，核对后再入表）",
+    "dynamics（只出现在 IX 侧；SV 侧见 known-bugs IX-002）"
+  ]
+}

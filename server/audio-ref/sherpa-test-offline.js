@@ -1,0 +1,1 @@
+Couldn't find the requested file /sherpa-onnx/nodejs-addon-examples/online-transducer/test-online-transducer.js in k2-fsa/sherpa-onnx.

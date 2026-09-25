@@ -1,0 +1,751 @@
+{
+	"type": "gh",
+	"name": "nomadkaraoke/python-audio-separator",
+	"version": "main",
+	"default": null,
+	"files": [
+		{
+			"name": "/.github/FUNDING.yml",
+			"hash": "dUWD1pGL5tIYcpT8S3GtexTYBbj2WB43ry4eCfToCTg=",
+			"size": 16
+		},
+		{
+			"name": "/.github/ISSUE_TEMPLATE/BUG_REPORT.yml",
+			"hash": "ntZLAeTmUWQUtEpie0kF9mCF2WFVO9GttNGiH3OE7iQ=",
+			"size": 1746
+		},
+		{
+			"name": "/.github/ISSUE_TEMPLATE/FEATURE_REQUEST.yml",
+			"hash": "MThW8hFszkhP9iA3GR7DukIz8Y3FIkc4mVp/VlN2Jv8=",
+			"size": 386
+		},
+		{
+			"name": "/.github/workflows/github-sponsors.yml",
+			"hash": "jPasarX4KCumDeZTNbY84x7jF4bniwbbmoJwbX+tnRg=",
+			"size": 591
+		},
+		{
+			"name": "/.github/workflows/publish-to-docker.yml",
+			"hash": "EBpJmzWmf20oQJwANoE+8FY+co4JdKYn4RgcNwrTrZQ=",
+			"size": 2988
+		},
+		{
+			"name": "/.github/workflows/publish-to-pypi.yml",
+			"hash": "/VlkkbNXPWTxkKC+QOLm+1tdPtrL1kv7mNshYY2BIus=",
+			"size": 560
+		},
+		{
+			"name": "/.github/workflows/run-integration-tests.yaml",
+			"hash": "pajGBRIgn/MRJANZvxmXNMnvXTyyWv2L7FlLt7fBbyM=",
+			"size": 2220
+		},
+		{
+			"name": "/.github/workflows/run-unit-tests.yaml",
+			"hash": "vPiQDvsbjpmRGg9GwSACBfMSL2cXIvUkCizQAwSJbZE=",
+			"size": 1977
+		},
+		{
+			"name": "/.gitignore",
+			"hash": "FfaOKZdvd5jgjZ6L8b6iYDZWZz1ati4FbxYA853NwXM=",
+			"size": 3265
+		},
+		{
+			"name": "/audio_separator/__init__.py",
+			"hash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+			"size": 0
+		},
+		{
+			"name": "/audio_separator/model-data.json",
+			"hash": "WiqeV+5plzvMLGEd3NdvINHi4DYYol7vkv1Ejbq/ypY=",
+			"size": 611
+		},
+		{
+			"name": "/audio_separator/models.json",
+			"hash": "hKiC03Q0YirbJCbMdiCBdbcLP7KYOfttZY+y8ohlwJs=",
+			"size": 13041
+		},
+		{
+			"name": "/audio_separator/models-scores.json",
+			"hash": "qjOgbLilg+4FOnO/RwZWkIF/3mzSyDxXtvn1Q9oNzCo=",
+			"size": 1286638
+		},
+		{
+			"name": "/audio_separator/separator/__init__.py",
+			"hash": "DsZT6bthhUx2DiLnZrHz92cmM4iYF/vbpFXzNi0BOWI=",
+			"size": 33
+		},
+		{
+			"name": "/audio_separator/separator/architectures/__init__.py",
+			"hash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+			"size": 0
+		},
+		{
+			"name": "/audio_separator/separator/architectures/demucs_separator.py",
+			"hash": "XC23QG+7EEc0Zts3AZ9eUKhjHe4i4LJvAuFfkWoIpaU=",
+			"size": 8745
+		},
+		{
+			"name": "/audio_separator/separator/architectures/mdx_separator.py",
+			"hash": "btx04eyizvZ8C9Ul6+qq1QBP60foWGMIRBqxwPWxN4w=",
+			"size": 24262
+		},
+		{
+			"name": "/audio_separator/separator/architectures/mdxc_separator.py",
+			"hash": "FCN8njr9PgS9uT6jlMoHLvAriCyGRcGdns6kwy9FkK4=",
+			"size": 22791
+		},
+		{
+			"name": "/audio_separator/separator/architectures/vr_separator.py",
+			"hash": "iD074k9Z7GQRHmmTIrzQDI8wZh9o9cPxY71TjgDBXs8=",
+			"size": 19745
+		},
+		{
+			"name": "/audio_separator/separator/common_separator.py",
+			"hash": "28KhDhUW9mYDprhF+7P8zac2d32YyxSIDR91H4ZmX2U=",
+			"size": 18271
+		},
+		{
+			"name": "/audio_separator/separator/separator.py",
+			"hash": "mkyx0Y5Yhcsl5aP+idmQwzhZRLuA5jiO0NgeVjBrsps=",
+			"size": 47762
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/__init__.py",
+			"hash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+			"size": 0
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/__init__.py",
+			"hash": "jx7yDnk45dLn8npjxUzBF9sT7EBxHuRXW2b7Iyu91lI=",
+			"size": 196
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/__main__.py",
+			"hash": "CBGMWEkow2xYlfadqurCKU1x6IU8H048ysjSbV5u4vU=",
+			"size": 8165
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/apply.py",
+			"hash": "Kz8IcKJIVyVgZ75M33smbZg1tmn3ABg/WYVu30Kqw7Y=",
+			"size": 10890
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/demucs.py",
+			"hash": "it3k9miIZEeFwzEJu3FXYAId7ID4tl2FdwqKOu9wSuA=",
+			"size": 16906
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/filtering.py",
+			"hash": "olLZZdjEQcSip7IYCdhxe2P4KwxaE6XO/GzLzVD58ug=",
+			"size": 19727
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/hdemucs.py",
+			"hash": "I2bDxnyU1gyPuzglCH/03tvAEOElFEKFnPkwuStMYVw=",
+			"size": 29751
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/htdemucs.py",
+			"hash": "qSfRxSinartifTkxSWEDYzxuAAU2/4mpHilxYOUDt8o=",
+			"size": 25947
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/model.py",
+			"hash": "iML4/wkDAM8mI9j0VwqdKg6IOWWN9nepzYg7aqCG1hA=",
+			"size": 7168
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/model_v2.py",
+			"hash": "gQ6y5Sl8XcUxJYzsiwkQp3HmnWuZyK8C4b2TDdsfCO8=",
+			"size": 7270
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/pretrained.py",
+			"hash": "f41XuVeGBn8fObtfkvhepNC6UHwhqOQzZ0CHgi9O0Co=",
+			"size": 5554
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/repo.py",
+			"hash": "tQJ7TuHJbabXH5HT4lVqAXC9UYEhJuIgxMafK/pq2NI=",
+			"size": 4671
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/spec.py",
+			"hash": "Q4bSjsEmVUOZ3kaY/aMMbKfNRHFmgEhWkYryF63Jeps=",
+			"size": 1298
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/states.py",
+			"hash": "RNw1FD9eZNM+o8opyurBmBnXL9TFuJFIoNMqKYYvL4E=",
+			"size": 3963
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/tasnet.py",
+			"hash": "6BeH5sB1FBUmRpSn1GUrdxpJ4Fzmpbf+XuSNUpEq+OI=",
+			"size": 14833
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/tasnet_v2.py",
+			"hash": "/N/Ba6Z6mtCikKCT21k0TGEPvjTNi5X0T90GNi0Mc4I=",
+			"size": 14970
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/transformer.py",
+			"hash": "FQdVofc1H99F4WKqP/2vNSpokBxVjdGK3nKR84JlvsM=",
+			"size": 25350
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/demucs/utils.py",
+			"hash": "qZHtjL1lngGoi93nYTaj7iONwhuDLJFeKfJS+rr2/rg=",
+			"size": 16401
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/mdxnet.py",
+			"hash": "fAWnZrz7vvmblWUAkocPd32fz+aOlv+mQ+SQRIIRnHA=",
+			"size": 4199
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/mixer.ckpt",
+			"hash": "6ngb1SxqUjuCX6bNu2GJ9S4xjt2LF+b+QE9296+Mqpw=",
+			"size": 1208
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/modules.py",
+			"hash": "9PaHpLCt1xiXMX114tdTWQt7f10QqdREBGUAUy+Y8t4=",
+			"size": 2005
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/playsound.py",
+			"hash": "EBPKKUzluDOxAz5yCQFkNGRNiJNSNsDJLMDh4VCSub8=",
+			"size": 8804
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/pyrb.py",
+			"hash": "Y1bfPmMWdl+PKzfOv4TJKBRZPGJv1DeWCyWuSa5X4wE=",
+			"size": 2135
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/results.py",
+			"hash": "lmtgO7u1XV6KujT1oSTOjkszOcXFWvTJ/qGtYPMFO1Q=",
+			"size": 1583
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/roformer/attend.py",
+			"hash": "mC9MTrm/T39Igg6uSbXc4ePhTNYGGKaUDcvJB7lkJfQ=",
+			"size": 3061
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/roformer/bs_roformer.py",
+			"hash": "cx5fv4TNeH475P1p/cJGxcq8bR7Q6Yk9XqPiVCFpGeY=",
+			"size": 15873
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/roformer/mel_band_roformer.py",
+			"hash": "v1L4x590mW3Zwroq3p8cyWLtUJfiJ/wwfWc8JKXGkJY=",
+			"size": 15258
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/spec_utils.py",
+			"hash": "3V9dGLWhZMoxNXqMsRB9ccMaJjFfNYsq2fvp2EjddPQ=",
+			"size": 46460
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/stft.py",
+			"hash": "kyqdUe8RUh9M7yeL/Z74LymYcVwEIlHfpjbubQOrsWI=",
+			"size": 6332
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/tfc_tdf_v3.py",
+			"hash": "Eqp3gRnrlt2FSd9lWRIryR6SNSzo8S9RJZrXKnuRERs=",
+			"size": 7513
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/__init__.py",
+			"hash": "Dq+BbwMz1uRZ5ek1DqYKH+iNPmSsRWVSXsnE0f9vLjs=",
+			"size": 11
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/layers.py",
+			"hash": "33Nq5NCrXaFZ3WUirLZGR2R/sZkcGVsE4599tKLUMbo=",
+			"size": 16717
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/layers_new.py",
+			"hash": "MsAW5E22ktcT0lZBsBJG9PpwzkMHo+tUZEi9yk9+phc=",
+			"size": 6463
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/model_param_init.py",
+			"hash": "Ca/sgNloTk2jDJfR9i+l000T5xmpofpnAwfaTZml9oc=",
+			"size": 2666
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr16000_hl512.json",
+			"hash": "H94cieLsVOYXYf/boMaH9aJBioaY5RetMjbv02hEGJg=",
+			"size": 292
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr32000_hl512.json",
+			"hash": "W2qQgweTkCDD+BLDCYnrxbJf3KIsTSbg9jQuQvoVh90=",
+			"size": 294
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr33075_hl384.json",
+			"hash": "fzlz81P/DmumOx+Q/xzfINptCYyaMA9nCguvj54GcoM=",
+			"size": 292
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr44100_hl256.json",
+			"hash": "f67gH8tqGIrohqFw909L4G7lAbT8qnF80c0QPfdNLcI=",
+			"size": 287
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr44100_hl512.json",
+			"hash": "tIy2YZVdN00oUwtsOd/ozNIAPAnUflYeovqe+D1XWlk=",
+			"size": 292
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr44100_hl512_cut.json",
+			"hash": "TlHmisouBB68fnpYEwMqxKGjuVeMX3RmX6ufgGSPg38=",
+			"size": 290
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr44100_hl512_nf1024.json",
+			"hash": "k04mbBWkp1HnCGkgfRKxmbXj9BgOOMhOqLenOR3NI24=",
+			"size": 306
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/1band_sr44100_hl1024.json",
+			"hash": "5ihhv7s/N+bgnfeaOnvmErizPwE1xAF6hu9pl2x8n3I=",
+			"size": 293
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/2band_32000.json",
+			"hash": "q1vCtPMVsGKuoOcguEuxQctAKmk+6HEuAceqElNfLpI=",
+			"size": 483
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/2band_44100_lofi.json",
+			"hash": "Y4Hyq6zuBHsSFTjsOgZyNRxPzOuISdlFy+1TrymrRns=",
+			"size": 485
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/2band_48000.json",
+			"hash": "kdrQiLCSNk126v6yBCyClrHncJ4XKiJyUR0WMp0A/pQ=",
+			"size": 511
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/3band_44100.json",
+			"hash": "lkAhrOBNwCnqnjwwiZVkYlKlfY/WP1ZLdW4I+6o9fY0=",
+			"size": 737
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/3band_44100_mid.json",
+			"hash": "URD6cx7XpqOk58UC1qmmbuYF0U/RT6fjrrUC7Gh0m3Y=",
+			"size": 757
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/3band_44100_msb2.json",
+			"hash": "k44ptgumrBXclndJmKfAv55V3+c38jnjbRoEyLqAjik=",
+			"size": 757
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_44100.json",
+			"hash": "jIDk8VTpHN76E+LypUENL2NJlgd0ai1SXmVER9FQ36w=",
+			"size": 960
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_44100_mid.json",
+			"hash": "qpklFTMoKQL+SzeFt6CeCHbqoYuhmOJPjT4bIcDXPf8=",
+			"size": 980
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_44100_msb.json",
+			"hash": "TvJkYYXmU8xcr3cbNapOPQ/EQ9R944EomNQO6S2bIIc=",
+			"size": 980
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_44100_msb2.json",
+			"hash": "TvJkYYXmU8xcr3cbNapOPQ/EQ9R944EomNQO6S2bIIc=",
+			"size": 980
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_44100_reverse.json",
+			"hash": "YfZyunv8Kzh8jhckAHK/DzceSPxUgYhqUy9lI8Kb1OI=",
+			"size": 977
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_44100_sw.json",
+			"hash": "Vky422WcvmMDf7vQVFsnyu8bIQlh8w+6cebcTAkloOE=",
+			"size": 978
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_v2.json",
+			"hash": "K7MV5qj7n/EqVG9DYeCVOI4OcC27H/Nk6AnG6RXgqU8=",
+			"size": 947
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_v2_sn.json",
+			"hash": "F5tD/WM8UIHvb3h4BR1qr1eB5afQ2rk6F7/1Ac5T4/s=",
+			"size": 983
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_v3.json",
+			"hash": "wBBLt6q2pItBi5oeRciXAAPTokWbJTjF82ChVOHCBIQ=",
+			"size": 944
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_v3_sn.json",
+			"hash": "64PRmQaxI9X/iRHWPJ8Cb9v+w70AB9NfLy1WWfDxmks=",
+			"size": 979
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/4band_v4_ms_fullband.json",
+			"hash": "keiYKlNV7WLQYUJKkVAfCfygBoe3zqSUEVt+TsnKrtU=",
+			"size": 1495
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/modelparams/ensemble.json",
+			"hash": "af8B9vwPz0ScuteKr19jRATCrenXwaUwbE0VEsPhE4A=",
+			"size": 761
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/nets.py",
+			"hash": "eNpOVM0Zmb5Gyrq/8PG9PeC4KrKzH3lUbszV6WhmVWY=",
+			"size": 9100
+		},
+		{
+			"name": "/audio_separator/separator/uvr_lib_v5/vr_network/nets_new.py",
+			"hash": "MfiWy2tzl6dzuPMZbjhWMnMKgTddZlIdDPjnrdFKax0=",
+			"size": 7317
+		},
+		{
+			"name": "/audio_separator/utils/__init__.py",
+			"hash": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+			"size": 0
+		},
+		{
+			"name": "/audio_separator/utils/cli.py",
+			"hash": "RBbbdg48R5sXO4xUXA9pYR8ZnVpOtb5HH27TNgw1dsQ=",
+			"size": 17041
+		},
+		{
+			"name": "/Dockerfile.cpu",
+			"hash": "RijGBZhId6Q0PgzYCjFPkYMti6p5Yba+XOmbK3uvMWY=",
+			"size": 438
+		},
+		{
+			"name": "/Dockerfile.cuda11",
+			"hash": "HKJ3iETnqxTJ6ab+sSDoZYWMoK0nuTJh4piClzJMeDU=",
+			"size": 719
+		},
+		{
+			"name": "/Dockerfile.cuda12",
+			"hash": "V9KJZ5bHaiay0qee9XreKMqIw4ntLx+izYSqizZSbI8=",
+			"size": 958
+		},
+		{
+			"name": "/Dockerfile.runpod-cuda11",
+			"hash": "HFhscKT+U/H17XhVQ6wOJhdbwH1fmKap12qvXgYLH3s=",
+			"size": 641
+		},
+		{
+			"name": "/Dockerfile.runpod-cuda12",
+			"hash": "9jcgOcXZDQp6idSa7BOkq4LlBF2z8TDYGfXoivaGF9I=",
+			"size": 985
+		},
+		{
+			"name": "/environment.yml",
+			"hash": "Dqg7B+74eEzejTkj70nhhMXq2romU1zpi+C75+BiYmA=",
+			"size": 179
+		},
+		{
+			"name": "/LICENSE",
+			"hash": "BiPihPDxhxIPEx6yAxVfAljD5Bhm/XG2teCbPEj/m0Y=",
+			"size": 1069
+		},
+		{
+			"name": "/poetry.lock",
+			"hash": "ZMfDO7w43If8wm21D2P3plkPeI2ChlYGarjWj7YfPNI=",
+			"size": 262254
+		},
+		{
+			"name": "/pyproject.toml",
+			"hash": "C74F+mbwNZTISPlm4Suy4Ew9v6KYsILVW9mB+WulZL8=",
+			"size": 2462
+		},
+		{
+			"name": "/pytest.ini",
+			"hash": "9E6e06Lq48XZKSHxwgLWrahVcw2hRp8gPWEgPBxql3E=",
+			"size": 233
+		},
+		{
+			"name": "/README.md",
+			"hash": "FyWuTq9PSF3FGnycmiblCvh8J+qabB+sztV4m2JgA/Q=",
+			"size": 30696
+		},
+		{
+			"name": "/tests/inputs/mardy20s.flac",
+			"hash": "QlRDlAkl/+ab4Z+9Wlyd19o+a4S/oslnWlQsJhMN8Ws=",
+			"size": 2478894
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Bass)_htdemucs_6s_spectrogram.png",
+			"hash": "idLJAZg03WAs1omDxZ1/RQ2Ldglf2zZgI+Wg520+xDc=",
+			"size": 291204
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Bass)_htdemucs_6s_waveform.png",
+			"hash": "vj8CzHnHt42mw4zXuFDqiHjjNW8EuTYHTq3eletvnHU=",
+			"size": 35302
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Drum-Bass)_model_bs_roformer_ep_937_sdr_10_spectrogram.png",
+			"hash": "I/rF5dsLIAUpUmkD5SB2KgjulcgP8EEGEXykkiQVXLY=",
+			"size": 688163
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Drum-Bass)_model_bs_roformer_ep_937_sdr_10_waveform.png",
+			"hash": "xWTTifEfmFfORumMzsNMkPBqcyD+hvZ6EE710SmoKeQ=",
+			"size": 51237
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Drums)_htdemucs_6s_spectrogram.png",
+			"hash": "Fisfll0fF/fIO5S21hDtGzdGF55xLFST+QEsAANtqU8=",
+			"size": 681815
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Drums)_htdemucs_6s_waveform.png",
+			"hash": "IEHslhVWjLkUuetrC/Qz/LRDjJS8tgWFhAU1l6h9SGY=",
+			"size": 52999
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Guitar)_htdemucs_6s_spectrogram.png",
+			"hash": "NLH6deP3VnAXP/JxbQZmSSz9vUXDE1lKfRDrNSJTR7I=",
+			"size": 563936
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Guitar)_htdemucs_6s_waveform.png",
+			"hash": "cRn/wYeG+DTsFBleqpL0KJ1BnkrdHtdS9mkqAK5n1Zg=",
+			"size": 47197
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_2_HP-UVR_spectrogram.png",
+			"hash": "1sOUg/7+YYCOSrVUjAwuPDHGNGb8hHj7Rbc0nk6FnaE=",
+			"size": 734853
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_2_HP-UVR_waveform.png",
+			"hash": "cvxmmmArogGu/4OhrSZuCZFE7pkLHc/gM9qpAggc94E=",
+			"size": 54548
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_kuielab_b_vocals_spectrogram.png",
+			"hash": "SsCVnFRLVIT5MZjTCZqbtSoJBpAXKq+wOX17/QWQ0jc=",
+			"size": 781704
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_kuielab_b_vocals_waveform.png",
+			"hash": "xZVtpxTTB+vlRR4RADMjtqGLLdoP5uWj1OKd5oqJlCk=",
+			"size": 53377
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_MGM_MAIN_v4_spectrogram.png",
+			"hash": "svx49rsrqQTMh/4zdcUef4EltnxqKY8NJ+zNsFv/Lls=",
+			"size": 759284
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_MGM_MAIN_v4_waveform.png",
+			"hash": "kgSmqMX1yMxGIK6DDfnr8yDMUqCsE8OvZKKiCfSW26Y=",
+			"size": 54109
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_model_bs_roformer_ep_317_sdr_12_spectrogram.png",
+			"hash": "xsT8gYhasX9+dPqDlHxL9h0Qev7+d8vnRF3A/syl/2g=",
+			"size": 737577
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_model_bs_roformer_ep_317_sdr_12_waveform.png",
+			"hash": "oK8IyaqsRLc9xKzoEid5cj0fF3g5JYuEkrBaWwu+fHs=",
+			"size": 53084
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_UVR-MDX-NET-Inst_HQ_4_spectrogram.png",
+			"hash": "6iFT1VCfJ5YRifbND7b1RCPCcVenhQ4cryM6MD5PM5Q=",
+			"size": 762487
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Instrumental)_UVR-MDX-NET-Inst_HQ_4_waveform.png",
+			"hash": "KrMsZOfm5lAFOH0WzD1D9x+T4C47V9WJdBr725Jr9BA=",
+			"size": 53534
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(No Drum-Bass)_model_bs_roformer_ep_937_sdr_10_spectrogram.png",
+			"hash": "K/lxchsYQRbcp4NiR1EICbkYuq4OS9tHpFnbbpLqbUg=",
+			"size": 690249
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(No Drum-Bass)_model_bs_roformer_ep_937_sdr_10_waveform.png",
+			"hash": "BgZDBO0hIvJ/J5NhKQcl772MK6IuvK60ZkZ3xZWqocc=",
+			"size": 48955
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Other)_htdemucs_6s_spectrogram.png",
+			"hash": "2jku7IFDQq8XdiLMEiEtbqF0jDOxUX9ga1eHKXAuh1c=",
+			"size": 410220
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Other)_htdemucs_6s_waveform.png",
+			"hash": "xBrKGtddA7AA1J/4gs3wH7OYvc0ddGl5ecycLc3dFQo=",
+			"size": 19310
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Piano)_htdemucs_6s_spectrogram.png",
+			"hash": "iAMwewSl7yDecASVzFxTPZHeMwce2JP81kc9j69IGrc=",
+			"size": 759841
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Piano)_htdemucs_6s_waveform.png",
+			"hash": "3KKZCl4nsImssJgyND7ymFBFRhTJ63KLFLsYi+EjXi4=",
+			"size": 16408
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_2_HP-UVR_spectrogram.png",
+			"hash": "CfkX2Sg196ucirnknrjxwEP1JdTFvUuac+TkhDEvzoc=",
+			"size": 722589
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_2_HP-UVR_waveform.png",
+			"hash": "JNhtbWiWkBcYrMLv7iQ+uhrRV17tuo1EYrtotCShDMI=",
+			"size": 48423
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_htdemucs_6s_spectrogram.png",
+			"hash": "WbHa/AvHYhnABo0p1tbgvzAK9jZBZajlZ0pmGneH2wA=",
+			"size": 763152
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_htdemucs_6s_waveform.png",
+			"hash": "fmCasZsRqU9GlFkzMrlRHpTsatomH1BG/V0Y5ywX+wM=",
+			"size": 48184
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_kuielab_b_vocals_spectrogram.png",
+			"hash": "UK8fP19Qz2F60yTvACXzImcO8fquFmHRs2xcYq6v9qs=",
+			"size": 754004
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_kuielab_b_vocals_waveform.png",
+			"hash": "W6SBokhAfA30Rw+YyP0WAOlVe3BzP61/zT05rBSpTIs=",
+			"size": 48548
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_MGM_MAIN_v4_spectrogram.png",
+			"hash": "qcw31R0fVzZWeSbjxaB3sGP/MNcwDZENxVsVeiG5b9s=",
+			"size": 717747
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_MGM_MAIN_v4_waveform.png",
+			"hash": "nmTpsAQJQBs/C//GPtohH6d6MVrUnMWZje7Zr5aBAIo=",
+			"size": 49690
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_model_bs_roformer_ep_317_sdr_12_spectrogram.png",
+			"hash": "bdC0b65b1wE5IBfSi2YdUiG2XPja+PjEdK1OZ5SuHVc=",
+			"size": 757256
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_model_bs_roformer_ep_317_sdr_12_waveform.png",
+			"hash": "7ASR/Ggs0Jhk+ljho//VV3eoRxmKkh+57G9Om1pb1BU=",
+			"size": 47358
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_UVR-MDX-NET-Inst_HQ_4_spectrogram.png",
+			"hash": "XI/HOkFBbwCJ5HIEHdaZfHXsHJGTF1h+qjH2EfHunNc=",
+			"size": 780614
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_(Vocals)_UVR-MDX-NET-Inst_HQ_4_waveform.png",
+			"hash": "R3b5coQ2XfCf/W3BLs7TsYZbrEjuVwt9dkBell6oN0A=",
+			"size": 49752
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_spectrogram.png",
+			"hash": "DIsmGfcCYxsMsEEb69MWJHecRK8KixYbdcsMNvIxOb8=",
+			"size": 782248
+		},
+		{
+			"name": "/tests/inputs/reference/expected_mardy20s_waveform.png",
+			"hash": "KT1+fqTfbw6unbY2tqV7zJbYHCCNoQw/EivL6WVfiZs=",
+			"size": 52262
+		},
+		{
+			"name": "/tests/integration/generate_reference_images.py",
+			"hash": "uuFw3ZcmcJrFyWO4P7VrFW4HnLS4Z0O2/AjLgqCmYYg=",
+			"size": 1919
+		},
+		{
+			"name": "/tests/integration/README.md",
+			"hash": "V7E2imSFmB4N61eCqFyR3Wu48RwOaftI5eXPSTEB/HM=",
+			"size": 1248
+		},
+		{
+			"name": "/tests/integration/test_cli_integration.py",
+			"hash": "p7qiaGs3mZ6myxcVic3+yyVwCyM21ItW8Uo4y5e4bqQ=",
+			"size": 8043
+		},
+		{
+			"name": "/tests/integration/test_separator_output_integration.py",
+			"hash": "4/kqiFtDZQ1WIgFVf0+zFodnWISO+mSi99hBtcxh43Y=",
+			"size": 8997
+		},
+		{
+			"name": "/tests/model-metrics/test-all-models.py",
+			"hash": "rumnmxPNoSabDJO2YDl5wIGFMeelRdjmhI1XF7f4+pU=",
+			"size": 39504
+		},
+		{
+			"name": "/tests/README.md",
+			"hash": "9C8Ma3fUjwacg7CUFQZsXfFm5Zx0QYG4azrS7Yv7hdg=",
+			"size": 3663
+		},
+		{
+			"name": "/tests/TODO.txt",
+			"hash": "Imm2+yoBEno/2YPbn7AA5a2sgwJ5Mkkwl/0yUTudBPQ=",
+			"size": 1490
+		},
+		{
+			"name": "/tests/unit/test_cli.py",
+			"hash": "eofsZVbM/g3BWwROa8H/LPJUecFr+9bt8hrQCtkyvjQ=",
+			"size": 11978
+		},
+		{
+			"name": "/tests/unit/test_stft.py",
+			"hash": "/EzGEvi6zS+CBWEeGDF6ttVkOOcA9ffz7/G5iOxqeVw=",
+			"size": 8059
+		},
+		{
+			"name": "/tests/utils.py",
+			"hash": "ls8RsqIDahm2Xh/nN0eji4ZE+09y1Uno3nHfXp74tJE=",
+			"size": 6185
+		},
+		{
+			"name": "/TODO.md",
+			"hash": "qdQEukGsPEslES7zma2LLfHmKAL6pZKXDT68f/tCQck=",
+			"size": 1102
+		},
+		{
+			"name": "/tools/calculate-model-hashes.py",
+			"hash": "JKHdzfzNB04q491Iilqasd6A+IL8NV8x9gSYMksECpY=",
+			"size": 3671
+		},
+		{
+			"name": "/tools/sync-to-github.py",
+			"hash": "11N//Fu0QJml4LTsTBYIOwoZ1ypAQbRjHOWlNSgfN0Q=",
+			"size": 6181
+		}
+	],
+	"links": {
+		"stats": "https://data.jsdelivr.com/v1/stats/packages/gh/nomadkaraoke/python-audio-separator@main"
+	}
+}

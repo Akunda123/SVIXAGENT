@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "title": "AKDAgent 问题与反馈登记表（纯本地）",
+  "note": "用户报的坑 / 我们踩到的问题，统一在这里记账，形成「保存 → 定位 → 解决 → 回写 skill 坑表」的闭环。人读版 docs/问题与反馈.md 由 tools/issue.cjs --digest 生成。",
+  "policy": {
+    "channel": "反馈只有一条路：作者联系方式（写进 README 与客户端关于页）。用户直接联系作者，需要什么信息当面问。",
+    "notDoing": [
+      "不做 GitHub Issue 集成",
+      "不做诊断包导出 / 打包",
+      "不依赖 gh CLI",
+      "客户端不出网、不自动上报任何数据"
+    ],
+    "closure": [
+      "① 用户一说 ⇒ 立刻 --new 落档（=保存）",
+      "② 定位后 --update --status located/repro，写清根因",
+      "③ 修完 --update --status resolved --resolution \"...\"",
+      "④ 结案后回写 skills/akdagent-playbook 坑表（=下次自动避开）",
+      "⑤ 若根因是宿主缺陷 ⇒ 登记 tools/known-bugs.json（带版本与复检触发）",
+      "⑥ --digest 刷新 docs/问题与反馈.md（可见\"提过的坑被记下了\"）"
+    ],
+    "redaction": "默认写入前脱敏（用户名 / 绝对路径 → 占位符）；确需原文用 --no-redact。"
+  },
+  "statuses": {
+    "open": "已收到，未处理",
+    "repro": "已复现",
+    "located": "已定位（根因明确）",
+    "resolved": "已解决 / 已给出规避",
+    "cant-repro": "无法复现（记录保留，附条件）",
+    "by-design": "平台设计如此（不是缺陷）",
+    "upstream": "属宿主缺陷 / 已反馈上游"
+  },
+  "issues": [
+    {
+      "id": "ISSUE-0001",
+      "date": "2026-09-14",
+      "source": "user",
+      "host": "electron",
+      "hostVersion": "1.0.0",
+      "title": "SV 集成目录里点「编辑」没反应",
+      "symptom": "设置 → SV 集成 → 声库行点「编辑」按钮，界面无任何反应。",
+      "repro": [
+        "打开设置 → SV 集成（Flat/OPSV 已检测到）",
+        "在声库行点「编辑」"
+      ],
+      "status": "resolved",
+      "resolution": "根因：编辑器 DOM 在列表重渲染时被 detach，而填充逻辑仍用 getElementById 取子节点 ⇒ 全部为 null，静默失败。修法：保存元素引用（flatEls）+ 先挂载再填充。已加 46/46 回归测试。",
+      "refs": { "skill": "docs/开发坑记录.md §44", "bug": null },
+      "env": { "note": "历史条目（补记）：环境快照字段见新条目" },
+      "history": [
+        { "at": "2026-09-14", "status": "open", "note": "用户报告" },
+        { "at": "2026-09-14", "status": "located", "note": "脱离 DOM 的元素取不到子元素" },
+        { "at": "2026-09-14", "status": "resolved", "note": "flatEls + 先挂载后填充；回归测试 46/46" }
+      ]
+    },
+    {
+      "id": "ISSUE-0002",
+      "date": "2026-09-14",
+      "source": "user",
+      "host": "electron",
+      "hostVersion": "1.0.0",
+      "title": "SV 集成目录留空时无法选目录",
+      "symptom": "用户在目录输入框什么都不填时，点不到任何目录选择入口，只能手打路径。",
+      "repro": [
+        "设置 → SV 集成 → 新增目录",
+        "不输入任何内容，直接找\"选择目录\"入口"
+      ],
+      "status": "resolved",
+      "resolution": "按用户澄清（\"用浏览器的弹窗让用户选择目录\"）实现：目录留空 或 点「浏览…」⇒ 调系统目录选择框（dialog.showOpenDialog，openDirectory + createDirectory）。",
+      "refs": { "skill": "electron/README.md", "bug": null },
+      "env": { "note": "历史条目（补记）" },
+      "history": [
+        { "at": "2026-09-14", "status": "open", "note": "用户报告 + 澄清需求" },
+        { "at": "2026-09-14", "status": "resolved", "note": "加「浏览…」按钮 + 留空也可弹框" }
+      ]
+    },
+    {
+      "id": "ISSUE-0003",
+      "date": "2026-09-14",
+      "source": "user",
+      "host": "sv",
+      "hostVersion": "1.11.2",
+      "title": "SV1 上调用不支持的 API 会弹框冻住桥 —— 用户裁定不算 bug",
+      "symptom": "在 SV1 上调用 SV2 专有成员时宿主弹脚本错误对话框，弹框绕过 pcall、冻住桥。",
+      "repro": [
+        "SV1 宿主 + 桥在线",
+        "脚本里调用 SV2 专有成员（如 SV:create(\"PitchControlPoint\")）"
+      ],
+      "status": "by-design",
+      "resolution": "用户 2026-09-14 裁定：\"SV1遇到不支持api弹窗应该不算bug，就是这么设计的\"。⇒ 转为纪律：禁止试错式探测；存在性检查用「索引取值 + type() ∈ {function,userdata,table}」再 pcall 冒号调用。已登记 tools/known-bugs.json 的 SV-001（class=by-design，永不复检）。",
+      "refs": { "skill": "skills/akdagent-playbook", "bug": "SV-001" },
+      "env": { "note": "历史条目（补记）" },
+      "history": [
+        { "at": "2026-09-14", "status": "open", "note": "记录到弹框冻桥" },
+        { "at": "2026-09-14", "status": "by-design", "note": "用户裁定：这是宿主设计，不是缺陷" }
+      ]
+    }
+  ]
+}

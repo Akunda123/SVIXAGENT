@@ -1,0 +1,274 @@
+<!doctype html>
+<!--
+  orb-playground.html — 悬浮球浏览器模拟沙盒（与 src/orb.html 同步，右侧版设计）
+  用法：直接双击打开；把调试好的改动合并回 src/orb.html。
+  当前设计：orb 贴右，label 在 orb 左边（hover 从右往左弹出），对话面板在圆圈上方弹出。
+  window.akdagent 为 stub：resize/setIgnore 仅打日志（真机里驱动窗口）。
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin:0; padding:0; height:100%; }
+  * { -webkit-user-select: none; }
+
+  /* ═══ 模拟桌面 ═══ */
+  body {
+    background:#1a1d29 center/cover no-repeat;   /* 换成截图可模拟真实桌面 */
+    position:relative; overflow:hidden;
+  }
+
+  /* ═══ 组合舞台（锚定页面右下角；尺寸 = 对话面板展开时的窗口尺寸）═══ */
+  #stage {
+    position:absolute; right:24px; bottom:24px; width:372px; height:512px;
+  }
+
+  /* ── 悬浮球 + label 组合（右侧；右端与 chat-overlay 右端 x=340 对齐） ── */
+  #orb-zone {
+    position:absolute; right:32px; bottom:0; width:190px; height:64px;
+  }
+  #orb {
+    position:absolute; right:4px; bottom:4px;   /* orb 贴最右，label 在它左边 */
+    z-index:1;                                   /* orb 盖在 label 之上（右段藏进圈内） */
+    width:56px; height:56px; border-radius:50%;
+    background:#353837; border:1.5px solid rgba(255,255,255,.35);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    box-shadow:0 3px 12px rgba(0,0,0,.55), inset 0 0 4px rgba(255,255,255,.06);
+    transition:transform .18s ease;
+  }
+  #orb .logo { width:44px; height:auto; display:block; pointer-events:none; }
+  #orb .dot {
+    position:absolute; right:1px; bottom:1px; width:13px; height:13px;
+    border-radius:50%; background:#5a5a5a; border:2px solid #fff;
+  }
+  #orb.ready .dot { background:#3ddc84; }
+
+  /* hover 展开的 label（右段藏进圈内，从右往左弹出，与 orb 垂直居中） */
+  #orb-label {
+    position:absolute; right:40px; top:50%;
+    transform:translateY(-50%) scaleX(0); transform-origin:right center;
+    z-index:0;
+    opacity:0; pointer-events:none; white-space:nowrap;
+    background:#2e2e2e; border-radius:12px; height:46px;
+    display:flex; align-items:center; padding:0 24px 0 14px;   /* 右 padding 大：藏进圈内的只有留白，文字完整可见 */
+    box-shadow:0 2px 8px rgba(0,0,0,.4);
+    transition:transform .25s ease, opacity .18s ease;
+  }
+  #orb-label img { height:14px; width:auto; display:block; }
+  #orb-zone:hover #orb-label { transform:translateY(-50%) scaleX(1); opacity:1; }
+  #orb-zone:hover #orb { transform:scale(1.06); }
+
+  /* ── 对话面板（圆圈上方，从下往上弹出） ── */
+  #chat-overlay {
+    position:absolute; left:0; bottom:68px;
+    transform-origin:bottom left;
+    transform:scaleY(0);
+    opacity:0; pointer-events:none;
+    transition:transform .25s ease, opacity .2s ease;
+  }
+  #chat-overlay.open { transform:scaleY(1); opacity:1; pointer-events:auto; }
+  #chat-panel {
+    width:340px; height:440px;
+    background:#2e2e2e; border-radius:14px;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    box-shadow:0 8px 30px rgba(0,0,0,.55);
+    color:rgb(179,179,179);
+    font-family:system-ui, sans-serif;
+  }
+  .chat-head {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    font-weight:600; font-size:13px; color:rgb(200,200,200);
+  }
+  .chat-head button {
+    background:none; border:none; color:rgb(179,179,179);
+    font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px;
+  }
+  .chat-head button:hover { background:rgba(255,255,255,.1); }
+  .chat-body {
+    flex:1; overflow-y:auto; padding:14px 16px;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  /* 滚动条：背景空、无上下指示、滑块未选中 96 / 悬停选中 125 */
+  .chat-body::-webkit-scrollbar { width:4px; background:transparent; }
+  .chat-body::-webkit-scrollbar-track { background:transparent; }
+  .chat-body::-webkit-scrollbar-button { display:none; }
+  .chat-body::-webkit-scrollbar-thumb {
+    background:rgb(96,96,96); border-radius:4px;
+  }
+  .chat-body::-webkit-scrollbar-thumb:hover,
+  .chat-body::-webkit-scrollbar-thumb:active { background:rgb(125,125,125); }
+  .msg { max-width:85%; padding:8px 12px; border-radius:10px; line-height:1.5; font-size:13px; }
+  .msg.assistant { align-self:flex-start; background:rgba(255,255,255,.06); }
+  .msg.user { align-self:flex-end; background:rgba(121,216,37,.15); color:rgb(200,200,200); }
+  .chat-input {
+    display:flex; gap:8px; padding:12px;
+    border-top:1px solid rgba(255,255,255,.08);
+  }
+  .chat-input input {
+    flex:1; background:#353837; border:1px solid rgba(255,255,255,.12);
+    border-radius:8px; padding:8px 12px; color:rgb(179,179,179); outline:none;
+    -webkit-user-select:text;
+  }
+  .chat-input button {
+    background:#79d825; color:#1a1d29; border:none;
+    border-radius:8px; padding:8px 14px; font-weight:600; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <!-- 悬浮球 + hover label -->
+  <div id="orb-zone">
+    <div id="orb" title="SV AI Agent">
+      <img class="logo" src="sv-monogram-anim.svg" alt="SV AI Agent">
+      <span class="dot"></span>
+    </div>
+    <div id="orb-label">
+      <img src="akdagent-text.svg" alt="ynthesizer V Studio">
+    </div>
+  </div>
+
+  <!-- 对话面板（圆圈上方弹出） -->
+  <div id="chat-overlay">
+    <div id="chat-panel">
+      <div class="chat-head">
+        <span>SV AI Agent</span>
+        <button id="chat-close" title="关闭">✕</button>
+      </div>
+      <div class="chat-body" id="chat-body">
+        <div class="msg assistant">你好，我是 SV AI Agent，可以用自然语言帮你操控 Synthesizer V Studio。</div>
+        <div class="msg user">将选中的这些音符降低一个八度</div>
+        <div class="msg assistant">好的，已为选中的 8 个音符整体降低一个八度（可 Ctrl+Z 撤销）。</div>
+      </div>
+      <div class="chat-input">
+        <input id="chat-text" type="text" placeholder="输入指令，如：选中音符改为 la…">
+        <button id="chat-send">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ═══ 桥 API stub（真机由 preload 注入；resize/setIgnore 只打日志）═══ */
+  window.akdagent = {
+    toggle:    () => console.log('toggle'),
+    dragStart: () => {},
+    dragMove:  (x, y) => console.log('drag', x, y),
+    dragEnd:   () => {},
+    onStatus:  (cb) => cb(true),
+    resize:    (w, h) => console.log('resize ->', w, 'x', h),
+    setIgnore: (i) => console.log('setIgnore ->', i),
+  }
+
+  /* ═══ 交互逻辑（与 src/orb.html 一致）═══ */
+  const orb = document.getElementById('orb')
+  const zone = document.getElementById('orb-zone')
+  const chatOverlay = document.getElementById('chat-overlay')
+  const chatBody = document.getElementById('chat-body')
+  const chatText = document.getElementById('chat-text')
+
+  let dragging = false
+  let moved = false
+  let chatOpen = false
+  let labelShown = false
+  let zoneHovered = false
+  let lastAnimAt = 0
+  let lastIgnore = true
+
+  function updateLayout() {
+    const w = chatOpen ? 372 : (labelShown ? 190 : 64)
+    const h = chatOpen ? 512 : 64
+    window.akdagent.resize(w, h)
+  }
+
+  function setIgnore(ignore) {
+    if (ignore !== lastIgnore) {
+      lastIgnore = ignore
+      window.akdagent.setIgnore(ignore)
+    }
+  }
+  window.addEventListener('mousemove', (e) => {
+    const interactive = e.target.closest('#orb, #orb-label, #chat-overlay')
+    setIgnore(!interactive)
+  })
+  window.addEventListener('mouseleave', () => setIgnore(true))
+
+  zone.addEventListener('mouseenter', () => {
+    const fresh = !zoneHovered
+    zoneHovered = true
+    labelShown = true
+    updateLayout()
+    if (fresh) restartLabelAnim()
+  })
+  zone.addEventListener('mouseleave', () => {
+    zoneHovered = false
+    labelShown = false
+    updateLayout()
+  })
+
+  /* 每次「真正的新 hover」重放 orb logo 与 label 文字的 SVG 描边动画；
+     500ms 防抖 + fresh 守卫，窗口 resize 的重入不触发重放 */
+  function restartLabelAnim() {
+    const now = Date.now()
+    if (now - lastAnimAt < 500) return
+    lastAnimAt = now
+    document.querySelectorAll('#orb-label img, #orb .logo').forEach((img) => {
+      img.src = img.src.split('?')[0] + '?v=' + Date.now()
+    })
+  }
+
+  orb.addEventListener('mousedown', (e) => {
+    dragging = true
+    moved = false
+    window.akdagent.dragStart()
+    e.preventDefault()
+  })
+  window.addEventListener('mousemove', (e) => {
+    if (dragging) {
+      moved = true
+      window.akdagent.dragMove(e.screenX, e.screenY)
+    }
+  })
+  window.addEventListener('mouseup', () => {
+    if (dragging) { dragging = false; window.akdagent.dragEnd() }
+  })
+
+  orb.addEventListener('click', () => {
+    if (moved) return
+    chatOpen = !chatOpen
+    chatOverlay.classList.toggle('open', chatOpen)
+    updateLayout()
+    if (chatOpen) chatText.focus()
+  })
+  document.getElementById('chat-close').addEventListener('click', () => {
+    chatOpen = false
+    chatOverlay.classList.remove('open')
+    updateLayout()
+  })
+
+  function appendMsg(role, text) {
+    const m = document.createElement('div')
+    m.className = 'msg ' + role
+    m.textContent = text
+    chatBody.appendChild(m)
+    chatBody.scrollTop = chatBody.scrollHeight
+  }
+  function sendMsg() {
+    const t = chatText.value.trim()
+    if (!t) return
+    appendMsg('user', t)
+    chatText.value = ''
+    setTimeout(() => appendMsg('assistant', '（演示）已收到指令：' + t + ' —— 真实环境会调用 SV 桥执行。'), 400)
+  }
+  document.getElementById('chat-send').addEventListener('click', sendMsg)
+  chatText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMsg() })
+
+  window.akdagent.onStatus((ready) => orb.classList.toggle('ready', ready))
+</script>
+</body>
+</html>

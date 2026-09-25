@@ -1,0 +1,1201 @@
+{
+	"type": "gh",
+	"name": "Anjok07/ultimatevocalremovergui",
+	"version": "master",
+	"default": null,
+	"files": [
+		{
+			"name": "/__version__.py",
+			"hash": "ugNo/WxajIAQWjzN1xD2lPVQ1684RIAXGkmxig1EYkg=",
+			"size": 132
+		},
+		{
+			"name": "/demucs/__init__.py",
+			"hash": "jx7yDnk45dLn8npjxUzBF9sT7EBxHuRXW2b7Iyu91lI=",
+			"size": 196
+		},
+		{
+			"name": "/demucs/__main__.py",
+			"hash": "kqGhxZ+4BYUke1ndcG79SVmSTPG6+CLBpT7YTflrMY4=",
+			"size": 9670
+		},
+		{
+			"name": "/demucs/apply.py",
+			"hash": "0dJFlYl5uJaQK/o2aRYvUpRgSl6JM2XDkCHW5QFHA9E=",
+			"size": 11295
+		},
+		{
+			"name": "/demucs/demucs.py",
+			"hash": "OXCMiE1etYxblBp+haQfDcMKpNRMcXnW1WcenkQf3J8=",
+			"size": 17434
+		},
+		{
+			"name": "/demucs/filtering.py",
+			"hash": "Yc29oGPa9QptUYu9uMZGVN3SQBHNokxWsAMKrq/xxCE=",
+			"size": 20253
+		},
+		{
+			"name": "/demucs/hdemucs.py",
+			"hash": "yT2VRePpiRBAbK60X/pl7HQjQC4jrsSsPR8Qg7vjnCA=",
+			"size": 30608
+		},
+		{
+			"name": "/demucs/htdemucs.py",
+			"hash": "Vt5tB78iLThnsX0wQCQTqoHjhddxTB4eCG5Ds3xFCTc=",
+			"size": 26764
+		},
+		{
+			"name": "/demucs/model.py",
+			"hash": "qW6IFTL2oN8H1cK2Vx6qYFPlYEFC7sxg94B4u7axHnA=",
+			"size": 7428
+		},
+		{
+			"name": "/demucs/model_v2.py",
+			"hash": "j0IiWvoyLkNHHHypJQC6/gzuzZIfOr9zwfRFmStI8vY=",
+			"size": 7404
+		},
+		{
+			"name": "/demucs/pretrained.py",
+			"hash": "upbx6duQz2xueJOPh3bPG/PlyrcpUAFv2z6m+OMMz4Q=",
+			"size": 5609
+		},
+		{
+			"name": "/demucs/repo.py",
+			"hash": "uEliX3XVPQQuwRco+Apmsaed1hgazGTXK6urDWVUE/A=",
+			"size": 4787
+		},
+		{
+			"name": "/demucs/spec.py",
+			"hash": "OUl8dnqM6Lo0AKQsvDvR05eNJYZqK8pYe8QTxuE8Ug0=",
+			"size": 1557
+		},
+		{
+			"name": "/demucs/states.py",
+			"hash": "3p4GCXaMYhUUYIW6GOPaYHdWmFy0Q0zVGm61cIN0oj0=",
+			"size": 4388
+		},
+		{
+			"name": "/demucs/tasnet.py",
+			"hash": "rP7gBilpLj7s1usjxIUKYC5iD+y0PwiDOEIj1qcY294=",
+			"size": 15957
+		},
+		{
+			"name": "/demucs/tasnet_v2.py",
+			"hash": "PCljs3gziUlsq1KjZ3q4XqteEz7pSLNtbZSmYKacDJM=",
+			"size": 16124
+		},
+		{
+			"name": "/demucs/transformer.py",
+			"hash": "2Zs3BvWQOXOCq+0do4TFOYBcj8Ogq7b2rHnnEWScb40=",
+			"size": 27256
+		},
+		{
+			"name": "/demucs/utils.py",
+			"hash": "BJng01JHnvjbBFVt2plcjIz6kcC6ed5d9FYqNx/HLsk=",
+			"size": 16533
+		},
+		{
+			"name": "/gui_data/app_size_values.py",
+			"hash": "17RUKyCI/SqldEs2Ocjw1+9rpPofGG8I9wYHdt0umvA=",
+			"size": 12211
+		},
+		{
+			"name": "/gui_data/change_log.txt",
+			"hash": "i9GuhU2AJ6Bcwre0ajNgxA9CN0ivxnTVG//DX6ymgIY=",
+			"size": 4140
+		},
+		{
+			"name": "/gui_data/complete_chime.wav",
+			"hash": "X4VV07xgPpX4508i0mK2mokQN/a5OAu8RaGsBrRbMoc=",
+			"size": 357288
+		},
+		{
+			"name": "/gui_data/constants.py",
+			"hash": "q7ymJSu/yiizhZVTAXnOvAOJBaWudINSQoCMnwEpVYY=",
+			"size": 75387
+		},
+		{
+			"name": "/gui_data/error_handling.py",
+			"hash": "6xXHSbQdcT9ew7pDoSZLV5exrTpY4HTVr4czyAb1iwE=",
+			"size": 7377
+		},
+		{
+			"name": "/gui_data/fail_chime.wav",
+			"hash": "gzAHzn7270ZgYZR0uJH62/LTpDo07qjsjw3LVd1u7Cc=",
+			"size": 384692
+		},
+		{
+			"name": "/gui_data/fonts/centurygothic/GOTHIC.ttf",
+			"hash": "Opy7XXWyorDSLclFcWCOTp3HuI6CU3SYWIDFciwcnl8=",
+			"size": 137568
+		},
+		{
+			"name": "/gui_data/fonts/Montserrat/Montserrat.ttf",
+			"hash": "gevDkWtSQAe3VtkdnfE8dnPsQBFh8srRYWYtCNzxzHI=",
+			"size": 263192
+		},
+		{
+			"name": "/gui_data/fonts/other/own_font_goes_here.txt",
+			"hash": "X+zrZv/IbzjZUnhsbWlsecLbwjndTpG0ZynXOif7V+k=",
+			"size": 1
+		},
+		{
+			"name": "/gui_data/img/clear.png",
+			"hash": "ehMMIIl72TdvSBEzS6WTe3JJ7JiYSAOcQIdxYYBsJxE=",
+			"size": 757
+		},
+		{
+			"name": "/gui_data/img/copy.png",
+			"hash": "F46C/EngA8KozDhWYJzMTUpeP+ydC83u7VJPCllAvIQ=",
+			"size": 18609
+		},
+		{
+			"name": "/gui_data/img/credits.png",
+			"hash": "pdvm4gki7f9bzgByB6RbbNc2sYd2jzdQ3BMUSvRbQ3Q=",
+			"size": 240829
+		},
+		{
+			"name": "/gui_data/img/donate.png",
+			"hash": "kj2To3s+QiPTxm2ZBcoQLMBc9uGTJOr0Dsfh8lASevc=",
+			"size": 20539
+		},
+		{
+			"name": "/gui_data/img/down.png",
+			"hash": "sN0OPuyTLl7TLoCQWYZLnNzhdFi/staRfxcvZ+ocQNM=",
+			"size": 614
+		},
+		{
+			"name": "/gui_data/img/download.png",
+			"hash": "OBVjotwSx3u/XTyHMiub0xtB0w6N+CsL2XHwkGemMrM=",
+			"size": 13223
+		},
+		{
+			"name": "/gui_data/img/File.png",
+			"hash": "+/BdbCee107XxPPpXEO7obW+AhOxVFdActq/lfL4SF0=",
+			"size": 3697
+		},
+		{
+			"name": "/gui_data/img/GUI-Icon.ico",
+			"hash": "djjxH//XDRGr67kTSrHNmd8Z/EFRGXwJIFvwe3QufsY=",
+			"size": 410598
+		},
+		{
+			"name": "/gui_data/img/GUI-Icon.png",
+			"hash": "LyxTh9gy4rBsJsZpB0xPh+sdpxZxiAFx4RWp12t4XzM=",
+			"size": 166781
+		},
+		{
+			"name": "/gui_data/img/help.png",
+			"hash": "NXeTfZ1eYsMUZCxQ9OhXZYxdnbS3QKAG2BxijNqFhsU=",
+			"size": 8867
+		},
+		{
+			"name": "/gui_data/img/key.png",
+			"hash": "iSnb0kqmCIN8PWRnnaYNJyMFrkn4M2rLMq7wjWxW678=",
+			"size": 11265
+		},
+		{
+			"name": "/gui_data/img/left.png",
+			"hash": "0Tjdy1g/K2/7OVN+dA1ANXMNpZ5YjnFw8+WpnippuPc=",
+			"size": 438
+		},
+		{
+			"name": "/gui_data/img/pause.png",
+			"hash": "WAKzo3dI2LykuCyLgtZ2o2MEi2crHY7jd1pE6Sr7a/s=",
+			"size": 2927
+		},
+		{
+			"name": "/gui_data/img/play.png",
+			"hash": "UkEUWmmnfKZGW61EaJIfaACxJ7v2/LpTnHYUMX7qHnY=",
+			"size": 4269
+		},
+		{
+			"name": "/gui_data/img/right.png",
+			"hash": "Qc5Yemz3V61LFT8DU1IrX4HIvPVxVh3M5p74zB4Vjtk=",
+			"size": 425
+		},
+		{
+			"name": "/gui_data/img/splash.bmp",
+			"hash": "LGqM1EDwX4bZ7T7W4E5lXUJOHcheCvTYlvvFww7yaBY=",
+			"size": 282296
+		},
+		{
+			"name": "/gui_data/img/stop.png",
+			"hash": "j5jHH53kHlRQplfPJPxnTPlkXrNJECdrGk0LmUVAq6A=",
+			"size": 2003
+		},
+		{
+			"name": "/gui_data/img/stop_player.png",
+			"hash": "PBu1Y1q7yeuHn+kaul2J904cigc/oDzT73XdcD9F7xQ=",
+			"size": 2598
+		},
+		{
+			"name": "/gui_data/img/up.png",
+			"hash": "kDxAFyMysKD52c9+HuazLuw/B1ozRLetxFggyds15zA=",
+			"size": 491
+		},
+		{
+			"name": "/gui_data/img/UVR.icns",
+			"hash": "huvx30IirleeTG/reHguIY/ypaGzMt81QJ8RQqLHGjg=",
+			"size": 374066
+		},
+		{
+			"name": "/gui_data/img/UVR_v5.6.png",
+			"hash": "V+niMCKPmb1CVpNgeilX2pJoAze1cpidpSvdlLwkPzY=",
+			"size": 132699
+		},
+		{
+			"name": "/gui_data/img/UVR-banner.png",
+			"hash": "6eiVOyENrxCcmYs25jgfUhwmswgfeFlDUIdkk8iDDII=",
+			"size": 110965
+		},
+		{
+			"name": "/gui_data/model_manual_download.json",
+			"hash": "o/3S4iGqcCxRrnAXIndvDKW1ckfq/kOX6nN117c4AO4=",
+			"size": 10862
+		},
+		{
+			"name": "/gui_data/old_data_check.py",
+			"hash": "vJTxKpIARrn2hi32MZlxfN6hLFMnz7H5/manRCc6BVc=",
+			"size": 806
+		},
+		{
+			"name": "/gui_data/own_font.json",
+			"hash": "Rfv2CP77H7vNrerse6CDKxDR2MatmEcdNryKJv/KA+o=",
+			"size": 51
+		},
+		{
+			"name": "/gui_data/saved_ensembles/saved_ensembles_go_here.txt",
+			"hash": "cNmIUmz9YlmS/YHi1ZohjcaRA3dLDFbX/v70tCpUzok=",
+			"size": 23
+		},
+		{
+			"name": "/gui_data/saved_settings/saved_settings_go_here.txt",
+			"hash": "+3G/M3IaK+veqq83yztwvPEp/YBUonWD5uYsW8J3RkM=",
+			"size": 22
+		},
+		{
+			"name": "/gui_data/sv_ttk/__init__.py",
+			"hash": "0ee1MuB0V4UTbtc0PQ8hNsZFscvGTqt/qEeXPSZ1PwI=",
+			"size": 1678
+		},
+		{
+			"name": "/gui_data/sv_ttk/sun-valley.tcl",
+			"hash": "DBMDfp54mJJvpz1K8Pr+iPbNbOHw693oncrxJeoGt0o=",
+			"size": 1716
+		},
+		{
+			"name": "/gui_data/sv_ttk/sun-valley_darwin.tcl",
+			"hash": "p32iVE0SlZANuBdK4HdeKDcfzL5LAobvUQLGKevrKV8=",
+			"size": 1660
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark.tcl",
+			"hash": "Yx16pjZt1c8N9g2bOuNpHm6AQxzZiWGuDiGXRichK2I=",
+			"size": 21976
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/arrow-down.png",
+			"hash": "1dU5oTPXKctDUlEDr2oOuPL8eGXyyUF4ja/X8dlAtB0=",
+			"size": 2897
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/arrow-right.png",
+			"hash": "CrrDjDVetaNtSUIQW0Oy/8TCZD0a0OR61+eVKCx4isc=",
+			"size": 261
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/arrow-up.png",
+			"hash": "8iSlb+zt/NPDk1ZQW496sa82h5DZsv86Sb5PWo8YYKs=",
+			"size": 274
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-accent-disabled.png",
+			"hash": "cWedjdkQkpDQ70N9H31A1L8Ow+iL2Aj5iaCFV9YeLFg=",
+			"size": 262
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-accent-hover.png",
+			"hash": "X3BzZuhhJbEUmQ2IjvKA4WbvjDOsgkxj3wvuxzyyS18=",
+			"size": 373
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-accent-pressed.png",
+			"hash": "qFsXnOfp13SM0+FmXxrEq8g3APW5b206XpB2PP8f/zE=",
+			"size": 363
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-accent-rest.png",
+			"hash": "zg29crJPH4GNMxn3qyqYCKgf8rYaOtP4l5g9hm9jRPc=",
+			"size": 377
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-close-hover.png",
+			"hash": "7FznsnnzmbzbiVMBjiKju4Fp9cZbP0RoRpRNMfjLfpE=",
+			"size": 274
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-close-pressed.png",
+			"hash": "8OCA++h7k7yakgd5TnVjAtqOL9NfD3C0Wv2kf1cJB9g=",
+			"size": 274
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-disabled.png",
+			"hash": "IUlkAdGgF9Kit2kjv53LhplaL3GzgViNb4ldPx7bo7A=",
+			"size": 2917
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-hover.png",
+			"hash": "2olgeChB0FoAYX5TjvKx5jTLW2JIR0nlmJoerHn4vuc=",
+			"size": 2915
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-pressed.png",
+			"hash": "FBabHJ9dMtK+invuH62OW9WDA9zw3Vl1tdlAx0gDhuk=",
+			"size": 2887
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-rest.png",
+			"hash": "TzznLegV4d807Ej472UOrWMYMT9Ma0LJwnNVAF9/V4E=",
+			"size": 2945
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-titlebar-hover.png",
+			"hash": "hrU0tMl/sVHqm3G6rsNh1qR1ivtfJmi0zhq8wspe0K4=",
+			"size": 245
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/button-titlebar-pressed.png",
+			"hash": "ydOO1TOOQN41T7lzfraTjLq34QGYkddaCn7rgyZIoRM=",
+			"size": 238
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/card.png",
+			"hash": "R8gPg5zd8TE12OFX/ckfrO+t+D0KMic+O2dnSmP71c8=",
+			"size": 3008
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-disabled.png",
+			"hash": "SiE6cB5RgANcMxs9vWl1N5jSIqyghuM9SvNJf3yreB0=",
+			"size": 383
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-hover.png",
+			"hash": "u3Rm9e/Aff+cgY0MNi7JRwICZY1pWCtR7wKlv8vRcIE=",
+			"size": 3015
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-pressed.png",
+			"hash": "a6FNZzsHVP3AWy8aoenVgv9LfqVRhRJaNFoN+GNPrQI=",
+			"size": 3004
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-rest.png",
+			"hash": "UJzqixyMW6SOhvB7Kxmwn2+R31MGPrC9krR0DCfYJsI=",
+			"size": 3027
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-tri-disabled.png",
+			"hash": "8jbWLceMZn4zZzdDSGjua7m2dkWnrF1/Sli6uIYMPdE=",
+			"size": 294
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-tri-hover.png",
+			"hash": "tq+WJ9urnlbc2skNsLvCr1XGOKEmxYQBzFWotuODAeI=",
+			"size": 362
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-tri-pressed.png",
+			"hash": "LP6/ZJhIC87I9eMx5zDheM9XLc6qOImZCUTCh1xRpEg=",
+			"size": 358
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-tri-rest.png",
+			"hash": "+Lr3r269J8+bcvVuwlcLUeZtv3yIQXSGGzh5E86H9Xk=",
+			"size": 363
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-unsel-disabled.png",
+			"hash": "DxLUyiWSlhTzLJvs/BmWxaNXj8iqPNOmt4UKJNv2APk=",
+			"size": 2965
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-unsel-hover.png",
+			"hash": "vv+1U5t5e35QKt9c6DSo57IjannpYxk0ckR3Qg4dbY0=",
+			"size": 2908
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-unsel-pressed.png",
+			"hash": "ecoPFCDlqdQpGWV2td0+TXnIS0ZAPVTjK36Gm6IhoE4=",
+			"size": 2917
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/check-unsel-rest.png",
+			"hash": "TzznLegV4d807Ej472UOrWMYMT9Ma0LJwnNVAF9/V4E=",
+			"size": 2945
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/combo-disabled.png",
+			"hash": "DxLUyiWSlhTzLJvs/BmWxaNXj8iqPNOmt4UKJNv2APk=",
+			"size": 2965
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/empty.png",
+			"hash": "H5FO0cv7HQCSpoPCVpUIYmNA4AH7ZmIxKOpflmo/LbI=",
+			"size": 129
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/entry-disabled.png",
+			"hash": "U1LXBTt/j9UBStSWpGbnJrda4CCvrQFYwcn/F4Fd3m0=",
+			"size": 2973
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/entry-focus.png",
+			"hash": "E8UZGPjTq10x5iuUFhA/gNaVB8ANDNJMYos4cYiAi08=",
+			"size": 2957
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/entry-hover.png",
+			"hash": "W5mR1SyOHHZblpanMSVQL/J10G6C3iNlL/4FnetYkDc=",
+			"size": 269
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/entry-invalid.png",
+			"hash": "wf52+CX0827bPyoEb7BM4WF8Gh0EPcHiR4cwJxAWRLE=",
+			"size": 324
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/entry-rest.png",
+			"hash": "cbmrqGgicMZK49wW+SNXWVUZtcyj+5Hr27apQc94Dss=",
+			"size": 297
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/entry-rest-combo.png",
+			"hash": "BbTHUhK45r133tmsYszHCeCRyA1wrBHpHeIdkpLbgPI=",
+			"size": 224
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/notebook.png",
+			"hash": "HTXKf63eBUyVaYR/EOWqMpkOwpBwv2INfeW8WGrVct8=",
+			"size": 2836
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/notebook-border.png",
+			"hash": "hcK6hCX5vxcVMAO9pTk53NQpTQjR6B5RZO5lDiBUfXQ=",
+			"size": 337
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/progress-pbar-hor.png",
+			"hash": "uIiDaUg/aWTU8/x255vgwXlxL2SN/oRqEFSIc6tQAIQ=",
+			"size": 2812
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/progress-pbar-vert.png",
+			"hash": "dISdkQu3eomDTSTcQ7/Qxdh4WLXU6j6U7T5h1iqHGfA=",
+			"size": 214
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/progress-trough-hor.png",
+			"hash": "ZZSXIy4NPSSCFWJ/XTplw8Nwp6MsQnljedz63l+CFkk=",
+			"size": 2812
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/progress-trough-vert.png",
+			"hash": "dwYTwPdKsVPBZ6iMJDHK/nKiv2wFzlGHwTlkDEwWTzY=",
+			"size": 160
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-disabled.png",
+			"hash": "pX1/4no59IRc0QL9IeUMZV/n5i/iyrL3sbytKvGe+i4=",
+			"size": 279
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-hover.png",
+			"hash": "UJXFBleooetZC4J/rb17nyBLHc0A63OflC2WCtodC20=",
+			"size": 3091
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-pressed.png",
+			"hash": "AqNfkHfZ23pHOICOnNsBZhn2rZycABIa4/QvhRcyOo8=",
+			"size": 3037
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-rest.png",
+			"hash": "hjBckZR1k0LjuRNneKew0iT2kFR1xXW+wQrqxhcxJ7A=",
+			"size": 3092
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-unsel-disabled.png",
+			"hash": "qULMPUtbW3MpDuia3NPtjeTi/rXOywPJVB+MISX9JVY=",
+			"size": 2963
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-unsel-hover.png",
+			"hash": "lMGHYeoZE3hi4PtiKDX2mesvwGQdZGGzRjgVQ7otydQ=",
+			"size": 3056
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-unsel-pressed.png",
+			"hash": "IMMnMqNN+GRT9t30FRqBp/cgRB5zlt8lFWzBW7h3Jos=",
+			"size": 3056
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/radio-unsel-rest.png",
+			"hash": "Fi8zmq8J7qSoHcHfnT6AOTECcgiOjjgcpkW9RO19Yvs=",
+			"size": 3046
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scale-thumb-disabled.png",
+			"hash": "LOlAlCJP+GNuwws70EhNWn78jgQNnZslJEJgkWsz6jc=",
+			"size": 531
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scale-thumb-hover.png",
+			"hash": "QU9Inai1gsWS2cPdjtWD2u7IriyA9ESHGGHd20Vteco=",
+			"size": 504
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scale-thumb-pressed.png",
+			"hash": "irMe5j4kuihlJD93DSLdf6CPwOxxR6oFnCvXCDnIX48=",
+			"size": 525
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scale-thumb-rest.png",
+			"hash": "SksnQf7ALaySKFERaenSXr9MxfyGMJDQK0saCz9uBx8=",
+			"size": 539
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scale-trough-hor.png",
+			"hash": "iEe31cC9WxDmJqt2RsvRuZBSTe+jmZC4fTnb9AyEYCM=",
+			"size": 208
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scale-trough-vert.png",
+			"hash": "NBq9bt1TOr+n2LOpjei3spdE5qgSC22ebI51uf8eGec=",
+			"size": 215
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-down.png",
+			"hash": "klK5n9ARyb42y2IYYooKRaNjYqaZUOA3viqV9AuiLHQ=",
+			"size": 226
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-hor-thumb.png",
+			"hash": "IVeLzV4mPx4hN5fQHAy0zOGGBqhvoPR4cSYfKmXI7Hs=",
+			"size": 254
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-hor-trough.png",
+			"hash": "Q2nUG4ayDhnkBLIGnJkXups+UF7EGlgA3jahkWjl+b8=",
+			"size": 338
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-left.png",
+			"hash": "bOiECuyDj+x9OYC/YW9zdhyALPrEu9OmEfb9mjvJPBs=",
+			"size": 233
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-right.png",
+			"hash": "M9aj/PXKtvwrsboz6EEE2p9gWHtNa7af4IhxRYuSISg=",
+			"size": 227
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-up.png",
+			"hash": "oUgnjgynjX0euMv136CYaI9GXIpcF0KsCO0l6UjBbUE=",
+			"size": 236
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-vert-thumb.png",
+			"hash": "0uUdMGPEvycBLFc8gIFjXGzXyW/jNRWsD2QfZ86iFBY=",
+			"size": 283
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/scroll-vert-trough.png",
+			"hash": "YH2iv6PIg/IQpKaarp671sVu6/ZVTVqtm4M+jp+WxuA=",
+			"size": 178
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/separator.png",
+			"hash": "temWt0VRFBOZ8e92IXIjCCECBYRpfat3lHRaRzY+qTM=",
+			"size": 128
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/sizegrip.png",
+			"hash": "Uj7XuGWQa2q0OTnXWEZ9/tGBlOrqAKxk1hTKQGLdEZU=",
+			"size": 276
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-off-disabled.png",
+			"hash": "qzlEPkaqVPq03O+FF/g+gDg33LPQeh//vVj2hn6Xm9c=",
+			"size": 733
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-off-hover.png",
+			"hash": "BPw1SHPsSMR4ewn/W12q0GDYMwyvjK51GncZTBmmf6I=",
+			"size": 945
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-off-pressed.png",
+			"hash": "zLxrsx97KEVbacIIdROOn4aFKt5RO32GhXdDoA/rZOg=",
+			"size": 963
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-off-rest.png",
+			"hash": "HPn18gSiQO4kCZpQyudmQEa7lQ7yFPvXUypVknN7GwA=",
+			"size": 895
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-on-disabled.png",
+			"hash": "oB6hxFnF8+iVE3C+zx6deCJQ3TNwBWMS4XOnegdE25E=",
+			"size": 623
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-on-hover.png",
+			"hash": "o5l+eA2QKcmA90lH+8Gej/kn9UJ7Js/TWjDZ9TE98CQ=",
+			"size": 927
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-on-pressed.png",
+			"hash": "ISZwUtaMud8pcmJ94QArw8TAjigJsRk0szF+/BbgRgQ=",
+			"size": 936
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/switch-on-rest.png",
+			"hash": "g5VWjRJH4NBgX2d1acrWER0aSJlV1irMubhG7xDPHK0=",
+			"size": 859
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/tab-hover.png",
+			"hash": "hP9L8o2PsOVzXOge82z7oeGpAavdyPf0BQVUn7yGNeY=",
+			"size": 265
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/tab-rest.png",
+			"hash": "U9XHzwKrtkWBxuyUx4LafIMKTifk98WWtvkLxd9rU70=",
+			"size": 2944
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/tab-selected.png",
+			"hash": "YOPpde5fFzJUlUVkmkCsbp3sjrRHC6GfgkWLPl8G0SI=",
+			"size": 2952
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/treeheading-hover.png",
+			"hash": "pEVN43l0F77R83vblt5BVdO+afzFE4p8M/2OtbL3XWw=",
+			"size": 295
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/treeheading-pressed.png",
+			"hash": "8Etl3WLUqvGGqnWx5cmgW1dXSiQFvsDgQ/W7VagrXqE=",
+			"size": 317
+		},
+		{
+			"name": "/gui_data/sv_ttk/theme/dark/treeheading-rest.png",
+			"hash": "fHUKVNaBZB94DRXv4BqMPzoeXUVLFhWoKVenfHijnww=",
+			"size": 321
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/__init__.py",
+			"hash": "AEot93HMPoCP5RCnwJQMKS3gCtGRUmMrwFw3fsq9Obg=",
+			"size": 493
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/libtkdnd2.9.2.so",
+			"hash": "2XHFgWy3uNMi4L0bjn15oOEJxz0plVOOLGbvr1i+gCE=",
+			"size": 55135
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/pkgIndex.tcl",
+			"hash": "gFw87476eNJivUUTmzegaQNZBiQGAoRhlcC68uXSN3Y=",
+			"size": 264
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd.tcl",
+			"hash": "AbBTgawMFlyreEqRspiDS7pU5wsBGjw8K2UkX7jADso=",
+			"size": 16121
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd_compat.tcl",
+			"hash": "WLCuvSh98dLP4WIxhHt4asmjotGP/yqKN5VVECIdEPU=",
+			"size": 6231
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd_generic.tcl",
+			"hash": "FmJhd+qbRMaSbh7tc+xYlfQEeB6AracJusl5oy5s8zY=",
+			"size": 21065
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd_macosx.tcl",
+			"hash": "yImMTs1JsRRa6lQZBoL4Mb1Ul01dOC89+P0iBPJar60=",
+			"size": 6267
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd_unix.tcl",
+			"hash": "WK41VZc1D6Cu2M/G4IqVoqRk+WRqHwnEEkwqrs8uObM=",
+			"size": 31443
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd_utils.tcl",
+			"hash": "QsK/j8Lec1h/fX5RNqLmsr/4QLVlL4NRVvwJ3B6a8zw=",
+			"size": 10148
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/linux64/tkdnd_windows.tcl",
+			"hash": "e3tSKnafy10UhIkWhbw8DuSWeJkxfKoFR6sOjR1ugI8=",
+			"size": 7644
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/libtkdnd2.9.3.dylib",
+			"hash": "SadJq4CuhQEY7LLnWM9dpXG4jPKDOIt7XOagRzWkwik=",
+			"size": 74608
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/pkgIndex.tcl",
+			"hash": "AR+tfgRhu+RpkO+YY2P/QqWs4nnr/L8StXusq7bcCHA=",
+			"size": 2027
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd.tcl",
+			"hash": "COqERMDFTH9w2Q2RePzyrdaZW7Op8FZnRgQcO4Fpu4w=",
+			"size": 18661
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd_compat.tcl",
+			"hash": "WLCuvSh98dLP4WIxhHt4asmjotGP/yqKN5VVECIdEPU=",
+			"size": 6231
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd_generic.tcl",
+			"hash": "mMsraP3uOGRshR4FWF8+at6vxiycdreTZ/F+P0dexvU=",
+			"size": 23764
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd_macosx.tcl",
+			"hash": "yImMTs1JsRRa6lQZBoL4Mb1Ul01dOC89+P0iBPJar60=",
+			"size": 6267
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd_unix.tcl",
+			"hash": "QSz2pmIOjGkodVeMxXATjL624dkPgNHErh9QNcE2gVA=",
+			"size": 34858
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd_utils.tcl",
+			"hash": "//ewRt+lCZLdMVHHQpFVjBOmde/Kp1jOU9TUpuvru0M=",
+			"size": 10201
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx_arm/tkdnd_windows.tcl",
+			"hash": "e3tSKnafy10UhIkWhbw8DuSWeJkxfKoFR6sOjR1ugI8=",
+			"size": 7644
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/libtkdnd2.9.2.dylib",
+			"hash": "jp3bkSThloDtbIWembuXWy7WGn562y0Z9XzifK5VY+A=",
+			"size": 40176
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/pkgIndex.tcl",
+			"hash": "0/S8tiD8oZ175NOWCUnAYSx7vK31bW1IRVDLcP35gkQ=",
+			"size": 267
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd.tcl",
+			"hash": "AbBTgawMFlyreEqRspiDS7pU5wsBGjw8K2UkX7jADso=",
+			"size": 16121
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd_compat.tcl",
+			"hash": "WLCuvSh98dLP4WIxhHt4asmjotGP/yqKN5VVECIdEPU=",
+			"size": 6231
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd_generic.tcl",
+			"hash": "FmJhd+qbRMaSbh7tc+xYlfQEeB6AracJusl5oy5s8zY=",
+			"size": 21065
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd_macosx.tcl",
+			"hash": "yImMTs1JsRRa6lQZBoL4Mb1Ul01dOC89+P0iBPJar60=",
+			"size": 6267
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd_unix.tcl",
+			"hash": "WK41VZc1D6Cu2M/G4IqVoqRk+WRqHwnEEkwqrs8uObM=",
+			"size": 31443
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd_utils.tcl",
+			"hash": "QsK/j8Lec1h/fX5RNqLmsr/4QLVlL4NRVvwJ3B6a8zw=",
+			"size": 10148
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/osx64/tkdnd_windows.tcl",
+			"hash": "e3tSKnafy10UhIkWhbw8DuSWeJkxfKoFR6sOjR1ugI8=",
+			"size": 7644
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/libtkdnd2.9.2.dll",
+			"hash": "aZx1DpUHCqKm2qUD7dkXOKwSVAbwc5BYhWBcZz4Ccps=",
+			"size": 153600
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/pkgIndex.tcl",
+			"hash": "wmKFWM+BbYQuKOppd8rYhAZmDXYuHtps3XvzZrSXKsk=",
+			"size": 256
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd.tcl",
+			"hash": "AbBTgawMFlyreEqRspiDS7pU5wsBGjw8K2UkX7jADso=",
+			"size": 16121
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd_compat.tcl",
+			"hash": "WLCuvSh98dLP4WIxhHt4asmjotGP/yqKN5VVECIdEPU=",
+			"size": 6231
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd_generic.tcl",
+			"hash": "FmJhd+qbRMaSbh7tc+xYlfQEeB6AracJusl5oy5s8zY=",
+			"size": 21065
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd_macosx.tcl",
+			"hash": "yImMTs1JsRRa6lQZBoL4Mb1Ul01dOC89+P0iBPJar60=",
+			"size": 6267
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd_unix.tcl",
+			"hash": "WK41VZc1D6Cu2M/G4IqVoqRk+WRqHwnEEkwqrs8uObM=",
+			"size": 31443
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd_utils.tcl",
+			"hash": "QsK/j8Lec1h/fX5RNqLmsr/4QLVlL4NRVvwJ3B6a8zw=",
+			"size": 10148
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd_windows.tcl",
+			"hash": "e3tSKnafy10UhIkWhbw8DuSWeJkxfKoFR6sOjR1ugI8=",
+			"size": 7644
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/tkdnd/win64/tkdnd2.9.2.lib",
+			"hash": "9+vpIOzhgfxh/GES6iHRV00/uAVHAdFnZt00SgbSQLQ=",
+			"size": 2064
+		},
+		{
+			"name": "/gui_data/tkinterdnd2/TkinterDnD.py",
+			"hash": "ntmMXLLAq5CICO6v5iC2uAOTRmd4hacHbPzupZWOVLk=",
+			"size": 13332
+		},
+		{
+			"name": "/install_packages.sh",
+			"hash": "VpKsnwDuxWRmQ831CnHbD29IcWiwrG4LZBoFH2qR3eU=",
+			"size": 87
+		},
+		{
+			"name": "/lib_v5/mdxnet.py",
+			"hash": "fAWnZrz7vvmblWUAkocPd32fz+aOlv+mQ+SQRIIRnHA=",
+			"size": 4199
+		},
+		{
+			"name": "/lib_v5/mixer.ckpt",
+			"hash": "6ngb1SxqUjuCX6bNu2GJ9S4xjt2LF+b+QE9296+Mqpw=",
+			"size": 1208
+		},
+		{
+			"name": "/lib_v5/modules.py",
+			"hash": "9PaHpLCt1xiXMX114tdTWQt7f10QqdREBGUAUy+Y8t4=",
+			"size": 2005
+		},
+		{
+			"name": "/lib_v5/pyrb.py",
+			"hash": "Y1bfPmMWdl+PKzfOv4TJKBRZPGJv1DeWCyWuSa5X4wE=",
+			"size": 2135
+		},
+		{
+			"name": "/lib_v5/results.py",
+			"hash": "lmtgO7u1XV6KujT1oSTOjkszOcXFWvTJ/qGtYPMFO1Q=",
+			"size": 1583
+		},
+		{
+			"name": "/lib_v5/spec_utils.py",
+			"hash": "b88fAfVuGojD3dVZ9GRdaMjM1+8K2s27YzT/clDvh7o=",
+			"size": 45115
+		},
+		{
+			"name": "/lib_v5/tfc_tdf_v3.py",
+			"hash": "Eqp3gRnrlt2FSd9lWRIryR6SNSzo8S9RJZrXKnuRERs=",
+			"size": 7513
+		},
+		{
+			"name": "/lib_v5/vr_network/__init__.py",
+			"hash": "Dq+BbwMz1uRZ5ek1DqYKH+iNPmSsRWVSXsnE0f9vLjs=",
+			"size": 11
+		},
+		{
+			"name": "/lib_v5/vr_network/layers.py",
+			"hash": "gUY5QN5/smfV1QtZnFEl1HmOkUL59tQcENfqUIYy6U8=",
+			"size": 4799
+		},
+		{
+			"name": "/lib_v5/vr_network/layers_new.py",
+			"hash": "jPbEo6vCZnXJXYfpD2Cgl+Rju7x/QPXJIn0CFHVcpsg=",
+			"size": 3974
+		},
+		{
+			"name": "/lib_v5/vr_network/model_param_init.py",
+			"hash": "7oYCEKY2YhOd9LsQqQxBP1zbRTnaLhmXctYVTOty7lg=",
+			"size": 951
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr16000_hl512.json",
+			"hash": "H94cieLsVOYXYf/boMaH9aJBioaY5RetMjbv02hEGJg=",
+			"size": 292
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr32000_hl512.json",
+			"hash": "W2qQgweTkCDD+BLDCYnrxbJf3KIsTSbg9jQuQvoVh90=",
+			"size": 294
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr33075_hl384.json",
+			"hash": "fzlz81P/DmumOx+Q/xzfINptCYyaMA9nCguvj54GcoM=",
+			"size": 292
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr44100_hl256.json",
+			"hash": "f67gH8tqGIrohqFw909L4G7lAbT8qnF80c0QPfdNLcI=",
+			"size": 287
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr44100_hl512.json",
+			"hash": "tIy2YZVdN00oUwtsOd/ozNIAPAnUflYeovqe+D1XWlk=",
+			"size": 292
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr44100_hl512_cut.json",
+			"hash": "TlHmisouBB68fnpYEwMqxKGjuVeMX3RmX6ufgGSPg38=",
+			"size": 290
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr44100_hl512_nf1024.json",
+			"hash": "k04mbBWkp1HnCGkgfRKxmbXj9BgOOMhOqLenOR3NI24=",
+			"size": 306
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/1band_sr44100_hl1024.json",
+			"hash": "5ihhv7s/N+bgnfeaOnvmErizPwE1xAF6hu9pl2x8n3I=",
+			"size": 293
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/2band_32000.json",
+			"hash": "q1vCtPMVsGKuoOcguEuxQctAKmk+6HEuAceqElNfLpI=",
+			"size": 483
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/2band_44100_lofi.json",
+			"hash": "Y4Hyq6zuBHsSFTjsOgZyNRxPzOuISdlFy+1TrymrRns=",
+			"size": 485
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/2band_48000.json",
+			"hash": "kdrQiLCSNk126v6yBCyClrHncJ4XKiJyUR0WMp0A/pQ=",
+			"size": 511
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/3band_44100.json",
+			"hash": "lkAhrOBNwCnqnjwwiZVkYlKlfY/WP1ZLdW4I+6o9fY0=",
+			"size": 737
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/3band_44100_mid.json",
+			"hash": "URD6cx7XpqOk58UC1qmmbuYF0U/RT6fjrrUC7Gh0m3Y=",
+			"size": 757
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/3band_44100_msb2.json",
+			"hash": "k44ptgumrBXclndJmKfAv55V3+c38jnjbRoEyLqAjik=",
+			"size": 757
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_44100.json",
+			"hash": "jIDk8VTpHN76E+LypUENL2NJlgd0ai1SXmVER9FQ36w=",
+			"size": 960
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_44100_mid.json",
+			"hash": "qpklFTMoKQL+SzeFt6CeCHbqoYuhmOJPjT4bIcDXPf8=",
+			"size": 980
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_44100_msb.json",
+			"hash": "TvJkYYXmU8xcr3cbNapOPQ/EQ9R944EomNQO6S2bIIc=",
+			"size": 980
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_44100_msb2.json",
+			"hash": "TvJkYYXmU8xcr3cbNapOPQ/EQ9R944EomNQO6S2bIIc=",
+			"size": 980
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_44100_reverse.json",
+			"hash": "YfZyunv8Kzh8jhckAHK/DzceSPxUgYhqUy9lI8Kb1OI=",
+			"size": 977
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_44100_sw.json",
+			"hash": "Vky422WcvmMDf7vQVFsnyu8bIQlh8w+6cebcTAkloOE=",
+			"size": 978
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_v2.json",
+			"hash": "K7MV5qj7n/EqVG9DYeCVOI4OcC27H/Nk6AnG6RXgqU8=",
+			"size": 947
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_v2_sn.json",
+			"hash": "F5tD/WM8UIHvb3h4BR1qr1eB5afQ2rk6F7/1Ac5T4/s=",
+			"size": 983
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_v3.json",
+			"hash": "wBBLt6q2pItBi5oeRciXAAPTokWbJTjF82ChVOHCBIQ=",
+			"size": 944
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/4band_v3_sn.json",
+			"hash": "64PRmQaxI9X/iRHWPJ8Cb9v+w70AB9NfLy1WWfDxmks=",
+			"size": 979
+		},
+		{
+			"name": "/lib_v5/vr_network/modelparams/ensemble.json",
+			"hash": "af8B9vwPz0ScuteKr19jRATCrenXwaUwbE0VEsPhE4A=",
+			"size": 761
+		},
+		{
+			"name": "/lib_v5/vr_network/nets.py",
+			"hash": "A1WZ2caH+uUjydMdhp+PkNz7WTujN04KWs2NtmjQdJY=",
+			"size": 5405
+		},
+		{
+			"name": "/lib_v5/vr_network/nets_new.py",
+			"hash": "m/PbsIDUjAhr65u3XHZg7AZU9FNCL4aGhjS6fuV4YFE=",
+			"size": 4184
+		},
+		{
+			"name": "/models/Demucs_Models/model_data/model_name_mapper.json",
+			"hash": "hRVojhqYti0OrHFPC6iuLKJlf71WvPIESyoTKoQ4yPw=",
+			"size": 1463
+		},
+		{
+			"name": "/models/Demucs_Models/v3_v4_repo/demucs_models.txt",
+			"hash": "aNBragaHWFjPITRUFgOe0I33BfdgIWx2b/INe/YnXAI=",
+			"size": 32
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model_2_stem_061321.yaml",
+			"hash": "1Mqg9C5hnSKiUOg/WfzvmbZZhr5zjyZCgzwPUuW3CTM=",
+			"size": 567
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model_2_stem_full_band.yaml",
+			"hash": "ddEFlJaqC5mYBXBJm0TYphUbFkkED0SNQMvPh9M+3NI=",
+			"size": 563
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model_2_stem_full_band_2.yaml",
+			"hash": "6KL/rbpAKIlosrk3ld9Hk5Xe15El8MZYeP+QOEgCblg=",
+			"size": 564
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model_2_stem_full_band_3.yaml",
+			"hash": "FvZmWb4sllcEK2ESYGf0MqMRBFHZyUeNRfx7vRgcvRo=",
+			"size": 620
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model_2_stem_full_band_4.yaml",
+			"hash": "D9aT5Upmy1XQk1igCwwBfeWvPXgtOcoBBWqv5ZhjC5w=",
+			"size": 634
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model_2_stem_full_band_8k.yaml",
+			"hash": "RRdl6Gm3jcucqRiKdNox9YG3JU/w6LUyqna5dBSN6Uc=",
+			"size": 709
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model1.yaml",
+			"hash": "xus/iwv8gyR0yiq6mK5mnWeLo2bW6BP4cjIhFfzyF9s=",
+			"size": 496
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model2.yaml",
+			"hash": "Ro32hmLqG1whOKixgw3NHQV6CFO3Oklmpi9q5ekQZ1w=",
+			"size": 496
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/model3.yaml",
+			"hash": "f3vvJN0Y5qy0fLkBc8gxVJoyETkeeI3K+ky7huBHxwQ=",
+			"size": 499
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/modelA.yaml",
+			"hash": "stxAR8EOHk7zxDDb6OzNWuW47AolJhoe36ZIOMNrwa8=",
+			"size": 595
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/modelB.yaml",
+			"hash": "G7R80EXPKw7sR3a+khYaYMzCdgN0iY+XpRdpQPqI+tA=",
+			"size": 636
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/mdx_c_configs/sndfx.yaml",
+			"hash": "ffYHMAgvd0tqNSaWT7o+9yFd35pLcp1a0OnPaglWCTQ=",
+			"size": 615
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/model_data.json",
+			"hash": "KpZAMpRaUjyFznLV0OH+wnpxl4B/tOij2p2B/qPpEO4=",
+			"size": 10826
+		},
+		{
+			"name": "/models/MDX_Net_Models/model_data/model_name_mapper.json",
+			"hash": "hH7s30cUoxcw7BeCmdxd745tdV4yQzOY7+qreKhcQKA=",
+			"size": 947
+		},
+		{
+			"name": "/models/VR_Models/model_data/model_data.json",
+			"hash": "6WorHpBLG3ZFSqCfSBzeTGSt/XBEziBCUCHGaKoy9UM=",
+			"size": 4375
+		},
+		{
+			"name": "/models/VR_Models/UVR-DeNoise-Lite.pth",
+			"hash": "ACNJL+mMQGgXtSU5Zd4Z7eZdHBR9sBWjpCjwdgLplXE=",
+			"size": 17922277
+		},
+		{
+			"name": "/README.md",
+			"hash": "B8UNucZUNCsdHMV0SM9S7Bptc+RSFtHLC7gVwzIELb0=",
+			"size": 13717
+		},
+		{
+			"name": "/requirements.txt",
+			"hash": "YLpOzEg9qBg1r10OkvfgvdchJEUKbuoYW3f0tPFQXuE=",
+			"size": 736
+		},
+		{
+			"name": "/separate.py",
+			"hash": "09H9MohJGJVBWoSHu1bQz3WRTgCA0fHPN6qxRcXFdug=",
+			"size": 74033
+		},
+		{
+			"name": "/UVR.py",
+			"hash": "T+2PbZl1UWl62Xz1GuK1nbSl+2WugyO7eVKSjMbQsio=",
+			"size": 411710
+		}
+	],
+	"links": {
+		"stats": "https://data.jsdelivr.com/v1/stats/packages/gh/Anjok07/ultimatevocalremovergui@master"
+	}
+}

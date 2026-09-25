@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SVAgent orb logo 动画版：syn-logo-anim 的 monogram（l1-l6），1s 描边，hover 重放 -->
+<svg version="1.1" id="_銈ゃ儰銉糭2"
+  xmlns="http://www.w3.org/2000/svg"
+  xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 137.34 105" style="enable-background:new 0 0 1109.8 123.5;" xml:space="preserve">
+  <style type="text/css">
+    .st0{fill:none;stroke:#fff;stroke-width:0.5;}
+    #l1{ animation: svg1 1s ease-in 0.006s forwards; } @keyframes svg1 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #l2{ animation: svg2 1s ease-in 0.013s forwards; } @keyframes svg2{ 0% { fill: transparent; stroke-dasharray: 200px; stroke-dashoffset: 200px; } 20%{ stroke-dashoffset: 0; } 30%{ fill: transparent; } 50%{ stroke:#79D825; fill: #79D825; mix-blend-mode:overlay } 100%{ stroke:#79D825; fill: #79D825; mix-blend-mode:overlay;} }
+    #l3{ animation: svg3 1s ease-in 0.02s forwards; } @keyframes svg3 { 0% {fill: transparent;stroke-dasharray: 300px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #l4{ animation: svg4 1s ease-in 0.026s forwards; } @keyframes svg4{ 0% { fill: transparent; stroke-dasharray: 300px; stroke-dashoffset: 200px; } 20%{ stroke-dashoffset: 0; } 30%{ fill: transparent; } 50%{ stroke:#79D825; fill: #79D825; mix-blend-mode:overlay } 100%{ stroke:#79D825; fill: #79D825; mix-blend-mode:overlay;} }
+    #l5{ animation: svg5 1s ease-in 0.033s forwards; } @keyframes svg5 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #l6{ animation: svg6 1s ease-in 0.04s forwards; } @keyframes svg6 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #S1{ animation: svg7 1s ease-in 0.047s forwards; } @keyframes svg7 { 0% {fill: transparent;stroke-dasharray: 400px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #y2{ animation: svg8 1s ease-in 0.054s forwards; } @keyframes svg8 { 0% {fill: transparent;stroke-dasharray: 400px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #n3{ animation: svg9 1s ease-in 0.06s forwards; } @keyframes svg9 { 0% {fill: transparent;stroke-dasharray: 300px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #t4{ animation: svg10 1s ease-in 0.067s forwards; } @keyframes svg10 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #h5{ animation: svg11 1s ease-in 0.074s forwards; } @keyframes svg11 { 0% {fill: transparent;stroke-dasharray: 400px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #e6{ animation: svg12 1s ease-in 0.081s forwards; } @keyframes svg12 { 0% {fill: transparent;stroke-dasharray: 300px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #s7{ animation: svg13 1s ease-in 0.088s forwards; } @keyframes svg13 { 0% {fill: transparent;stroke-dasharray: 300px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #i8{ animation: svg14 1s ease-in 0.094s forwards; } @keyframes svg14 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #z9{ animation: svg15 1s ease-in 0.101s forwards; } @keyframes svg15 { 0% {fill: transparent;stroke-dasharray: 400px;stroke-dashoffset: 400px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #e10{ animation: svg16 1s ease-in 0.108s forwards; } @keyframes svg16 { 0% {fill: transparent;stroke-dasharray: 400px;stroke-dashoffset: 400px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #r11{ animation: svg17 1s ease-in 0.115s forwards; } @keyframes svg17 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #V12{ animation: svg18 1s ease-in 0.122s forwards; } @keyframes svg18 { 0% { fill: transparent; stroke-dasharray: 300px; stroke-dashoffset: 200px; } 20%{ stroke-dashoffset: 0; } 30%{ fill: transparent; } 50%{ stroke:#79D825; fill: #79D825; mix-blend-mode:overlay } 100%{ stroke:#79D825; fill: #79D825; mix-blend-mode:overlay;} }
+    #S13{ animation: svg19 1s ease-in 0.128s forwards; } @keyframes svg19 { 0% {fill: transparent;stroke-dasharray: 400px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #t14{ animation: svg20 1s ease-in 0.135s forwards; } @keyframes svg20 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #u15{ animation: svg21 1s ease-in 0.142s forwards; } @keyframes svg21 { 0% {fill: transparent;stroke-dasharray: 300px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #d16{ animation: svg22 1s ease-in 0.149s forwards; } @keyframes svg22 { 0% {fill: transparent;stroke-dasharray: 300px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #i17{ animation: svg23 1s ease-in 0.156s forwards; } @keyframes svg23 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+    #o18{ animation: svg24 1s ease-in 0.162s forwards; } @keyframes svg24 { 0% {fill: transparent;stroke-dasharray: 200px;stroke-dashoffset: 200px;} 20%{stroke-dashoffset: 0;} 30%{fill: transparent;} 50%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:overlay} 100%{stroke:#ffffff; fill: #ffffff; mix-blend-mode:lighten; opacity:0.7;} }
+  </style>
+
+  <g id="_銈ゃ儰銉糭1-2">
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <path id="l4" class="st0" d="M75.7,96.7L75.7,96.7c-0.5,2-1.6,3.8-3.3,5c-1.6,1.3-3.6,2-5.7,2h-6.3L85.6,1.5h13.7L75.7,96.7z"/>
+    <path id="l3" class="st0" d="M62,8.5L62,8.5c0.5-2,1.6-3.8,3.3-5c1.6-1.3,3.6-2,5.7-2h6.3L52.1,103.7H38.4L62,8.5z"/>
+    <path id="l6" class="st0" d="M126.7,8.5L126.7,8.5l10.6,43h-13.5l-12.4-50h6.3c2.1,0,4,0.7,5.7,2C125.1,4.7,126.2,6.5,126.7,8.5z" />
+    <path id="l1" class="st0" d="M11.2,96.8L0.6,53.7h13.5l12.3,50h-6.3c-2.1,0-4.1-0.7-5.7-2C12.8,100.5,11.7,98.7,11.2,96.8z"/>
+    <path id="l5" class="st0" d="M105.3,9.4l10.1,41.1h-6.3c-2.1,0-4.1-0.7-5.7-2s-2.8-3.1-3.3-5.1l0,0l-1.6-6.6
+		C98.5,36.8,105.3,9.4,105.3,9.4z"/>
+    <path id="l2" class="st0" d="M32.6,94.8L22.5,53.7h6.3c2.1,0,4.1,0.7,5.7,2c1.6,1.3,2.8,3,3.3,5.1l0,0l1.6,6.6L32.6,94.8z"/>
+  </g>
+</svg>

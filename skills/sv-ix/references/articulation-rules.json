@@ -1,0 +1,154 @@
+{
+  "schema": 1,
+  "status": "confirmed",
+  "statusNote": "规则集 + **风格档数值**均已由用户 2026-09-21 拍板**定稿**（原话：「阈值就这么定了」）：**10 条规则全留** + **阈值按风格分档（五档数值如下，不再标「待验收」）** + **乐句按「旋律缺口」切（无缺口则不切、不做乐句级规则）** + **段落级批量开关要做**。⇒ 这五个档的 `minBeatsScale`/`leapSemitones`/`runCount`/`shortBeats` 就是**现行规范**；将来要调数值请当「改规范」处理（先问用户），**不算改规则**。",
+  "title": "IX 技法「按旋律走向覆盖」规则表（路线 A：只覆盖少数音符，其余留给宿主 Smart Articulation）",
+  "version": "v1",
+  "proposedAt": "2026-09-21",
+  "dependsOn": "articulation-matrix.json（支持集 + 全局互斥图；本表的 set/fallback 必须落在它登记的词表里）",
+  "route": "A —— 默认不写技法（留给宿主 Smart），只在命中下表事件时覆盖该音符",
+  "background": "官方（Instrument X: First Look）确认宿主自带 Smart Articulation 自动配技法；2026-09-21 实测：smart 模式音符 smart=true，但 active/predicted/incompatible 全空 ⇒ **Smart 的决定读不出来**，无法避让；能可靠识别的是 articulationsFixed（= 已有显式技法）",
+  "safetyRules": [
+    { "id": "defaultNoWrite", "text": "默认不写：只有命中规则事件才 setArticulations，其余音符保持 articulationsFixed=false（= Smart 继续管）" },
+    { "id": "skipFixed", "text": "跳过 articulationsFixed=true 的音符（人工或前次结果）—— 除非调用方显式 --force" },
+    { "id": "supportedOnly", "text": "只写该乐器 getSupportedArticulations() 里有的键（运行时读；并与 articulation-matrix.json 交叉校验）" },
+    { "id": "mutexPrune", "text": "写入前用全局互斥图消解冲突（本音符内既有技法 + 本次要加的）" },
+    { "id": "onePerNote", "text": "每音符默认只给 1 个技法（--max 可调）；**不碰**弦乐三组开关与弱音器（属段落性选择，见 segmentLevel）" }
+  ],
+  "phraseSplit": {
+    "by": "gap",
+    "minGapBeats": 1.0,
+    "rule": "乐句按**旋律缺口**切：相邻两音之间（前音结束 → 后音开始）的空档 ≥ minGapBeats 即认为换句。",
+    "noGapMeans": "**没有缺口 ⇒ 不切分**：整段视为一个乐句，且**不做乐句级规则**（phraseEndLong / fallResolution 等以句末为判据的规则**不触发**）—— 宁可不动，也不要瞎猜句法。"
+  },
+  "styleTiers": {
+    "_note": "官方五个风格预设（工程里的 performanceDirection：Adagio / Allegro / con Fuoco / Pop / Ballade）⇒ 阈值按档缩放。**未指定风格用 (default)**。四个可缩放量：minBeatsScale（乘所有『最少拍数』判据）· leapSemitones（大跳阈值）· runCount（连续个数阈值）· shortBeats（短音上限，拍）。**数值已由用户 2026-09-21 定稿**（「阈值就这么定了」）⇒ 现行规范，不是「待验收的默认值」。",
+    "Adagio": { "label": "慢速·抒情", "minBeatsScale": 1.5, "leapSemitones": 7, "runCount": 3, "shortBeats": 0.5 },
+    "Allegro": { "label": "快速·敏捷", "minBeatsScale": 0.5, "leapSemitones": 5, "runCount": 3, "shortBeats": 0.25 },
+    "con Fuoco": { "label": "强烈·激烈", "minBeatsScale": 0.75, "leapSemitones": 5, "runCount": 4, "shortBeats": 0.25 },
+    "Pop": { "label": "现代流行", "minBeatsScale": 1.0, "leapSemitones": 5, "runCount": 3, "shortBeats": 0.5 },
+    "Ballade": { "label": "柔和叙事", "minBeatsScale": 1.5, "leapSemitones": 7, "runCount": 3, "shortBeats": 0.5 },
+    "(default)": { "label": "未指定风格", "minBeatsScale": 1.0, "leapSemitones": 7, "runCount": 3, "shortBeats": 0.5 }
+  },
+  "priority": [
+    "sameNoteRepeat",
+    "twoNoteAlternation",
+    "leapIn",
+    "highPointApproach",
+    "fallResolution",
+    "staccatoRun",
+    "stepwiseRun",
+    "phraseEndLong",
+    "saxScoop",
+    "doitExit"
+  ],
+  "priorityNote": "命中多条时取优先级最高的一条（表从上到下）。段等级（segmentLevel）不参与逐音竞争。",
+  "rules": [
+    {
+      "id": "phraseEndLong",
+      "event": "句末长音（乐句最后一音且时值够长）",
+      "criterion": { "position": "phraseEnd", "minBeats": "2 × minBeatsScale" },
+      "set": ["Tenuto"],
+      "fallback": null,
+      "familyHint": ["woodwind", "brass", "strings", "sax"],
+      "why": "最保守的一条：句末长音给持音，不改变发音姿态。⚠️ 句末只在「有缺口」的前提下有意义（见 phraseSplit.noGapMeans）"
+    },
+    {
+      "id": "leapIn",
+      "event": "大跳接入（前音到本音为大跳）",
+      "criterion": { "prevIntervalSemitones": ">= leapSemitones" },
+      "set": ["Portamento"],
+      "fallback": ["Accent"],
+      "familyHint": ["strings", "brass"],
+      "why": "大跳接入用滑音最像真人（弦乐四件与长号支持 Portamento；其余乐器退 Accent）"
+    },
+    {
+      "id": "highPointApproach",
+      "event": "上行冲高到乐句高点",
+      "criterion": { "isPhraseHighest": true, "direction": "ascending", "minSemitones": 2 },
+      "set": ["Accent"],
+      "fallback": null,
+      "familyHint": ["woodwind", "brass", "strings", "sax"],
+      "why": "高点给重音，突出句法顶点"
+    },
+    {
+      "id": "fallResolution",
+      "event": "下行收尾（高点之后回落，且落在句末）",
+      "criterion": { "afterHighPoint": true, "downSemitones": ">=3", "position": "phraseEnd" },
+      "set": ["Fall"],
+      "fallback": ["Tenuto"],
+      "familyHint": ["woodwind", "brass", "strings", "sax"],
+      "why": "浪漫/爵士式收尾；不支持 Fall 的乐器（Oboe / Horn / Tuba 等）退 Tenuto。⚠️ 同 phraseEndLong：无缺口时不触发"
+    },
+    {
+      "id": "sameNoteRepeat",
+      "event": "同音快速重复",
+      "criterion": { "samePitchRun": ">= runCount", "maxBeats": "shortBeats" },
+      "set": ["Tremolo"],
+      "fallback": null,
+      "familyHint": ["woodwind", "brass", "strings"],
+      "why": "震音＝同音快速重复；仅 Piccolo/Flute/Trumpet/弦乐四件支持，其余自动跳过"
+    },
+    {
+      "id": "twoNoteAlternation",
+      "event": "两音交替（A-B-A-B…）",
+      "criterion": { "alternations": ">= runCount", "maxIntervalSemitones": 2 },
+      "setAnyOf": [["Trill Major"], ["Trill Minor"]],
+      "setChoice": "交替音程 = 大二度 ⇒ Trill Major；小二度 ⇒ Trill Minor（二者互斥 ⇒ 逐音符只给一个）",
+      "fallback": null,
+      "familyHint": ["woodwind", "strings"],
+      "why": "颤音＝两音交替；大小两档由交替音程决定（二者互斥，只给一个）"
+    },
+    {
+      "id": "stepwiseRun",
+      "event": "级进同向连奏",
+      "criterion": { "sameDirectionSteps": ">= runCount", "maxIntervalSemitones": 2 },
+      "set": ["Slur"],
+      "fallback": null,
+      "familyHint": ["woodwind", "brass", "strings", "sax"],
+      "why": "同向级进是天然的连奏句"
+    },
+    {
+      "id": "staccatoRun",
+      "event": "短促断奏段",
+      "criterion": { "count": ">= runCount", "maxBeats": "shortBeats", "excludeSamePitchRuns": true },
+      "set": ["Staccato"],
+      "fallback": null,
+      "familyHint": ["woodwind", "brass", "strings", "sax"],
+      "why": "连续短音＝断奏；与 sameNoteRepeat 撞时后者优先（同音重复是震音不是断奏）"
+    },
+    {
+      "id": "saxScoop",
+      "event": "萨克斯上行进入长音",
+      "criterion": { "family": "sax", "direction": "ascending", "minSemitones": 3, "targetMinBeats": "1 × minBeatsScale" },
+      "set": ["Scoop"],
+      "fallback": null,
+      "familyHint": ["sax"],
+      "why": "爵士味的上滑进入（仅 Alto/Tenor Sax 支持）"
+    },
+    {
+      "id": "doitExit",
+      "event": "萨克斯下行离开长音（与 saxScoop 对称）",
+      "criterion": { "family": "sax", "direction": "descending", "minSemitones": 3, "sourceMinBeats": "1 × minBeatsScale" },
+      "set": ["Doit"],
+      "fallback": null,
+      "familyHint": ["sax"],
+      "why": "爵士味的下滑离开长音；仅 Alto/Tenor Sax 支持（用户 2026-09-21 裁定「单列一条」）"
+    }
+  ],
+  "segmentLevel": [
+    {
+      "id": "colorBySegment",
+      "event": "段落性色彩（按段统一，不逐音）",
+      "setAnyOf": [["Con Sordino"], ["Pizz."], ["C. Legno"], ["Bridge"], ["Fingerb."], ["Straight"], ["Cup"], ["Stem"]],
+      "familyHint": ["strings", "brass"],
+      "tool": "MCP `sv_apply_articulations`（segments:[\"beats=16-40,Pizz.\"]，默认 dry-run）；命令行等价 `node tools/apply-articulations.cjs --segment \"beats=16-40,Pizz.\" --apply`",
+      "segmentSelection": "v1 已实现两种：① 按**组内拍区间**（beats=A-B，单位=四分音符=1 拍，含左端不含右端）② 按缺口切出的乐句序号（phrases=1,3）；**都只作用于该段内、且 articulationsFixed=false 的音符**。⚠️ **bars=A-B（按小节）尚未实现**（v2，需小节长度表）—— 引擎遇 bars= 明确报错、不猜；⚠️ 写入会把音符永久置 articulationsFixed=true（API 清不掉，只能 Ctrl+Z 或 UI 重开 Smart）",
+      "why": "弦乐三组开关与铜管弱音器是「整段音色」的选择，由用户指定段落；不做逐音规则 —— 且它们与互斥图里的对立态互斥（Pizz./Arco、Con Sordino/Senza Sordino、Straight·Cup·Stem/Open、Bridge·Fingerb./Center）"
+    }
+  ],
+  "openQuestions": [
+    "`Scoop` / `Doit` 要不要也给非萨克斯乐器？官方未单列、实测只有 Alto/Tenor Sax 支持 ⇒ 现状只在 sax 生效",
+    "段落级开关的「段落」怎么指认：组内拍区间 beats=A-B（v1 已支持）/ 缺口切出的乐句序号 phrases=1,3（v1 已支持）/ **按小节 bars=A-B（v2，需小节长度表）**"
+  ]
+}

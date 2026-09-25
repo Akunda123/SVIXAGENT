@@ -1,0 +1,50 @@
+{
+  "zh-Hans": {
+    "keyPrompt.title": "配置 DeepSeek API 密钥",
+    "keyPrompt.lead": "首次使用需要配置 API 密钥",
+    "keyPrompt.leadLink": "密钥获取：",
+    "keyPrompt.fieldLabel": "DeepSeek API 密钥",
+    "keyPrompt.placeholder": "sk-...",
+    "keyPrompt.showKey": "显示密钥",
+    "keyPrompt.hideKey": "隐藏密钥",
+    "keyPrompt.ok": "确定",
+    "keyPrompt.later": "稍后配置",
+    "keyPrompt.otherModels": "配置其他模型"
+  },
+  "zh-Hant": {
+    "keyPrompt.title": "設定 DeepSeek API 金鑰",
+    "keyPrompt.lead": "首次使用需要設定 API 金鑰",
+    "keyPrompt.leadLink": "金鑰取得：",
+    "keyPrompt.fieldLabel": "DeepSeek API 金鑰",
+    "keyPrompt.placeholder": "sk-...",
+    "keyPrompt.showKey": "顯示金鑰",
+    "keyPrompt.hideKey": "隱藏金鑰",
+    "keyPrompt.ok": "確定",
+    "keyPrompt.later": "稍後設定",
+    "keyPrompt.otherModels": "設定其他模型"
+  },
+  "en": {
+    "keyPrompt.title": "Set up your DeepSeek API key",
+    "keyPrompt.lead": "An API key is required for first-time setup",
+    "keyPrompt.leadLink": "Get a key:",
+    "keyPrompt.fieldLabel": "DeepSeek API key",
+    "keyPrompt.placeholder": "sk-...",
+    "keyPrompt.showKey": "Show key",
+    "keyPrompt.hideKey": "Hide key",
+    "keyPrompt.ok": "OK",
+    "keyPrompt.later": "Set up later",
+    "keyPrompt.otherModels": "Configure other models"
+  },
+  "ja": {
+    "keyPrompt.title": "DeepSeek API キーの設定",
+    "keyPrompt.lead": "初回利用時は API キーの設定が必要です",
+    "keyPrompt.leadLink": "キーの取得：",
+    "keyPrompt.fieldLabel": "DeepSeek API キー",
+    "keyPrompt.placeholder": "sk-...",
+    "keyPrompt.showKey": "キーを表示",
+    "keyPrompt.hideKey": "キーを隠す",
+    "keyPrompt.ok": "OK",
+    "keyPrompt.later": "後で設定",
+    "keyPrompt.otherModels": "他のモデルを設定"
+  }
+}

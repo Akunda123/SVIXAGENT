@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 137.34 102.7">
+  <defs>
+    <style>
+      .a41f1f38-eaaf-4721-860d-070cb27705ab {
+        fill: #79d825;
+        stroke: #79d825;
+      }
+
+      .a41f1f38-eaaf-4721-860d-070cb27705ab, .b1ecce98-7af2-4a2a-a850-ac38300217a1 {
+        stroke-width: 0.5px;
+      }
+
+      .b1ecce98-7af2-4a2a-a850-ac38300217a1 {
+        fill: #fff;
+        stroke: #fff;
+        isolation: isolate;
+        opacity: 0.7;
+      }
+    </style>
+  </defs>
+  <g id="f45e7b6c-63ba-4290-913f-9a5a2a86f8a4" data-name="图层 2">
+    <g id="fbdddf19-0b37-4d42-8af2-5de7c32d42f9" data-name=" イヤー 2">
+      <path id="a8ccae27-73d7-4c05-b85f-d3235bf7d645" data-name="l4" class="a41f1f38-eaaf-4721-860d-070cb27705ab" d="M75.42,95.45h0a8.57,8.57,0,0,1-3.3,5,9,9,0,0,1-5.7,2h-6.3L85.32.25H99Z"/>
+      <path id="f1e4859d-cc02-4f69-918f-20cc89afa08b" data-name="l3" class="b1ecce98-7af2-4a2a-a850-ac38300217a1" d="M61.72,7.25h0a8.57,8.57,0,0,1,3.3-5,9,9,0,0,1,5.7-2H77l-25.2,102.2H38.12Z"/>
+      <path id="bf2e6ded-a372-4053-912b-48e94d3f8d99" data-name="l6" class="b1ecce98-7af2-4a2a-a850-ac38300217a1" d="M126.42,7.25h0l10.6,43h-13.5l-12.4-50h6.3a9.2,9.2,0,0,1,5.7,2A8.57,8.57,0,0,1,126.42,7.25Z"/>
+      <path id="ba827856-bb0a-4bad-836d-55cd5e7146fb" data-name="l1" class="b1ecce98-7af2-4a2a-a850-ac38300217a1" d="M10.92,95.55.32,52.45h13.5l12.3,50h-6.3a9.25,9.25,0,0,1-8.9-6.9Z"/>
+      <path id="e8d9f916-6a59-4e54-84aa-6c3e852fac36" data-name="l5" class="b1ecce98-7af2-4a2a-a850-ac38300217a1" d="M105,8.15l10.1,41.1h-6.3a9,9,0,0,1-5.7-2,9.68,9.68,0,0,1-3.3-5.1h0l-1.6-6.6Z"/>
+      <path id="f4b2ef7b-d63e-49a0-a615-8559ca7c568c" data-name="l2" class="a41f1f38-eaaf-4721-860d-070cb27705ab" d="M32.32,93.55l-10.1-41.1h6.3a9,9,0,0,1,5.7,2,9.31,9.31,0,0,1,3.3,5.1h0l1.6,6.6Z"/>
+    </g>
+  </g>
+</svg>

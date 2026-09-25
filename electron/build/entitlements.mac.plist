@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  AKDAgent macOS 授权（hardened runtime）。
+
+  为什么需要这些：
+   · allow-jit / allow-unsigned-executable-memory —— Electron(V8) 必须；缺了启动即崩。
+   · disable-library-validation —— 我们的 STT 走**独立子进程**（内嵌 node + sherpa-onnx 原生件，
+     与原子的签名身份不同，见 stt-server.js 顶部注释）⇒ 关掉库校验，否则 dlopen 被拒。
+   · allow-dyld-environment-variables —— 同一原因（子进程要能带环境变量加载原生件）。
+
+  ⚠️ 未在 macOS 上实测（2026-09-24 只有 Windows 机器）：第一版出包时若 gates 报
+     "library load disallowed by system policy"，先看这条；必要时再看 mac.binaries 是否覆盖了
+     内嵌 node（electron-builder.yml 的 mac.binaries 已写 Contents/Resources/node/node）。
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

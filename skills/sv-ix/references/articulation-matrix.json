@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "title": "IX 技法（articulations）支持集与互斥图 —— 实测单一事实源",
+  "measuredAt": "2026-09-21",
+  "host": "Instrument X 1.0.1",
+  "hostVersionNumber": 65537,
+  "bridge": "0.3.21",
+  "measuredOn": "用户的 IX 工程（工作副本 123132132132.ixp，17 条轨：全管弦 + 1 条刻意留空的对照轨）",
+  "howMeasured": "node tools/probe-ix-articulations.cjs --caps（逐轨 getSupportedArticulations）· --matrix（每轨建自建组 + 1 个音符，逐技法「只设一个再读」getArticulationState().incompatible）",
+  "reverify": "IX 升级后重跑：node tools/probe-ix-articulations.cjs --caps --out x.json · node tools/check-articulation-matrix.cjs --live（离线结构校验 + 与真机漂移比对）",
+  "facts": {
+    "writeLayerNeverRejects": "setArticulations 对任何组合都不拒绝（22 技法 × 17 轨全量写入成功、回读一致）⇒ 真实可用性只能看 incompatible",
+    "articulationsFixedAfterSet": "setArticulations 之后 getAttributes().articulationsFixed 一律变 true。⚠️ 2026-09-21 真机补测：**连 `setArticulations({})`（写空表）也一样置 true** ⇒ 「写入」是一道单向门：写过的音符会变成「显式指定（哪怕显式为空）」，宿主 Smart Articulation 不再自动决定它，而 **API 没有清掉 fixed 的手段**（只能 Ctrl+Z 撤销，或在 UI 里把该音符/该面板切回 Smart）⇒ 故批量写技法务必**默认 dry-run + 只覆盖少数音符**。⚠️ 副产物：`articulationsFixed=true` 且 `articulations=[]` 是**常见合法状态**（别一律当成「已有显式技法」——跳过时措辞要区分）",
+    "mutexGraphIsOneWayTowardImplicitDefaults": "互斥图 22 行里有 **8 条单向边**，且**全部指向 4 个隐式默认键**（Straight/Cup/Stem→Open · Con Sordino→Senza Sordino · Pizz./C. Legno→Arco · Bridge/Fingerb.→Center）。这不是数据错：隐式默认键**没有自己的行**（它们是「组内默认态」），也不会出现在任何乐器的 supported 里 ⇒ 永远不会被设上去，反向边无意义。**代码按双向判冲突**（`conflicts(a,b) = a→b 或 b→a`），所以实际行为对称；把图打印成矩阵时别把这 8 格当成漏测。守卫 `server/tests/articulations.mjs` 断言「单向边全部指向隐式键」",
+    "instrumentlessTrack": "未指定乐器的轨：getSupportedArticulations() = []（0 项）、incompatible 也全空。⛔ 早期记录的「返回全集 8 项」有误 —— 那 8 项其实是 Orchestral Piccolo 1 的支持集",
+    "mutexIsGlobal": "互斥图是宿主全局规则、与乐器无关：17 条不同乐器的轨在同一技法下 incompatible 只有一种签名（唯一例外 = 空乐器轨，全空）⇒ 不要按 getSupportedArticulations() 取交集过滤",
+    "readingRequires": "读 getArticulationState 前必须 editor:setCurrentGroup(该组引用) 且 selection:selectNote(音符)；只切轨（setCurrentTrack）或只 selection:selectGroup() 都不行（实测 hasSelectedNotes()=false、smart 读不到、incompatible=[]）",
+    "stateFields": "getArticulationState() 返回 5 个字段：incompatible / active / predicted / smart / slurAvailable",
+    "smartIsReadableButItsDecisionIsNot": "smart 模式音符（articulationsFixed=false、articulations=[]）实测 smart=true，但 active / predicted / incompatible **全空** ⇒ **宿主 Smart Articulation 的决定读不出来**。⇒ 「只覆盖少数音符、其余留给 Smart」的做法只能靠我们自己的走向规则，**无法避让 Smart 已做的选择**；能可靠识别的是 articulationsFixed（= 已有显式技法 ⇒ 默认跳过、尊重人工）"
+  },
+  "knownKeys": [
+    "Staccato", "Tenuto", "Accent", "Slur", "Tremolo", "Breath",
+    "Trill Major", "Trill Minor", "Scoop", "Doit", "Fall", "Harmonics",
+    "Portamento", "Stopped", "Straight", "Cup", "Stem", "Con Sordino",
+    "C. Legno", "Pizz.", "Bridge", "Fingerb."
+  ],
+  "implicitKeys": {
+    "Open": "弱音器的默认态（开音）—— 与 Straight / Cup / Stem 互斥，只在互斥图里现身，不在任何乐器的 supported 里",
+    "Arco": "弦乐弓奏（技巧组默认态）—— 与 Pizz. 互斥，只在互斥图里现身",
+    "Senza Sordino": "去弱音（弱音开关默认态）—— 与 Con Sordino 互斥，只在互斥图里现身",
+    "Center": "弦乐弓位默认态 —— 与 Bridge / Fingerb. 互斥，只在互斥图里现身"
+  },
+  "familyNote": "family 是我们的分组（便于将来做规则引擎），不是宿主字段；宿主侧读不出乐器名，乐器名来自 .ixp 的 mainRef.database.name（用 tools/project-digest.cjs 读）",
+  "instruments": [
+    {
+      "name": "Orchestral Piccolo 1",
+      "family": "woodwind",
+      "tracksMeasured": [1, 3],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Tremolo", "Breath", "Trill Major", "Trill Minor"],
+      "traits": ["Tremolo", "Trill"]
+    },
+    {
+      "name": "(未指定乐器)",
+      "family": "none",
+      "tracksMeasured": [2],
+      "supported": [],
+      "traits": ["对照轨：支持集为空、互斥状态全空"]
+    },
+    {
+      "name": "Orchestral Flute 1",
+      "family": "woodwind",
+      "tracksMeasured": [4],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Tremolo", "Breath", "Harmonics", "Fall", "Trill Major", "Trill Minor"],
+      "traits": ["Tremolo", "Trill"]
+    },
+    {
+      "name": "Orchestral Oboe 1",
+      "family": "woodwind",
+      "tracksMeasured": [5],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath", "Trill Major", "Trill Minor"],
+      "traits": ["Trill", "无 Tremolo", "无 Fall"]
+    },
+    {
+      "name": "Orchestral Clarinet 1 (A)",
+      "family": "woodwind",
+      "tracksMeasured": [6],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath", "Fall", "Trill Major", "Trill Minor"],
+      "traits": ["Trill", "无 Tremolo"]
+    },
+    {
+      "name": "Orchestral Bassoon 1",
+      "family": "woodwind",
+      "tracksMeasured": [7],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath", "Fall", "Trill Major", "Trill Minor"],
+      "traits": ["Trill", "无 Tremolo"]
+    },
+    {
+      "name": "Jazz Alto Saxophone 1",
+      "family": "sax",
+      "tracksMeasured": [8],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath", "Scoop", "Doit", "Fall"],
+      "traits": ["Scoop/Doit/Fall", "无 Tremolo/Trill"]
+    },
+    {
+      "name": "Jazz Tenor Saxophone 1",
+      "family": "sax",
+      "tracksMeasured": [9],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath", "Scoop", "Doit", "Fall"],
+      "traits": ["Scoop/Doit/Fall", "无 Tremolo/Trill"]
+    },
+    {
+      "name": "Orchestral Trumpet 1 (Bb)",
+      "family": "brass",
+      "tracksMeasured": [10],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Tremolo", "Breath", "Fall", "Straight", "Cup", "Stem"],
+      "traits": ["Tremolo", "三弱音器", "无 Trill"]
+    },
+    {
+      "name": "Orchestral French Horn 1",
+      "family": "brass",
+      "tracksMeasured": [11],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath", "Stopped"],
+      "traits": ["Stopped", "无弱音器三件/无 Trill/Tremolo"]
+    },
+    {
+      "name": "Orchestral Trombone 1",
+      "family": "brass",
+      "tracksMeasured": [12],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Portamento", "Breath", "Fall", "Straight", "Cup", "Stem"],
+      "traits": ["Portamento", "三弱音器", "无 Trill/Tremolo"]
+    },
+    {
+      "name": "Orchestral Tuba 1",
+      "family": "brass",
+      "tracksMeasured": [13],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Breath"],
+      "traits": ["最少（5 项）", "无弱音器三件"]
+    },
+    {
+      "name": "Orchestral Violin 1",
+      "family": "strings",
+      "tracksMeasured": [14],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Portamento", "Tremolo", "Breath", "Harmonics", "Fall", "Con Sordino", "C. Legno", "Pizz.", "Bridge", "Fingerb.", "Trill Major", "Trill Minor"],
+      "traits": ["弦乐三组开关", "Tremolo", "Trill"]
+    },
+    {
+      "name": "Orchestral Viola 1",
+      "family": "strings",
+      "tracksMeasured": [15],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Portamento", "Tremolo", "Breath", "Harmonics", "Fall", "Con Sordino", "C. Legno", "Pizz.", "Bridge", "Fingerb.", "Trill Major", "Trill Minor"],
+      "traits": ["弦乐三组开关", "Tremolo", "Trill"]
+    },
+    {
+      "name": "Orchestral Cello 1",
+      "family": "strings",
+      "tracksMeasured": [16],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Portamento", "Tremolo", "Breath", "Harmonics", "Fall", "Con Sordino", "C. Legno", "Pizz.", "Bridge", "Fingerb.", "Trill Major", "Trill Minor"],
+      "traits": ["弦乐三组开关", "Tremolo", "Trill"]
+    },
+    {
+      "name": "Orchestral Contrabass 1",
+      "family": "strings",
+      "tracksMeasured": [17],
+      "supported": ["Staccato", "Tenuto", "Accent", "Slur", "Portamento", "Tremolo", "Breath", "Harmonics", "Fall", "Con Sordino", "C. Legno", "Pizz.", "Bridge", "Fingerb.", "Trill Major", "Trill Minor"],
+      "traits": ["弦乐三组开关", "Tremolo", "Trill"]
+    }
+  ],
+  "mutexGraph": {
+    "Staccato": ["Tremolo", "C. Legno", "Trill Major", "Trill Minor"],
+    "Tenuto": ["C. Legno"],
+    "Accent": [],
+    "Slur": ["Tremolo", "C. Legno", "Pizz."],
+    "Tremolo": ["Staccato", "Slur", "Portamento", "C. Legno", "Pizz.", "Trill Major", "Trill Minor"],
+    "Breath": [],
+    "Trill Major": ["Staccato", "Tremolo", "C. Legno", "Pizz.", "Trill Minor"],
+    "Trill Minor": ["Staccato", "Tremolo", "C. Legno", "Pizz.", "Trill Major"],
+    "Scoop": ["Doit", "Fall", "C. Legno"],
+    "Doit": ["Scoop", "Fall", "C. Legno"],
+    "Fall": ["Scoop", "Doit", "C. Legno"],
+    "Harmonics": ["C. Legno", "Pizz.", "Bridge", "Fingerb."],
+    "Portamento": ["Tremolo", "C. Legno"],
+    "Stopped": [],
+    "Straight": ["Open", "Cup", "Stem"],
+    "Cup": ["Open", "Straight", "Stem"],
+    "Stem": ["Open", "Straight", "Cup"],
+    "Con Sordino": ["Senza Sordino"],
+    "C. Legno": ["Staccato", "Tenuto", "Slur", "Portamento", "Tremolo", "Harmonics", "Scoop", "Doit", "Fall", "Arco", "Pizz.", "Bridge", "Fingerb.", "Trill Major", "Trill Minor"],
+    "Pizz.": ["Slur", "Tremolo", "Harmonics", "Arco", "C. Legno", "Bridge", "Fingerb.", "Trill Major", "Trill Minor"],
+    "Bridge": ["Harmonics", "C. Legno", "Pizz.", "Center", "Fingerb."],
+    "Fingerb.": ["Harmonics", "C. Legno", "Pizz.", "Bridge", "Center"]
+  },
+  "mutexReadAs": "行的语义 = 「设了 X 之后，incompatible 里出现这些」⇒ 它们**不能再与 X 同时使用**（incompatible 的含义是「还能不能再加」）",
+  "groups": {
+    "通用奏法": ["Staccato", "Tenuto", "Accent", "Slur", "Tremolo", "Breath", "Trill Major", "Trill Minor", "Scoop", "Doit", "Fall", "Harmonics", "Portamento", "Stopped"],
+    "铜管弱音器单选组": ["Straight", "Cup", "Stem", "Open"],
+    "弦乐奏法组": ["C. Legno", "Bridge", "Center"],
+    "弦乐技巧组": ["Pizz.", "Fingerb.", "Arco"],
+    "弦乐弱音开关": ["Con Sordino", "Senza Sordino"]
+  }
+}

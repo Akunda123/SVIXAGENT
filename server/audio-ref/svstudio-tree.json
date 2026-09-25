@@ -1,0 +1,131 @@
+{
+	"type": "gh",
+	"name": "Dreamtonics/svstudio-scripts",
+	"version": "master",
+	"default": null,
+	"files": [
+		{
+			"name": "/HelloWorld/Hello.js",
+			"hash": "UgmIprtpoMMnfYLFFgdnYlQ1rFC/MuHp5aQ9EIXuJyM=",
+			"size": 1376
+		},
+		{
+			"name": "/HelloWorld/Hello.lua",
+			"hash": "fmhzq/og/80IVVQJg68i1ueNRjyhQpVVURPW8ysCB8s=",
+			"size": 1328
+		},
+		{
+			"name": "/LICENSE",
+			"hash": "xx0jnfkXJvxRnG63LTGOxlggYnIysveWIZ6H3PNdCrQ=",
+			"size": 11357
+		},
+		{
+			"name": "/README.md",
+			"hash": "oMKqiwEZ/Hxrq9WcbCkYWTbJMWAl8azo6ZahyLOKY58=",
+			"size": 941
+		},
+		{
+			"name": "/Tests/TestAutomation.js",
+			"hash": "s4ICqyKHgyU94HzUTzXkqH0D7Rmx7B2JsQj6+uxzU8c=",
+			"size": 918
+		},
+		{
+			"name": "/Tests/TestAutomation.lua",
+			"hash": "WC1dTANMcdC7kErzghtx4XugnXYKhaq1RZ9m/hHhwDU=",
+			"size": 870
+		},
+		{
+			"name": "/Tests/TestCustomDialog.js",
+			"hash": "3WjEuxbWz2idKyCyncGbn7HovgN2Dm3Nxo4mnOp2v34=",
+			"size": 2301
+		},
+		{
+			"name": "/Tests/TestCustomDialog.lua",
+			"hash": "hCeO2uhMZo0qRfG6+s7DteDhq++qmvLF/lkOAvBHz1g=",
+			"size": 2317
+		},
+		{
+			"name": "/Tests/TestMessageBox.js",
+			"hash": "XMVAqKrYYz79uNEZD7ql420OqgfukLgeaRIjbv/AyAg=",
+			"size": 1217
+		},
+		{
+			"name": "/Tests/TestMessageBox.lua",
+			"hash": "eE2jwgMN5HY/nxlTe01QFT/ctr2+Btyx+VVP/FuBeq8=",
+			"size": 1232
+		},
+		{
+			"name": "/Tests/TestNavigation.js",
+			"hash": "wn5kYXCQFDm7/E5tcZKQertUZZoqPXwWLkChagcJDLo=",
+			"size": 728
+		},
+		{
+			"name": "/Tests/TestNavigation.lua",
+			"hash": "qcQVpS023s5wtdfn69UyOXJeEQ6AyvYmEf+mWOlroVo=",
+			"size": 724
+		},
+		{
+			"name": "/Tests/TestPlayback.lua",
+			"hash": "kI23B3w45DLplT28/AO5peKDj4CTQnnE/2mKwavdOb8=",
+			"size": 364
+		},
+		{
+			"name": "/Tests/TestProject.lua",
+			"hash": "6t92KMJGAGi/PfyhPufZbUN5otZuksKoImaUXeYJEmI=",
+			"size": 2936
+		},
+		{
+			"name": "/Tests/TestSelection.lua",
+			"hash": "5HuiU66byOuWBDYMrgoU0QjmTCr0nS9EiJKKrJ0CIHs=",
+			"size": 2465
+		},
+		{
+			"name": "/Tests/TestTimeAxis.lua",
+			"hash": "oKPGU02tpBtY1Hi5f4QLJnV2rrP3Y+CjYHqF/wIduIY=",
+			"size": 1146
+		},
+		{
+			"name": "/Utilities/MergeSelectedNotes.js",
+			"hash": "+HKSuVKOl78TaAXotYPlth+B+NLWdRyFifQFRubSNK8=",
+			"size": 2362
+		},
+		{
+			"name": "/Utilities/RandomizeParameters.lua",
+			"hash": "yxA5K/Uzbe8u1XeCdeKmOH0jdAkYM21cblB7UF0AFe8=",
+			"size": 6492
+		},
+		{
+			"name": "/Utilities/RemoveShortSilences.js",
+			"hash": "JO2dhleUlRJazjrA6jyfjziH9d9KO9G78k3KGTWydT0=",
+			"size": 3968
+		},
+		{
+			"name": "/Utilities/ScaleSelectedNotes.js",
+			"hash": "bX8rgtXXFlWT1wfQv/z+771rh5vX+yPs9KawwiGkhl8=",
+			"size": 3066
+		},
+		{
+			"name": "/Utilities/SilenceSkippingPlay.js",
+			"hash": "qMp5kcQQ16nx0QtCr8PNVLMzMBxtX/CP2GO+l0SN0ks=",
+			"size": 2059
+		},
+		{
+			"name": "/Utilities/SmoothNavigationPlay.js",
+			"hash": "oSE9tKb9f5EPaYVUApMupnFLa3c6nXbWgGbD+fuDKiM=",
+			"size": 1886
+		},
+		{
+			"name": "/Utilities/SplitSelectedGroups.lua",
+			"hash": "DoUIu4skAys0Hl3ziIKik3RWU2EI0wm3CytLGq5b+mo=",
+			"size": 4603
+		},
+		{
+			"name": "/Utilities/SplitSelectedNotes.js",
+			"hash": "1VSzFnKQtC7Ua9tFaiV5tGCc892qRWKAykZmFugEXoI=",
+			"size": 2053
+		}
+	],
+	"links": {
+		"stats": "https://data.jsdelivr.com/v1/stats/packages/gh/Dreamtonics/svstudio-scripts@master"
+	}
+}

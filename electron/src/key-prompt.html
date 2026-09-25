@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title data-i18n="app.keyPromptTitle">配置 API 密钥</title>
+<style>
+  /* 配色对齐设置窗口/对话面板：深灰 #2e2e2e + 强调绿 #79d825 */
+  :root {
+    --bg: #2e2e2e;
+    --panel: #353837;
+    --border: rgba(255,255,255,.08);
+    --text: rgb(200,200,200);
+    --body: rgb(179,179,179);
+    --muted: rgb(140,140,140);
+    --accent: #79d825;
+    --danger: #e5484d;
+    --hover: rgba(255,255,255,.1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--body);
+    font-family: system-ui, sans-serif; font-size: 13px;
+    padding: 50px 20px 20px; -webkit-user-select: none;   /* 上边 50 = 18 + 32（给自定义标题栏让位） */
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  /* ── 自定义标题栏（精确 #2e2e2e；可拖拽）── */
+  #titlebar {
+    position: fixed; top: 0; left: 0; right: 0; height: 32px; z-index: 9999;
+    display: flex; align-items: center; padding: 0 12px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag; -webkit-user-select: none;
+    font-size: 12px; color: var(--muted);
+  }
+  #titlebar .app { font-weight: 600; color: var(--text); }
+  h1 { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; text-align: center; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; text-align: center; line-height: 1.7; }
+  .sub .url { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .sub .url:hover { text-decoration: underline; }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .flabel { color: var(--muted); font-size: 11px; margin-bottom: 6px; display:block; }
+  input {
+    width: 100%; background: var(--bg); color: var(--body);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; font-size: 13px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  button {
+    flex: 1; background: rgba(255,255,255,.08); color: var(--body);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 0; font-size: 12.5px; cursor: pointer; font-family: inherit;
+    transition: background .15s ease;
+  }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); color: #1a1d29; border: none; font-weight: 600; flex: 0 0 30%; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.link { flex: 0 0 auto; background: none; border: none; color: var(--muted); padding: 0 4px; }
+  button.link:hover { color: var(--text); background: none; }
+  /* 密钥框右侧的"显示 / 隐藏"眼睛：默认圆点（演示、录屏不会露出 key），点开才明文核对 */
+  .keyrow { position: relative; }
+  .keyrow input { padding-right: 42px; }
+  .eye {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 30px; padding: 0; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 6px;
+    color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
+    transition: color .15s ease, background .15s ease;
+  }
+  .eye:hover { background: var(--hover); color: var(--text); }
+</style>
+</head>
+<body>
+  <div id="titlebar"><span class="app" data-i18n="app.keyPromptTitle">配置 API 密钥</span></div>
+  <h1 data-i18n="keyPrompt.title">配置 DeepSeek API 密钥</h1>
+  <div class="sub">
+    <div data-i18n="keyPrompt.lead">首次使用需要配置 API 密钥</div>
+    <div><span data-i18n="keyPrompt.leadLink">密钥获取：</span><a class="url" id="link-platform" href="https://platform.deepseek.com">platform.deepseek.com</a></div>
+  </div>
+
+  <section>
+    <label class="flabel" data-i18n="keyPrompt.fieldLabel">DeepSeek API 密钥</label>
+    <div class="keyrow">
+      <input type="password" id="key-input" placeholder="sk-..." data-i18n-ph="keyPrompt.placeholder" autofocus>
+      <button type="button" id="btn-eye" class="eye" data-i18n-title="keyPrompt.showKey">👁</button>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button id="btn-ok" class="primary" data-i18n="keyPrompt.ok">确定</button>
+    <button id="btn-cancel" data-i18n="keyPrompt.later">稍后配置</button>
+    <button id="btn-settings" class="link" data-i18n="keyPrompt.otherModels">配置其他模型</button>
+  </div>
+
+<script>
+  // i18n 别名兜底：preload 未注入时退化为原文（HTML 里保留的中文即 zh-Hans 兜底）
+  const I = window.svi18n || { t: (k) => k, apply: () => {}, onChange: () => {}, locale: 'zh-Hans' }
+  document.documentElement.lang = I.locale
+
+  const input = document.getElementById('key-input')
+  document.getElementById('btn-ok').addEventListener('click', () => {
+    const key = input.value.trim()
+    window.svkeyprompt.save(key)
+  })
+  document.getElementById('btn-cancel').addEventListener('click', () => {
+    window.svkeyprompt.cancel()
+  })
+  document.getElementById('btn-settings').addEventListener('click', () => {
+    window.svkeyprompt.openSettings('model')   // 直达"模型设置"页
+  })
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-ok').click()
+  })
+  // 显示 / 隐藏密钥：默认圆点；点眼睛切明文，方便核对有没有粘错（图标、标题都跟着换）
+  const eye = document.getElementById('btn-eye')
+  function setReveal(show) {
+    input.type = show ? 'text' : 'password'
+    eye.textContent = show ? '🙈' : '👁'          // 明文时显示"遮住"，圆点时显示"看"
+    const k = show ? 'keyPrompt.hideKey' : 'keyPrompt.showKey'
+    eye.dataset.i18nTitle = k                    // I.apply() 按这个属性刷 title，切语种才不会退回旧文案
+    eye.title = I.t(k)
+    eye.setAttribute('aria-label', I.t(k))
+  }
+  eye.addEventListener('click', () => setReveal(input.type === 'password'))
+  setReveal(false)
+  // 外链：交给系统浏览器打开（preventDefault 防止弹窗自己被导航走）
+  document.getElementById('link-platform').addEventListener('click', (e) => {
+    e.preventDefault()
+    window.svkeyprompt.openUrl('https://platform.deepseek.com')
+  })
+
+  // 切语种时主进程是**广播更新**（弹窗已开则 focus 复用，不重建）⇒ 必须自己重刷静态文案
+  // （眼睛的 title / aria-label 也靠 setReveal 重刷一遍）
+  I.onChange(() => { I.apply(); setReveal(input.type === 'text') })
+  I.apply()
+</script>
+</body>
+</html>
