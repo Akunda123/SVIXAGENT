@@ -42,7 +42,7 @@ SKIP_SIGN=1 electron/scripts/build-mac.sh __ARCH__ --dir     # 没证书：先�
 - `SKIP_SIGN=1` 是**没证书时必须加的**：它让 builder 不做签名（builder 找不到证书只会 warn 跳过，
   不会替我们打 ad-hoc），然后脚本第 4 步自己补 **ad-hoc 签名** + `xattr -cr` ⇒ 本机才能双击打开。
 - 想同时出 dmg + zip（正式分发用）：去掉 `--dir`，约 3~6 分钟
-- 产物在 `electron/release/`：`mac-arm64/AKDAgent.app`、以及 `AKDAgent-0.1.0-__ARCH__.dmg` / `.zip`
+- 产物在 `electron/release/`：`mac-arm64/AKDAgent.app`、以及 `AKDAgent-1.0.0-__ARCH__.dmg` / `.zip`
 - 脚本另外会做两件事：① 用包里预装的 `dist/server-runtime-darwin-__ARCH__`（**不重建、不下模型**、约省 10 分钟）
   ② 复用 `dsh-runtime/node-runtimes/darwin-__ARCH__/node` 并补可执行位（**不下载**，约省 50 MB）
 - 将来有 Apple 开发者证书时：**不加** `SKIP_SIGN`（builder 自己签），公证见 `electron/scripts/BUILD-MAC.md` §6
@@ -63,7 +63,7 @@ SKIP_SIGN=1 electron/scripts/build-mac.sh __ARCH__ --dir     # 没证书：先�
 
 ## 4. 带回来什么
 - 有报错：把 **终端输出**（整段）截图/贴回来
-- 出的包：`electron/release/AKDAgent-0.1.0-__ARCH__.zip`（**这个带回来我能在 Windows 上拆开验内容**；
+- 出的包：`electron/release/AKDAgent-1.0.0-__ARCH__.zip`（**这个带回来我能在 Windows 上拆开验内容**；
   只有 zip 也行 —— dmg 我要它没用）
 - 顺带：第 3 步第 3 条找到的 `cordis.patch.yml` 内容
 

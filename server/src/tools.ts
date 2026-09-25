@@ -885,9 +885,11 @@ server.tool(
       avoidDissonance: z.boolean().optional().describe("是否避让不协和音（默认 true）"),
       keyRoot: z.number().optional().describe("调性根音（0-11，C=0）——来自 sv_generate_melody 的 keyRoot，与旋律同调协同；省略则用伴奏分析或旋律检"),
       groupName: z.string().optional().describe("和声组名称（默认 Harmony）"),
+      target: z.enum(["auto", "main", "new"]).optional().describe("写哪里：**auto**（默认）＝SV1 写主组、SV2/IX 新建组；**main**＝强制写主组（仅 SV1；SV2/IX 会直接报错，因为主组不能 addNote）；**new**＝强制新建具名组（带同名幂等替换）"),
+      allowAppend: z.boolean().optional().describe("主组里**已有音符**时是否允许追加（默认 false）⇒ false 时**不写任何东西**，只返回 `{needConfirm:true, existingNoteCount, endQuarter, hint}`，让调用方先问用户（追加到末尾 / 从指定小节起 / 还是新建组），确认后再带 true 重调"),
       ...HOST_SCHEMA,
     },
-    async ({ accompaniment, direction, interval, avoidDissonance, keyRoot, groupName, host }) => {
+    async ({ accompaniment, direction, interval, avoidDissonance, keyRoot, groupName, target, allowAppend, host }) => {
       const start = Date.now();
       try {
         // 1. 读主旋律
@@ -932,6 +934,8 @@ const writeRes = await executeOp("create_harmony_group", {
             lyrics: n.lyrics,
           })),
           groupName: groupName || "Harmony",
+          target,
+          allowAppend,
           host,
         }, { timeoutMs: 8000, intervalMs: 150 });
 
@@ -1187,12 +1191,14 @@ server.tool(
       segBeats: z.number().optional().describe("每段拍数（默认 4 = 一小节）"),
       pattern: z.enum(["block", "broken", "arpeggio"]).optional().describe("琶音模式：block 柱式（默认）/ broken 分解 / arpeggio 琶音"),
       articulations: z.array(z.string()).optional().describe("🆕 统一给本次写入的**所有**和弦音符设同一组技法（IX；如 ['Pizz.']）。和弦音符在**桥端**由 chordSegs 展开 ⇒ 本工具在写完后用返回的组名**再补一次** `setArticulations`（不需要改桥）。写入前按实测全局互斥图做组内自洽化；⚠️ 只解自相冲突，**支不支持读不出来**⇒ 写入成功 ≠ 可用"),
-      groupName: z.string().optional().describe("和弦音符组名（默认 Chords）"),
+      groupName: z.string().optional().describe("和弦音符组名（默认 Chords；target=\"main\" 时忽略）"),
+      target: z.enum(["auto", "main", "new"]).optional().describe("写哪里：**auto**（默认）＝SV1 写主组、SV2/IX 新建组；**main**＝强制写主组（仅 SV1；SV2/IX 会直接报错，因为主组不能 addNote）；**new**＝强制新建具名组（带同名幂等替换）"),
+      allowAppend: z.boolean().optional().describe("主组里**已有音符**时是否允许追加（默认 false）⇒ false 时**不写任何东西**，只返回 `{needConfirm:true, existingNoteCount, endQuarter, hint}`，让调用方先问用户（追加到末尾 / 从指定小节起 / 还是新建组），确认后再带 true 重调"),
       trackIndex: z.number().optional().describe("目标轨道索引（0 起）；（省略时自动选第一个非音频轨）"),
       startMeasure: z.number().optional().describe("从第几小节开始写（默认 1；用于跳过前奏空置）"),
       ...HOST_SCHEMA,
     },
-    async ({ input, bpm, keyRoot, keyMode, segBeats, pattern, groupName, trackIndex, startMeasure, host, articulations }) => {
+    async ({ input, bpm, keyRoot, keyMode, segBeats, pattern, groupName, trackIndex, startMeasure, host, articulations, target, allowAppend }) => {
       const start = Date.now();
       try {
         // 1. 本地分析：调性（必要时）+ BPM
@@ -1232,8 +1238,22 @@ const writeRes = await executeOp("write_chords", {
           octaveShift: -12,
           groupName: groupName || "Chords",
           trackIndex,
+          target,
+          allowAppend,
           host,
         }, { timeoutMs: 10000, intervalMs: 150 });
+
+        // 🆕 2026-09-25：主组非空且未 allowAppend ⇒ 桥返回 needConfirm（**没写任何东西**）
+        //   ⇒ 直接把"先问用户"透传出去，别继续走后面的技法补写（那会去找一个并不存在的新组）
+        const needConfirm = (writeRes as { needConfirm?: boolean } | null)?.needConfirm === true;
+        if (needConfirm) {
+          return textResult({ ok: false, needConfirm: true, target: "main",
+            existingNoteCount: (writeRes as { existingNoteCount?: number }).existingNoteCount,
+            endQuarter: (writeRes as { endQuarter?: number }).endQuarter,
+            hint: (writeRes as { hint?: string }).hint,
+            key: track.key, bpm: track.bpm, noteCount: notesPreview.length,
+            elapsedMs: Date.now() - start });
+        }
 
         // 5. 统一技法（可选）：chordSegs 在桥端展开 ⇒ 拿不到逐音载荷；等组建完，用回包里的组名补一次 setArticulations
         const uniArts = resolveUniformArticulations(articulations);
@@ -1298,7 +1318,9 @@ const writeRes = await executeOp("write_chords", {
       articulations: z.array(z.string()).optional().describe("🆕 统一给本次写入的**所有**音符设同一组技法（IX；如 ['Pizz.'] 或 ['Con Sordino','Tenuto']）。写入前按实测全局互斥图做**组内自洽化**（丢掉自相冲突/重复项并在回报里列出）；⚠️ 只解自相冲突，**支不支持读不出来**（IX API 读不到乐器）⇒ 写入成功 ≠ 可用。逐音精修仍请用 sv_apply_articulations"),
       applyInstrumentRules: z.boolean().optional().describe("是否套乐器硬约束（管乐气口 / 弦乐换弓 / 音域），默认 true"),
       breathBeats: z.number().optional().describe("管乐气口长度（拍，默认 0.5）"),
-      groupName: z.string().optional().describe("新组名（默认 <乐器>-<织体>）"),
+      groupName: z.string().optional().describe("新组名（默认 <乐器>-<织体>；target=\"main\" 时忽略）"),
+      target: z.enum(["auto", "main", "new"]).optional().describe("写哪里：**auto**（默认）＝SV1 写主组、SV2/IX 新建组；**main**＝强制写主组（仅 SV1；SV2/IX 会直接报错，因为主组不能 addNote）；**new**＝强制新建具名组（带同名幂等替换）"),
+      allowAppend: z.boolean().optional().describe("主组里**已有音符**时是否允许追加（默认 false）⇒ false 时**不写任何东西**，只返回 `{needConfirm:true, existingNoteCount, endQuarter, hint}`，让调用方先问用户（追加到末尾 / 从指定小节起 / 还是新建组），确认后再带 true 重调"),
       trackIndex: z.number().optional().describe("目标轨道索引（0 起）；省略自动选第一个非音频轨"),
       dryRun: z.boolean().optional().describe("只算不写：返回和弦、织体计划、音符预览与规则回报，不改工程"),
       ...HOST_SCHEMA,
@@ -1307,7 +1329,7 @@ const writeRes = await executeOp("write_chords", {
       instrument, texture, section, chordSource, progression, audioPath, templateBars, templateNotes,
       rangeStartBar, rangeEndBar, segBeats, beatsPerMeasure, bpm, keyRoot, keyMode,
       voicingShift, octaveShift, applyInstrumentRules: applyRules, breathBeats,
-      groupName, trackIndex, dryRun, host, articulations,
+      groupName, trackIndex, dryRun, host, articulations, target, allowAppend,
     }) => {
       const start = Date.now();
       try {
@@ -1462,9 +1484,18 @@ const writeRes = await executeOp("write_chords", {
           })),
           groupName: groupName || `${inst.id}-${rendered.usedTexture}`,
           trackIndex,
+          target,
+          allowAppend,
           host,
         }, { timeoutMs: 15000, intervalMs: 150 });
 
+        const needConfirm = (writeRes as { needConfirm?: boolean } | null)?.needConfirm === true;
+        if (needConfirm) {
+          return textResult({ ok: false, needConfirm: true, target: "main", dryRun: false,
+            existingNoteCount: (writeRes as { existingNoteCount?: number }).existingNoteCount,
+            endQuarter: (writeRes as { endQuarter?: number }).endQuarter,
+            hint: (writeRes as { hint?: string }).hint, elapsedMs: Date.now() - start });
+        }
         return textResult({ ...report, written: writeRes, dryRun: false });
       } catch (e) {
         return textResult({ ok: false, error: e instanceof Error ? e.message : String(e), elapsedMs: Date.now() - start });

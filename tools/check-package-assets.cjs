@@ -297,6 +297,102 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
       }
     }
   }
+
+  /* ── 预装 server 运行时**不能是旧代码**（2026-09-25 真踩）────────────────────────────
+   * 经过：当天改了 `server/src`（`target`/`allowAppend`/`needConfirm`）→ `npm run build` 了
+   *   `server/dist`，但**忘了重跑** `tools/build-server-runtime.cjs` ⇒ 两处预装运行时还是两天前的
+   *   旧 JS。后果极隐蔽：源码、测试、守卫、技能全是新的，**只有装到用户机器上的那份 server 是旧的**
+   *   ⇒ 新参数在包里等于不存在（agent 传了也白传），而且打包日志一切正常。
+   * 判据：预装运行时里的 `dist/index.js` 必须与 `server/dist/index.js` **逐字节相同**。 */
+  {
+    const srvEntry = path.join(ROOT, 'server', 'dist', 'index.js');
+    if (!fs.existsSync(srvEntry)) {
+      console.log('  [--]   没有 server/dist/index.js（还没 build server）—— 跳过陈旧检查');
+    } else {
+      const want = fs.readFileSync(srvEntry);
+      for (const d of ['server-runtime', 'server-runtime-darwin-arm64']) {
+        const p = path.join(ROOT, 'dist', d, 'dist', 'index.js');
+        if (!fs.existsSync(p)) continue;
+        if (fs.readFileSync(p).equals(want)) ok(`预装运行时 ${d} 与 server/dist 同源（不是旧代码）`);
+        else fail(`dist/${d}/dist/index.js 与 server/dist/index.js **不一致** ⇒ 预装运行时是旧的，重跑：node tools/build-server-runtime.cjs${d.includes('darwin') ? ' --platform darwin --arch arm64 --out dist/server-runtime-darwin-arm64' : ''}`);
+      }
+    }
+  }
+
+  /* ── 应用内帮助页（2026-09-25 用户定：orb 右键 → 帮助）──────────────────────────────
+   * 这份页面**只在安装包里**（docs/ 不进包）⇒ 缺了就是"用户点帮助看到空白/缺图"，
+   * 而开发态永远看不出来。四处一起钉：资源在、菜单接上、四语文案在、files 规则含 src/**。 */
+  {
+    const helpDir = path.join(ROOT, 'electron', 'src', 'help');
+    const helpHtml = path.join(helpDir, 'index.html');
+    const helpBg = path.join(helpDir, 'bg.png');
+    if (fs.existsSync(helpHtml) && fs.existsSync(helpBg)) {
+      ok(`应用内帮助页资源在位（${(fs.statSync(helpHtml).size / 1024).toFixed(1)} KB + bg.png ${(fs.statSync(helpBg).size / 1024).toFixed(0)} KB）`);
+    } else {
+      fail('缺 electron/src/help/{index.html,bg.png} ⇒ 打包后「帮助」会打不开或缺背景（跑 node tools/gen-demo-data.cjs 生成）');
+    }
+    const mainJs = path.join(ROOT, 'electron', 'src', 'main.js');
+    const mainTxt = fs.existsSync(mainJs) ? fs.readFileSync(mainJs, 'utf8') : '';
+    if (/function openHelp\(\)/.test(mainTxt) && /i18n\.t\('orb\.menu\.help'\)/.test(mainTxt)) {
+      ok('orb 右键菜单已接上「帮助」（openHelp + orb.menu.help）');
+    } else {
+      fail("main.js 里没有 openHelp() 或菜单项 orb.menu.help ⇒ 帮助入口消失（或改了名字没同步这里）");
+    }
+    const commonPath = path.join(ROOT, 'electron', 'src', 'i18n', 'common.json');
+    try {
+      const c = JSON.parse(fs.readFileSync(commonPath, 'utf8'));
+      const miss = [];
+      for (const loc of Object.keys(c)) {
+        for (const k of ['orb.menu.help', 'help.windowTitle']) if (c[loc][k] === undefined) miss.push(`${loc}:${k}`);
+      }
+      if (miss.length) fail(`四语缺帮助文案：${miss.join(', ')}`);
+      else ok(`四语都有 orb.menu.help / help.windowTitle（${Object.keys(c).join(', ')}）`);
+    } catch (e) { fail('读 electron/src/i18n/common.json 失败：' + e.message); }
+    if (/^\s*-\s*src\/\*\*\/\*/m.test(ymlTxt)) ok('electron-builder files 含 src/**/* ⇒ 帮助页会进 asar');
+    else fail('electron-builder.yml 的 files 不再含 src/**/* ⇒ 帮助页不会进包');
+  }
+
+  /* ── 面板随桥部署的策略（2026-09-25 用户确认：桥到处装 · 面板只装 SV2 / IX）──────────
+   *  这条**不能只查字符串**：策略写成函数了（`hostKindOfScriptsDir` / `wantsPanel`），
+   *  所以把函数**从 main.js 里抠出来真跑一遍**，逐路径验判据 —— 含"认不出来 ⇒ 默认不装"
+   *  （默认拒绝很重要：面板是 JS 侧栏脚本，放进 SV1/OPSV 会变成菜单里点了就出事的一项）。 */
+  {
+    const mainJs2 = path.join(ROOT, 'electron', 'src', 'main.js');
+    const src2 = fs.existsSync(mainJs2) ? fs.readFileSync(mainJs2, 'utf8') : '';
+    const grab = (name) => {
+      const m = src2.match(new RegExp('function ' + name + '\\([\\s\\S]*?\\n\\}'));
+      return m ? m[0] : null;
+    };
+    const fKind = grab('hostKindOfScriptsDir');
+    const fWant = grab('wantsPanel');
+    if (!fKind || !fWant) {
+      fail('main.js 里抠不到 hostKindOfScriptsDir / wantsPanel ⇒ 面板部署策略没法复核（改名了？）');
+    } else {
+      // eslint-disable-next-line no-new-func
+      const api = new Function(fKind + '\n' + fWant + '\nreturn { hostKindOfScriptsDir, wantsPanel };')();
+      const cases = [
+        ['C:\\Users\\x\\Documents\\Dreamtonics\\Synthesizer V Studio\\scripts', 'sv1', false],
+        ['C:\\Users\\x\\Documents\\OPSV\\Dreamtonics\\Synthesizer V Studio\\scripts', 'opsv', false],
+        ['C:\\Users\\x\\AppData\\Roaming\\Dreamtonics\\Synthesizer V Studio 2\\scripts', 'sv2', true],
+        ['C:\\Users\\x\\AppData\\Roaming\\Dreamtonics\\Instrument X\\scripts', 'ix', true],
+        ['D:\\portable\\whatever\\scripts', null, false],          // 认不出来 ⇒ 默认不装
+      ];
+      const wrong = [];
+      for (const [dir, wantKind, wantPanel] of cases) {
+        const k = api.hostKindOfScriptsDir(dir);
+        const w = api.wantsPanel(dir);
+        if (k !== wantKind || w !== wantPanel) wrong.push(`${dir} ⇒ ${k}/${w}（期望 ${wantKind}/${wantPanel}）`);
+      }
+      if (!wrong.length) ok('面板部署策略：桥到处装 · 面板只 sv2/ix · 认不出一律不装（5 条路径实跑）');
+      else fail('面板部署策略不对：' + wrong.join(' ; '));
+      if (/function panelSourcePath\(/.test(src2)) ok('面板脚本源 panelSourcePath() 在');
+      else fail('main.js 缺 panelSourcePath() ⇒ 面板拿不到源');
+      if (/akdagent-deploy-sv-file/.test(src2)) ok('目录列表的手动部署 IPC 在（akdagent-deploy-sv-file）');
+      else fail('main.js 缺 akdagent-deploy-sv-file ⇒ 目录列表的「部署面板」按钮没接上');
+    }
+    if (/from: \.\.\/sv\/panel\/AKDAgentPanel\.js/.test(ymlTxt)) ok('electron-builder 随包分发 AKDAgentPanel.js');
+    else fail('electron-builder.yml 没把 sv/panel/AKDAgentPanel.js 打进 assets ⇒ 一键部署没有面板源');
+  }
 }
 
 console.log('');

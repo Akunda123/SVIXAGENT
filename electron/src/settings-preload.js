@@ -97,6 +97,8 @@ contextBridge.exposeInMainWorld('svsettings', {
   addSvScriptsDir: (dir) => ipcRenderer.invoke('akdagent-add-sv-scripts-dir', dir),
   removeSvScriptsDir: (dir) => ipcRenderer.invoke('akdagent-remove-sv-scripts-dir', dir),
   deploySvBridge: () => ipcRenderer.invoke('akdagent-deploy-sv-bridge'),
+  /** 🆕 2026-09-25：只给**某一个** scripts 目录部署一个文件（'bridge' | 'panel'）—— 目录列表里的手动按钮 */
+  deploySvFile: (dir, what) => ipcRenderer.invoke('akdagent-deploy-sv-file', dir, what),
   /** 系统目录选择器（目录输入框留空时用；返回 {ok,path} 或 {ok:false,cancelled:true}） */
   pickDirectory: (opts) => ipcRenderer.invoke('akdagent-pick-directory', opts),
 

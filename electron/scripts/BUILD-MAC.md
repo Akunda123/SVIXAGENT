@@ -221,10 +221,10 @@ cd electron && npx electron-builder --mac --arm64                      # ③ 打
 
 | 产物 | 体积 | 说明 |
 |---|---|---|
-| `AKDAgent-0.1.0-arm64.dmg` | 估 ~380–450 MB | **分发主件**：里面是 `.app` + 指向 `/Applications` 的软链，用户拖进去即可 |
-| `AKDAgent-0.1.0-arm64.zip` | 估 ~380–450 MB | 同一份 `.app` 的 zip（免挂载分发 / 将来接自动更新用） |
+| `AKDAgent-1.0.0-arm64.dmg` | 估 ~380–450 MB | **分发主件**：里面是 `.app` + 指向 `/Applications` 的软链，用户拖进去即可 |
+| `AKDAgent-1.0.0-arm64.zip` | 估 ~380–450 MB | 同一份 `.app` 的 zip（免挂载分发 / 将来接自动更新用） |
 | `mac-arm64/AKDAgent.app` | **~950 MB – 1.0 GB** | 真正要签名的 bundle；`--dir` 只出它（最快，~1 分钟） |
-| `AKDAgent-0.1.0-arm64.zip.blockmap` | 小 | zip 类目标会生成（Windows 的 `.exe.blockmap` 0.4 MB 就是这个），dmg 没有 |
+| `AKDAgent-1.0.0-arm64.zip.blockmap` | 小 | zip 类目标会生成（Windows 的 `.exe.blockmap` 0.4 MB 就是这个），dmg 没有 |
 | `builder-debug.yml` | 小 | builder 每次都会写 |
 | ~~`latest-mac.yml`~~ | — | **不会有**：我们没配 `publish`（自动更新还没接） |
 

@@ -9,9 +9,9 @@
 
 | 平台 | 宿主 | 规模 |
 |---|---|---|
-| Windows 10+（64 位）· macOS 待发布（Apple Silicon） | Synthesizer V Studio **SV1 / SV2** · **Instrument X** | **44 个 MCP 工具 · Lua 桥 32 个 op** |
+| Windows 10+（64 位）· macOS 11+（Apple Silicon） | Synthesizer V Studio **SV1 / SV2** · **Instrument X** | **44 个 MCP 工具 · Lua 桥 32 个 op** |
 
-> ⬇️ **下载**：见 [Releases](../../releases)（更新方式 = 重新分发安装包；客户端**不出网、不自动检测、不自动下载**，无遥测）。
+> ⬇️ **下载**：见 [Releases](../../releases) —— Windows `AKDAgent-<版本>-x64.exe` · macOS `AKDAgent-<版本>-arm64.dmg`（更新方式 = 重新分发安装包；客户端**不出网、不自动检测、不自动下载**，无遥测）。
 
 ## 目录
 
@@ -44,21 +44,32 @@
 
 | 项 | 要求 |
 |---|---|
-| **系统** | **Windows 10 及以上（64 位）**；**macOS**：**Apple Silicon（M 系列芯片）**版本在准备中（尚未发布）；**Intel 机型暂不支持** |
+| **系统** | **Windows 10 及以上（64 位）**；**macOS 11 及以上，Apple Silicon（M 系列芯片）**（**Intel 机型不支持**） |
 | **宿主** | 需已安装 **Synthesizer V Studio**（**SV1 / SV2 都支持**）或 **Instrument X**（侧栏面板需要 SV2 / IX 1.0.0 及以上） |
-| **磁盘** | 安装包约 **380 MB**，装完展开约 **1 GB**；语音输入模型**按需下载、三档可选**，另需 **0.02～0.22 GB**（不装也能用，只是没有语音输入；档位见 §2.4） |
+| **磁盘** | 安装包约 **380 MB**，装完展开约 **1 GB**（macOS 版同量级）；语音输入模型**按需下载、三档可选**，另需 **0.02～0.22 GB**（不装也能用，只是没有语音输入；档位见 §2.4） |
 
-> **看芯片，不看机型**：「关于本机」里写 **芯片 Apple M…**（M1 及之后）就能用；写 **处理器 Intel** 就不支持。
-> **能用**：Apple Silicon（M 系列）—— 2020 年 11 月起的那批；**不支持**：2019 年及更早发布的全部 Mac，加上 2020 年的 Intel 型号（27 吋 iMac、13 吋 MacBook Pro、13 吋 MacBook Air）。
-> **注**：mac 版**尚未发布**（现在任何 Mac 都还装不了）。原因：ONNX 运行时不提供 Intel(macOS/x86-64) 的二进制；且 Apple 已宣布 **macOS 26 是最后一个支持 Intel Mac 的系统**。
+> **macOS 看芯片，不看机型**：「关于本机」里写 **芯片 Apple M…**（M1 及之后）就能用；写 **处理器 Intel** 就不支持。
+> **能用**：Apple Silicon（M 系列）—— 2020 年 11 月起的那批；**不支持**：Intel 机型（2019 年及更早发布的全部 Mac，加上 2020 年的 Intel 型号：27 吋 iMac、13 吋 MacBook Pro、13 吋 MacBook Air）。
+> 原因：ONNX 运行时不提供 Intel(macOS/x86-64) 的二进制；且 Apple 已宣布 **macOS 26 是最后一个支持 Intel Mac 的系统**。
 
 ### 1.2 安装
+
+**Windows**：
 
 1. 双击 `AKDAgent-<版本>-x64.exe`（或 `.msi`），按向导走 —— **安装位置可以改**，默认装到 `%LOCALAPPDATA%\Programs\AKDAgent`
 2. **按用户安装、不需要管理员权限**（所以不会弹 UAC）；装完桌面与开始菜单会有快捷方式
 3. 启动客户端（启动后桌面上会有**悬浮球**）
 > 卸载：控制面板/设置里的「AKDAgent」，或安装目录下的 `Uninstall AKDAgent.exe`。
 > **卸载器可能会问"是否删除应用数据"，选否即可保住设置**（`%APPDATA%\AKDAgent`）；你自己的 DSH 数据（`~/.dsh`）不受影响。
+
+**macOS**：
+
+1. 下载 `AKDAgent-<版本>-arm64.dmg`，双击打开 → 把 **AKDAgent** 拖进「应用程序」（zip 版也行：解压后同样拖进去）
+2. 首次打开：**右键 → 打开**（安装包**未签名/未公证** ⇒ 直接双击可能被 Gatekeeper 拦；或在「系统设置 → 隐私与安全性」里点「仍要打开」）
+3. 启动后**菜单栏**会出现图标、桌面上会有**悬浮球**
+> 卸载：把「应用程序」里的 `AKDAgent.app` 拖进废纸篓即可。
+> 你的数据在 `~/Library/Application Support/AKDAgent`（设置/语音模型）与 `~/.dsh`（会话），**拖走 app 不会删它们**。
+> 语音输入首次启用需要**授予麦克风权限**；未签名的包有时会被系统反复问 —— 在「系统设置 → 隐私与安全性 → 麦克风」里勾上 AKDAgent 即可。
 
 
 ### 1.3 配 API 密钥（模型提供方）
@@ -297,11 +308,11 @@
 
 ## 反馈与联系
 
-遇到问题**直接找作者**即可：https://github.com/Akunda123
+**B 站主页**：[space.bilibili.com/12131593](https://space.bilibili.com/12131593)　·　**邮箱**：[1073243952@qq.com](mailto:1073243952@qq.com)　·　**GitHub 仓库**：[Akunda123/SVIXAGENT](https://github.com/Akunda123/SVIXAGENT)
 
 说清这三样最省事：① **现象**（有截图更好）② **你刚做了什么**（从哪一步开始不对）③ **宿主是 SV 还是 IX、什么版本**。
 
-> 客户端**不出网、不自动上报任何数据**（无遥测），所以没有"内置反馈"这条路 —— 反馈只有上面这一个入口。
+> 客户端**不出网、不自动上报任何数据**（无遥测）—— 反馈只有上面这几个入口。
 
 ---
 

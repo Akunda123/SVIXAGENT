@@ -69,8 +69,10 @@ version: 1.0.0
 > 别拿"我们有织体库"来承诺（本 skill v1 = 类型学 + 配方 + 诊断，不是一键生成器）。
 
 ### 3.3 写音符的宿主规矩（和 `sv-project-format` / `akdagent-playbook` 一致）
-- **IX 的 main 组不能 `addNote`** ⇒ 织体必须**新建组**（`write_chords` / `create_harmony_group` 本就是新建组）
-- **SV2 主组不可编辑**；**SV1 主组可写** ⇒ 别把织体写进用户真实音符所在的组
+- **判据看 `get_current_group.hostIsSv2`，别看组名**（音频轨的组也叫 `main`，用户也能把任意组改名 `main`）
+- **SV1 ⇒ 写主组**（`hostIsSv2 == false`）：主组可写，**织体也写主组**（用户 2026-09-25 定）；**主组非空要先问用户**
+- **SV2 / IX ⇒ 必须新建组**（`hostIsSv2 == true`）：IX 的 main 组不能 `addNote`、SV2 主组不可编辑
+  ⇒ `write_chords` / `create_harmony_group` 本来就是新建组；`run_script` 也不豁免这条
 - 写完**读回校验**：音符数、onset 是否对齐小节、音高范围是否超出乐器音域
 - 改工程文件（.ixp/.svp）走安全三步：**用户先保存 → 我们改写 → 用户重载**
 - **宿主版本**要留意：`node tools/known-bugs.cjs --list` 看当前已知缺陷/平台约束（**IX 1.0.0 的读点类 API 会冻桥** ⇒ 桥报 `hostOutdated` 时先让用户升级宿主）
@@ -144,7 +146,7 @@ version: 1.0.0
   "audioPath": "D:/song/accompaniment.wav", "rangeStartBar": 1, "rangeEndBar": 16 }
 ```
 
-**宿主规矩（IX 尤其）**：一律**新建组**（IX 的 main 组不能 `addNote`），组名默认 `<乐器>-<织体>`、**同名幂等替换**；写完读回校验（音符数 / onset 对齐 / 音域）。IX 侧那个侧边栏 `.js` 仍可用于手动作业，两边算法同源。
+**宿主规矩（按宿主分）**：**SV2 / IX 一律新建组**（IX 的 main 组不能 `addNote`、SV2 主组不可编辑），组名默认 `<乐器>-<织体>`、**同名幂等替换**；**SV1 上织体也写主组**（判据 `hostIsSv2 == false`；主组非空**先问用户**）。写完读回校验（音符数 / onset 对齐 / 音域）。IX 侧那个侧边栏 `.js` 仍可用于手动作业，两边算法同源。
 
 **v1 如实边界（别当成已覆盖）**
 - **未实现**：riff 的加花、真正的 `counter` 对位旋律线（现在 counter 是"根—五 四分走句"简单版）；这两种会**降级为骨架并告知**。

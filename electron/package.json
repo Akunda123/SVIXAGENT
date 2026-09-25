@@ -1,7 +1,7 @@
 {
   "name": "akdagent-electron",
   "productName": "AKDAgent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "author": "AKDAgent",
   "description": "AKDAgent floating client: embedded DSH host for natural-language control of Synthesizer V Studio / Instrument X",

@@ -152,17 +152,27 @@ version: 1.0.0
   —— 也就是用和弦序列**自动铺伴奏/织体**：`sv_write_chords` 的 `pattern`（**block 柱式 / broken 分解 / arpeggio 琶音**），
   或按段落挑织体与配器。
   - **为什么单说 IX**：IX 是**乐器宿主**，自动织体正是它擅长的方向（呼应 0.3 的"**IX 往编曲乐器靠**"）；SV 侧也可用，但通常先服务"唱"。
-  - ⚠️ **写织体要建独立组**：**IX 的 main 组不能 `addNote`** ⇒ 用 `write_chords` / `create_harmony_group`（本来就是新建组）；
-    也遵守"不往主组写音符"的版本差异（SV1 主组可写、SV2 主组不可编辑）。
-  - 🔴 **`run_script` 不豁免这条（2026-09-19 我踩了）**：桥侧那道"写当前组 = 主组就拒绝"的守卫**只挂在桥自己的 op 上**，
+  - ⚠️ **写音符写哪里：先看宿主版本，别一刀切**（用户 2026-09-25 定）：
+    · **SV1 ⇒ 写主组**（`hostIsSv2=false`）：主组就是**用户音符所在的容器、可读可写**，
+      **旋律与伴奏（织体/和声）都写主组** —— 用户要的是"东西都在我能编辑的那个组里"。
+      桥侧那道"主组拒绝写"的守卫**只对 SV2/IX 生效**，SV1 从来不受限。
+    · **SV2 / IX ⇒ 一律新建组**（主组不能 `addNote`，宿主限制）。
+    · 🔴 **主组里已经有音符 ⇒ 先停下来问用户**（追加到末尾 / 从指定小节起写 / 还是新建组）—— **绝不覆盖**。
+      **工具层怎么表达**（桥 0.3.31+）：`sv_write_chords` / `sv_write_texture` / `sv_generate_harmony` 三条都有
+      `target`（`auto`｜`main`｜`new`）与 `allowAppend`（默认 false）。主组非空且没给 `allowAppend` 时，
+      它们**什么都不会写**，只回 `{needConfirm:true, existingNoteCount, endQuarter, hint}` ⇒ 你拿这个去问用户，
+      **问清了**再带 `allowAppend=true` 重调（`target` 默认就是 `auto`：SV1=主组、SV2/IX=新建组）。
+  - 🔴 **`run_script` 不豁免宿主限制（2026-09-19 我踩了）**：桥侧那道"写当前组 = 主组就拒绝"的守卫**只挂在桥自己的 op 上**，
     `run_script` 是**裸逃生口**，能直接 `target:addNote(...)` 写进 SV2 主组 ⇒ **我自己就这么写进去了 68 个音符**，用户当场指出。
-    **写音符（旋律/织体/和声）一律走"新建组"**，配方（已验证）：
+    ⇒ **SV2 / IX 写音符一律走"新建组"**（SV1 相反：写主组）。新建组配方（已验证）：
     ① `local track = SV:getMainEditor():getCurrentTrack()` ② `local g = SV:create("NoteGroup")` + `g:setName("…")`
     + `pcall(function() g:setScriptData("akdagentTemp", 1) end)`（打标记，日后可一键清理）
     ③ 音符 `n:setPitch/setTimeRange/setLyrics` 后 `g:addNote(n)` ④ `proj:addNoteGroup(g)`
     ⑤ `local r = SV:create("NoteGroupReference")` + `r:setTarget(g)` + `r:setTimeOffset(0)` + `track:addGroupReference(r)`
     ⑥ 想让新组用同一个歌手：**先** `pcall(function() return 主组引用:getVoice() end)`，再 `r:setVoice(那个表)`（实测可继承）。
-    **自查动作**：写之前先 `sv_get_current_group` 看 `name` —— 若是 `main`，**停下来建新组**，别无脑 `addNote`。
+    **自查动作（2026-09-25 改）**：写之前 `sv_get_current_group` 读 **`isMain` + `hostIsSv2`**（这两个字段 2026-09-25 才补上），
+    **别再靠组名猜** —— 音频轨的组也叫 `main`，用户也能把任意组改名 `main`：
+    `hostIsSv2 == false`（SV1）⇒ 就是写当前组；`hostIsSv2 == true` 且 `isMain == true` ⇒ 停下来新建组。
   - 🧩 **六条 API 实坑（同名/不存在的调用会直接抛错、脚本中断）**：`NoteGroupReference` **没有 `getName()`**（名字在 `getTarget():getName()`）；
     库枚举是 **`getNumNoteGroupsInLibrary()`**（不是 `getNumNoteGroups()`）；**`NoteGroup` 没有 `getDuration()`**（时长用 **`Project:getDuration()`**；
     2026-09-21 我调了 `g:getDuration()` ⇒ 桥报 runtime error，**无损伤但白跑一轮**）；**`SV:create('Note', {onset=…, pitch=…, duration=…})` 的传参在 IX 上不生效**
@@ -412,7 +422,7 @@ version: 1.0.0
 
 
 **纪律（重要）**：
-- **先报状态、再给选项、让用户选** —— 不要擅自导入文件、不要擅自建组/建轨、不要在空工程里"顺手"塞测试内容（**往主组写音符是明令禁止的**，见文首长期约束）；
+- **先报状态、再给选项、让用户选** —— 不要擅自导入文件、不要擅自建组/建轨、不要在空工程里"顺手"塞测试内容（**往 SV2 / IX 的主组写音符是明令禁止的**；SV1 主组可写、但**主组非空要先问** —— 见 §0.4 的"写音符写哪里"）；
 - 提醒要**可执行**（说清用哪个功能/哪一步），别只说"你可以导入"；
 - **"音频转音符"不要承诺** —— 脚本 API 的**不可做清单**里就有"渲染/导出音频"，同理转录也不是我们的活；正解是**提示用户在 SV 里用自带的转录功能**；
 - 这一整节只在「**意图在宿主上**」时做（见 0.1 的跳过条件）。
@@ -438,8 +448,8 @@ version: 1.0.0
 | **`setScriptData`** | SV1 报 nil method | **SV2/IX 专属**；SV1 只能写 attributes |
 | **`setPitchAutoMode`** | 读自动模式方法名不对 | **Setter 只在 SV1**；getter 是 `getPitchAutoMode()`（SV2 只有 getter）|
 | **SV1 切不了当前组** | `selectGroup` 报成功但当前组没变 | SV1 上 **`ed:getSelection():selectGroup()` 改不动"当前组"** ⇒ 只能请用户在钢琴窗点选；脚本要**拒绝在非预期组上写** |
-| **`isMain` 可能是 undefined** | 客户端按布尔判断出错 | SV1 的 `get_current_group.isMain` 是 **undefined**；SV2 是布尔 ⇒ 要容错 |
-| **主组能不能写** | 写了主组/写了没反应 | **SV1 主组 = 用户音符所在，可写**；**SV2 主组不可编辑**（只是保留了结构）——**版本相关，别一刀切** |
+| **`isMain` 可能是 undefined** | 客户端按布尔判断出错 | **`isMain` 只当参考**：SV1 上没有 `isMain` 方法 ⇒ 回读是 `nil`；**要判"是不是 SV2/IX、主组能不能写"，看 `get_current_group.hostIsSv2`**（布尔，必有值） |
+| **主组能不能写** | 写了主组/写了没反应 | **SV1 主组 = 用户音符所在，可写**（2026-09-25 起：**旋律与伴奏都写主组**，但**主组非空要先问**）；**SV2/IX 主组不可编辑**（只是保留了结构）⇒ 一律新建组 —— **版本相关，别一刀切** |
 | **IX 的组与计数** | `getNumPitchControls()` 翻倍；往 main 加音符失败 | IX 计数约 2×；**IX 的 main 组不能 `addNote`** ⇒ 要建新组 |
 | **`align_audio`** | 报 `args.firstBeatSec required` | 桥**不做音频分析** ⇒ 必须调用方给 `firstBeatSec`（+ 可选 `bpm`）|
 

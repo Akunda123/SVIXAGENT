@@ -209,7 +209,13 @@ local function newTrack(o, state)
   end
   -- 乐器 database：真实侧是 track.getMainReference().getDatabase() 上的 name/backendType/version。
   -- 这里用 **setter 方法**模拟（Lua 绑定更可能长这样），桥的 ALG.setprop 会先试 setter。
+  -- 🆕 2026-09-25：主引用还要**能 getTarget**（真侧它就是 NoteGroupReference）——
+  --   `write_chords` / `create_harmony_group` 的 `target="main"` 路线靠 `getMainReference():getTarget()`
+  --   拿到主组，再往里 addNote。**必须缓存**：桥会多次调用本方法（写 instrument database、查主组音符数/末尾），
+  --   每次都新建 stub 的话，db 上的写入会在下一次调用时丢掉。
   function t:getMainReference()
+    if self._mainRef ~= nil then return self._mainRef end
+    local ref = self._refs[1]                     -- 本轨第一条引用就是"主组"（安装 spec 里名字叫 main）
     local db = { _name = "", _backendType = "", _version = "" }
     function db:setName(v) self._name = v end
     function db:getName() return self._name end
@@ -217,8 +223,14 @@ local function newTrack(o, state)
     function db:getBackendType() return self._backendType end
     function db:setVersion(v) self._version = v end
     function db:getVersion() return self._version end
-    local mr = {}
-    function mr:getDatabase() return db end
+    local mr = {
+      getDatabase = function() return db end,
+      getTarget = function() return ref and ref:getTarget() or nil end,
+      isMain = function() return true end,
+      getTimeOffset = function() return 0 end,
+      getPitchOffset = function() return 0 end,
+    }
+    self._mainRef = mr
     return mr
   end
   function t:getNumNotes()

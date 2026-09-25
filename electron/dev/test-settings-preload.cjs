@@ -127,14 +127,25 @@ const api = {
   setReasoningEffort: record('setReasoningEffort'),
   addModel: record('addModel'),
   removeModel: record('removeModel'),
-  // 形状与主进程真实返回一致：{scriptsDirs, entries, bridgeSource}（写错形状会让页面抛错）
+  // 形状与主进程真实返回一致：{scriptsDirs, entries, bridgeSource, panelSource}（写错形状会让页面抛错）
   getSvConfig: () => {
     mark('getSvConfig')
     const dirs = state.scriptsDirs || []
     return Promise.resolve({
       scriptsDirs: dirs,
-      entries: dirs.map((d) => ({ scriptsDir: d, agentDir: d.replace(/[\\/]scripts$/, '') + '/Agent', exists: true, bridgeInstalled: false })),
+      entries: dirs.map((d) => ({
+        scriptsDir: d,
+        agentDir: d.replace(/[\\/]scripts$/, '') + '/Agent',
+        exists: true,
+        bridgeInstalled: false,
+        // 🆕 2026-09-25：面板三件套（真主进程也返回它们；页面据此显示面板徽标）
+        kind: /instrument x/i.test(d) ? 'ix' : (/v studio 2/i.test(d) ? 'sv2' : 'sv1'),
+        panelInstalled: false,
+        panelCurrent: false,
+        panelWanted: /instrument x|v studio 2/i.test(d),
+      })),
       bridgeSource: 'C:/sv/AKDAgentBridge.lua',
+      panelSource: 'C:/sv/AKDAgentPanel.js',
     })
   },
   scanSvScripts: () => { mark('scanSvScripts'); return Promise.resolve({ found: state.scannedDirs || [] }) },
@@ -146,6 +157,8 @@ const api = {
   },
   removeSvScriptsDir: record('removeSvScriptsDir'),
   deploySvBridge: record('deploySvBridge'),
+  // 🆕 2026-09-25：目录列表里的「部署桥 / 部署面板」按钮
+  deploySvFile: () => { mark('deploySvFile'); return Promise.resolve({ ok: true, steps: ['stub'] }) },
   /** 目录选择器：state.pickedDir 有值 = 用户选了它；否则 = 取消 */
   pickDirectory: () => {
     mark('pickDirectory')

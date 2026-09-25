@@ -27,9 +27,10 @@ const head = [
   '',
   '| 平台 | 宿主 | 规模 |',
   '|---|---|---|',
-  '| Windows 10+（64 位）· macOS 待发布（Apple Silicon） | Synthesizer V Studio **SV1 / SV2** · **Instrument X** | **44 个 MCP 工具 · Lua 桥 32 个 op** |',
+  '| Windows 10+（64 位）· macOS 11+（Apple Silicon） | Synthesizer V Studio **SV1 / SV2** · **Instrument X** | **44 个 MCP 工具 · Lua 桥 32 个 op** |',
   '',
-  '> ⬇️ **下载**：见 [Releases](../../releases)（更新方式 = 重新分发安装包；客户端**不出网、不自动检测、不自动下载**，无遥测）。',
+  '> ⬇️ **下载**：见 [Releases](../../releases) —— Windows `AKDAgent-<版本>-x64.exe` · macOS `AKDAgent-<版本>-arm64.dmg`'
+  + '（更新方式 = 重新分发安装包；客户端**不出网、不自动检测、不自动下载**，无遥测）。',
   '',
   '## 目录',
   '',

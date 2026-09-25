@@ -14,7 +14,13 @@ const END = '/* DEMO-DATA:END */';
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const inline = s => esc(s)
   .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-  .replace(/`([^`]+)`/g, '<code>$1</code>');
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  /* 🆕 2026-09-25：**绝对**链接转成真链（http/https/mailto）。
+   *   为什么只认绝对：页面是**独立文件**（演示页 / 应用内帮助页），
+   *   draft 里的相对链接（`[LICENSE](LICENSE)` 这类）在那个环境里没有意义 ⇒ 保持文本，别造成死链。
+   *   在此之前 `[x](y)` 一律按原样显示（页面上能看到方括号和圆括号），这次一并修掉。 */
+  .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
 
 /* ── 顶层 `- ` 行：是「条目」还是「文案」？ ──
    条目 ⇒ 进 chip（带 hover 详情）；文案 ⇒ 进 ul 块（就是一段列表文字）。
@@ -184,6 +190,25 @@ if (b >= 0 && e > b){
   html = html.replace(m[0], data);
 }
 fs.writeFileSync(DST, html, 'utf8');
+
+/* ── 同一份页面同时作为**应用内帮助页**（2026-09-25 用户定：orb 右键 → 帮助）──
+ *   为什么复制而不是引用 docs/demo：`docs/` 是 .gitignore 挡住的开发参考、**不进安装包**，
+ *   而帮助页必须随包分发 ⇒ 落到 `electron/src/help/`（`files: src/**` ⇒ 进 asar）。
+ *   顺带只带 `bg.png`（index.html 唯一的相对依赖；rec 页要的 SVG/片头不在这里）。 */
+const HELP_DIR = path.join(ROOT, 'electron', 'src', 'help');
+fs.mkdirSync(HELP_DIR, { recursive: true });
+/* 帮助副本只改**两处门面文案**（品牌名 + 页头那半句），正文一个字不动：
+ *   `SVAgent` → `AKDAgent`（产品名，仓库名 SVIXAGENT 见 README 头部说明）
+ *   `功能演示` → `使用说明`（这是应用内的帮助/说明书，不是演示页） */
+const helpHtml = html
+  .replace(/<title>SVAgent 功能演示/, '<title>AKDAgent 使用说明')
+  .replace(/<div class="brand"><b>SVAgent<\/b><span>功能演示<\/span><\/div>/,
+           '<div class="brand"><b>AKDAgent</b><span>使用说明</span></div>');
+if (helpHtml === html) { console.error('✗ 帮助页门面文案没替换成功（模板变了？）'); process.exit(1); }
+fs.writeFileSync(path.join(HELP_DIR, 'index.html'), helpHtml, 'utf8');
+const bgSrc = path.join(path.dirname(DST), 'bg.png');
+if (!fs.existsSync(bgSrc)) { console.error('✗ 缺 bg.png（index.html 的背景图）'); process.exit(1); }
+fs.copyFileSync(bgSrc, path.join(HELP_DIR, 'bg.png'));
 
 /* ── 汇报 ── */
 const kinds = {};

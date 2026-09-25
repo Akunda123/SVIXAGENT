@@ -279,5 +279,39 @@ console.log('\n── 两版同源');
 ok(!!(demos['index.html'] && demos['rec.html']) && demos['index.html'] === demos['rec.html'],
    'index.html 与 rec.html 的数据块完全一致');
 
+/* 10) **应用内帮助页**（2026-09-25 用户定：orb 右键 → 帮助）
+ *   它由 gen-demo-data.cjs 从同一份 html 复制到 electron/src/help/（进 asar，随包分发），
+ *   只改两处门面文案。这里钉三件事：① 只差那两处 ② bg.png 逐字节一致 ③ 相对依赖只有 bg.png 且都在。
+ *   为什么值得钉：`docs/` 被 .gitignore 挡住**不进包**，帮助页是唯一一份会装到用户机器上的副本；
+ *   它一旦漂移（md 改了没重跑生成器、或以后加了图片忘了复制），用户看到的帮助就是旧的/破的。 */
+console.log('\n── 应用内帮助页（electron/src/help/）');
+{
+  const helpDir = path.join(__dirname, '..', 'electron', 'src', 'help');
+  const helpHtmlPath = path.join(helpDir, 'index.html');
+  const demoHtmlPath = path.join(dir, 'index.html');
+  if (!fs.existsSync(helpHtmlPath)) {
+    ok(false, 'electron/src/help/index.html 存在（跑 node tools/gen-demo-data.cjs 生成）');
+  } else {
+    const H = fs.readFileSync(helpHtmlPath, 'utf8');
+    const D = fs.readFileSync(demoHtmlPath, 'utf8');
+    // ① 只许差两处门面（把帮助版改回演示版，应逐字节相同）
+    const unhelp = H
+      .replace('<title>AKDAgent 使用说明', '<title>SVAgent 功能演示')
+      .replace('<div class="brand"><b>AKDAgent</b><span>使用说明</span></div>',
+               '<div class="brand"><b>SVAgent</b><span>功能演示</span></div>');
+    ok(unhelp === D, '帮助页与演示页只差「品牌名 + 页头」两处（其余逐字节相同）');
+    ok(/class="brand"><b>AKDAgent<\/b><span>使用说明<\/span>/.test(H), '帮助页门面已换成 AKDAgent / 使用说明');
+    // ② 背景图
+    const bgHelp = path.join(helpDir, 'bg.png');
+    const bgDemo = path.join(dir, 'bg.png');
+    ok(fs.existsSync(bgHelp) && fs.existsSync(bgDemo) &&
+       fs.readFileSync(bgHelp).equals(fs.readFileSync(bgDemo)), 'bg.png 与演示页逐字节一致');
+    // ③ 相对依赖只有 bg.png，且都得在
+    const deps = [...H.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/g)]
+      .map(m => m[1]).filter(u => !/^(https?:|data:|#|mailto:)/.test(u));
+    ok(deps.length > 0 && deps.every(d => d === 'bg.png'), `相对依赖只有 bg.png（实测：${[...new Set(deps)].join(', ') || '无'}）`);
+  }
+}
+
 console.log(bad ? `\n${bad} 项不通过` : '\n全部通过');
 process.exit(bad ? 1 : 0);

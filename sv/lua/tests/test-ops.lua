@@ -133,6 +133,11 @@ do
   ok("noteCount = 3", r.noteCount == 3, tostring(r.noteCount))
   ok("timeOffsetBlicks 字段（JS 同名）", type(r.timeOffsetBlicks) == "number", tostring(r.timeOffsetBlicks))
   ok("pitchOffset 字段（JS 同名）", r.pitchOffset ~= nil, tostring(r.pitchOffset))
+  -- 🆕 2026-09-25：调用方要按宿主决定"能不能直接写当前组"⇒ 这两个字段必须在**这一条 op** 里就有
+  --   （以前只有 get_layout 有 ⇒ 只能靠组名猜；真机事故：SV1 上把旋律写进了新组而非主组）
+  ok("isMain 字段（布尔或 nil）", r.isMain == true or r.isMain == false or r.isMain == nil, tostring(r.isMain))
+  ok("hostIsSv2 字段（布尔）", type(r.hostIsSv2) == "boolean", tostring(r.hostIsSv2))
+  ok("hostIsSv2 与宿主的 isSV2 一致", r.hostIsSv2 == (B.ST.isSV2 and true or false), tostring(r.hostIsSv2) .. " vs " .. tostring(B.ST.isSV2))
   -- 无当前组时的形状
   local saved = H.state.currentGroupRef
   H.state.currentGroupRef = nil
@@ -335,10 +340,13 @@ do
   H.state.currentGroupRef = saved
 end
 
-section("op: create_harmony_group（写：建组 + 引用）")
+section("op: create_harmony_group（写：建组 + 引用；显式 target=new）")
 do
+  -- ⚠️ 这里**显式** target="new"：假宿主默认是 SV1 ⇒ 不写 target 会走"主组"路线（主组非空 ⇒ needConfirm）。
+  --    SV1 主组路线的用例在文件末尾单独一节（那里改状态不影响别的用例）。
   local libBefore = #H.state.library
   local r = OPS.create_harmony_group({
+    target = "new",
     groupName = "Harmony",
     notes = {
       { pitch = 64, onsetBlicks = 0, durationBlicks = Q, lyrics = "do" },
@@ -346,6 +354,7 @@ do
     },
   })
   ok("ok = true", r.ok == true, tostring(r.ok))
+  ok("target = new", r.target == "new", tostring(r.target))
   ok("groupName = Harmony", r.groupName == "Harmony", r.groupName)
   ok("noteCount = 2", r.noteCount == 2, tostring(r.noteCount))
   ok("组进了 NoteGroup 库（+1）", #H.state.library == libBefore + 1, #H.state.library)
@@ -366,6 +375,10 @@ do
   ok("报错时未污染库（先校验后写）", #H.state.library == libNow, #H.state.library)
   local okEmpty = pcall(OPS.create_harmony_group, { notes = {} })
   ok("空 notes ⇒ 报错", okEmpty == false)
+  local okBadTarget = pcall(OPS.create_harmony_group, {
+    target = "nowhere", notes = { { pitch = 60, onsetBlicks = 0, durationBlicks = Q } },
+  })
+  ok("非法 target ⇒ 报错", okBadTarget == false)
 end
 
 section("op: fill_track_lyrics（写：按轨/组填词）")
@@ -441,6 +454,7 @@ do
   -- 没有任何组的轨 isAud=false ⇒ 会被选中。这里显式指定 trackIndex 更可控。
   local before = #H.state.library
   local r = OPS.write_chords({
+    target = "new",
     trackIndex = 0,
     groupName = "Chords",
     pattern = "block",
@@ -469,7 +483,7 @@ do
   ok("ref 的 timeOffset = 0（位置靠 onset 表达）", lastRef:getTimeOffset() == 0, tostring(lastRef:getTimeOffset()))
 
   -- 幂等：同名再写一次，应先把旧的摘掉 ⇒ 轨上仍只有 1 个 Chords
-  local r2 = OPS.write_chords({ trackIndex = 0, groupName = "Chords",
+  local r2 = OPS.write_chords({ target = "new", trackIndex = 0, groupName = "Chords",
     chordSegs = { { name = "F", startBlick = 0, durationBlick = 2 * Q } } })
   local chCount = 0
   for i = 1, H.track(1):getNumGroups() do
@@ -483,7 +497,7 @@ do
   end)())
 
   -- broken 琶音：4 拍 3 音 ⇒ subQ = 1
-  local r3 = OPS.write_chords({ trackIndex = 0, groupName = "Arp", pattern = "broken",
+  local r3 = OPS.write_chords({ target = "new", trackIndex = 0, groupName = "Arp", pattern = "broken",
     chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } })
   local arpRef = nil
   for i = 1, H.track(1):getNumGroups() do
@@ -497,16 +511,16 @@ do
   end
 
   -- 对象式音符 + 力度/技法（IX 属性走 setAttributes 分支）
-  local r4 = OPS.write_chords({ trackIndex = 0, groupName = "IX",
+  local r4 = OPS.write_chords({ target = "new", trackIndex = 0, groupName = "IX",
     notes = { { pitch = 60, onsetBlicks = 0, durationBlicks = Q, lyrics = "do", dynamic = 0.8,
                 articulations = { "accent" } } } })
   ok("对象式音符可写", r4.noteCount == 1, tostring(r4.noteCount))
   ok("minPitch = maxPitch = 60", r4.minPitch == 60 and r4.maxPitch == 60)
 
   -- 显式 trackIndex 越界 ⇒ 报错
-  local okBad = pcall(OPS.write_chords, { trackIndex = 9, notes = { { pitch = 60, onsetBlicks = 0, durationBlicks = Q } } })
+  local okBad = pcall(OPS.write_chords, { target = "new", trackIndex = 9, notes = { { pitch = 60, onsetBlicks = 0, durationBlicks = Q } } })
   ok("trackIndex 越界 ⇒ 报错", okBad == false)
-  local okBad2 = pcall(OPS.write_chords, { trackIndex = 0 })
+  local okBad2 = pcall(OPS.write_chords, { target = "new", trackIndex = 0 })
   ok("既无 notes 也无 chordSegs ⇒ 报错", okBad2 == false)
 end
 
@@ -515,12 +529,12 @@ do
   local B = _G.__AKDAGENT__
   -- ALG 不在导出表里 ⇒ 通过 op 行为间接验证；这里直接测 write_chords 展开结果已覆盖。
   -- 补充：非法和弦名应被跳过（不报错、不产生音符）
-  local r = OPS.write_chords({ trackIndex = 0, groupName = "Bad", chordSegs = {
+  local r = OPS.write_chords({ target = "new", trackIndex = 0, groupName = "Bad", chordSegs = {
     { name = "H", startBlick = 0, durationBlick = Q },        -- 非法根音
     { name = "C7", startBlick = 0, durationBlick = Q },       -- 合法：四音
   } })
   ok("非法和弦名被跳过、合法照写（4 音）", r.noteCount == 4, tostring(r.noteCount))
-  ok("无有效和弦 ⇒ 报错", pcall(OPS.write_chords, { trackIndex = 0, groupName = "None",
+  ok("无有效和弦 ⇒ 报错", pcall(OPS.write_chords, { target = "new", trackIndex = 0, groupName = "None",
     chordSegs = { { name = "H", startBlick = 0, durationBlick = Q } } }) == false)
 end
 
@@ -1842,6 +1856,76 @@ do
 
   ok("既没 points 也没 probe ⇒ 报错",
      pcall(OPS.set_automation, { parameter = "voicing" }) == false)
+end
+
+section("写音符「写哪里」（target 参数 · SV1 主组路线）—— 放在最后：本节会改共享假宿主的状态")
+do
+  -- 起因（2026-09-25 真机）：SV1 上生成的旋律被写进了**新组**，而用户要的是主组 ——
+  --   规则是"SV1 写主组（旋律与伴奏都写）/ SV2·IX 新建组 / 主组非空先问"。
+  local mainGrp = H.track(1):getMainReference():getTarget()
+  local savedHost, savedIsSV2 = B.ST.host, B.ST.isSV2
+
+  -- ① SV1 + 主组非空 + 未 allowAppend ⇒ needConfirm 且**一个字节都不写**
+  local n0 = mainGrp:getNumNotes()                       -- 假宿主主组 3 个音符（la/li/lu）
+  local libBefore = #H.state.library
+  local refsBefore = H.track(1):getNumGroups()
+  local rq = OPS.write_chords({ trackIndex = 0, chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } })
+  ok("SV1 默认（不写 target）⇒ 走主组", rq.needConfirm == true, tostring(rq.needConfirm))
+  ok("needConfirm 里带 target = main", rq.target == "main", tostring(rq.target))
+  ok("needConfirm 报出主组现有音符数", rq.existingNoteCount == n0, "n0=" .. tostring(n0) .. " got=" .. tostring(rq.existingNoteCount))
+  ok("needConfirm 报出主组末尾拍数（3 个音符各 1 拍 ⇒ 3.0）", math.abs((rq.endQuarter or -1) - 3.0) < 1e-6, tostring(rq.endQuarter))
+  ok("needConfirm 给 hint", type(rq.hint) == "string" and #rq.hint > 20)
+  ok("⇒ **零写入**：库/引用/主组音符数都没变",
+     #H.state.library == libBefore and H.track(1):getNumGroups() == refsBefore and mainGrp:getNumNotes() == n0)
+
+  -- ② 显式 allowAppend ⇒ 追加进主组（不建组、不加引用）
+  local r = OPS.write_chords({ trackIndex = 0, allowAppend = true,
+    chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } })
+  ok("allowAppend ⇒ ok = true", r.ok == true, tostring(r.ok))
+  ok("target = main", r.target == "main", tostring(r.target))
+  ok("groupName = main（真的写进主组了）", r.groupName == "main", tostring(r.groupName))
+  ok("written = 3（C 三和弦）", r.written == 3, tostring(r.written))
+  ok("appendedToMain = true", r.appendedToMain == true, tostring(r.appendedToMain))
+  ok("existingNoteCountBefore = 主组写入前的音符数", r.existingNoteCountBefore == n0,
+     "n0=" .. tostring(n0) .. " got=" .. tostring(r.existingNoteCountBefore) .. " now=" .. tostring(mainGrp:getNumNotes()))
+  ok("主组音符数 n0 → n0+3（追加，不是覆盖）", mainGrp:getNumNotes() == n0 + 3, tostring(mainGrp:getNumNotes()))
+  ok("**没往库里塞组**", #H.state.library == libBefore, #H.state.library)
+  ok("**没加组引用**（主组本来就在轨上）", H.track(1):getNumGroups() == refsBefore, H.track(1):getNumGroups())
+  ok("新音符落进主组：最低音 48（C3，octaveShift -12）", mainGrp:getNote(n0 + 1):getPitch() == 48, tostring(mainGrp:getNote(n0 + 1):getPitch()))
+  ok("主组布局报告带回（重叠会在这里报出来）", type(r.layout) == "table")
+
+  -- ③ 主组**清空**后：SV1 默认就直接写主组，**不需要** allowAppend
+  for i = mainGrp:getNumNotes(), 1, -1 do mainGrp:removeNote(i) end
+  ok("主组已清空", mainGrp:getNumNotes() == 0, tostring(mainGrp:getNumNotes()))
+  local r2 = OPS.create_harmony_group({ notes = { { pitch = 60, onsetBlicks = 0, durationBlicks = Q } } })
+  ok("主组为空 ⇒ 不追问、直接写", r2.ok == true, tostring(r2.ok))
+  ok("target = main", r2.target == "main", tostring(r2.target))
+  ok("appendedToMain = false（是「写空的主组」而不是「追加」）", r2.appendedToMain == false, tostring(r2.appendedToMain))
+  ok("主组现在 1 个音", mainGrp:getNumNotes() == 1, tostring(mainGrp:getNumNotes()))
+
+  -- ④ SV2 / IX：默认就是新建组；显式 target="main" 直接报错（主组不能 addNote）
+  B.ST.host, B.ST.isSV2 = "sv", true
+  local r3 = OPS.write_chords({ trackIndex = 0, groupName = "Sv2Chords",
+    chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } })
+  ok("SV2 默认 ⇒ target = new", r3.target == "new", tostring(r3.target))
+  ok("SV2 默认 ⇒ 真的建了新组", r3.groupName == "Sv2Chords", tostring(r3.groupName))
+  local okMain2 = pcall(OPS.write_chords, { trackIndex = 0, target = "main",
+    chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } })
+  ok("SV2 上 target=\"main\" ⇒ 报错（不写坏一半）", okMain2 == false)
+  B.ST.host, B.ST.isSV2 = "ix", true
+  local okMainIx = pcall(OPS.create_harmony_group, { target = "main",
+    notes = { { pitch = 60, onsetBlicks = 0, durationBlicks = Q } } })
+  ok("IX 上 target=\"main\" ⇒ 报错", okMainIx == false)
+
+  -- ⑤ 回到 SV1：显式 target="new" ⇒ 老行为（新建具名组）
+  B.ST.host, B.ST.isSV2 = savedHost, savedIsSV2
+  local r4 = OPS.write_chords({ target = "new", trackIndex = 0, groupName = "Sv1New",
+    chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } })
+  ok("SV1 上 target=\"new\" ⇒ 新建组", r4.target == "new" and r4.groupName == "Sv1New", tostring(r4.groupName))
+
+  -- ⑥ 非法 target
+  ok("非法 target ⇒ 报错", pcall(OPS.write_chords, { trackIndex = 0, target = "x",
+    chordSegs = { { name = "C", startBlick = 0, durationBlick = 4 * Q } } }) == false)
 end
 
 print(string.format("\n===== 结果：%d 通过 / %d 失败 =====", pass, fail))

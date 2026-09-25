@@ -53,6 +53,14 @@ extraResources:
     to: assets
   - from: ../sv/lua/AKDAgentBridge.lua
     to: assets/AKDAgentBridge.lua
+  # 🆕 2026-09-25（用户：SV 集成里应该还有面板文件）：**侧栏面板脚本**也随包分发，
+  #   这样设置页「一键部署」能把面板一起装到 SV2 / IX。
+  #   ⚠️ 面板**只往 SV2 / IX 部署**，SV1 与 OPSV（SV1 引擎）**不部署** —— 那两个宿主没有侧栏、
+  #   也没有 project scriptData；面板在那边跑起来会出问题（用户 2026-09-25 确认），而且 SV1 的
+  #   脚本菜单会把 Agent 子目录里的 .js 也列出来 ⇒ 会多出一个点了就出事的菜单项。
+  #   规则与判据见 electron/src/main.js 的 hostKindOfScriptsDir()。
+  - from: ../sv/panel/AKDAgentPanel.js
+    to: assets/AKDAgentPanel.js
   - from: ../dsh-runtime/dsh
     to: dsh
   - from: ../dsh-runtime/node

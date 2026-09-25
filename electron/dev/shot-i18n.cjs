@@ -39,7 +39,7 @@ if (!spec) {
 
 /* 让页面里的 invoke 有回应，动态区块才会渲染（形状与主进程真实返回一致） */
 const STUBS = {
-  'akdagent-get-version': () => '0.1.0',
+  'akdagent-get-version': () => '1.0.0',
   'akdagent-get-ui-prefs': () => ({
     locale: i18n.getLocale(),
     locales: i18n.LOCALES.map((l) => ({ id: l, label: i18n.LOCALE_LABELS[l] })),

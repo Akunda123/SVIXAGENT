@@ -1,6 +1,6 @@
 {
   "name": "@akdagent/ui-akdagent-onboarding",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "AKDAgent first-run onboarding step: guides users to the DSH Models settings page to configure the API key",
   "type": "module",

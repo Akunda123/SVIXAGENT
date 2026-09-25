@@ -886,8 +886,10 @@ ipcMain.on('akdagent-key-open-settings', (_e, page) => {
  *  避免 BrowserWindow 被导航走、也避免 file:// 之类被利用）*/
 ipcMain.on('akdagent-open-external', (_e, url) => {
   const u = String(url || '').trim()
-  if (!/^https?:\/\//i.test(u)) {
-    console.log('[akdagent] open-external 拒绝非 http(s) 链接: ' + u)
+  // 只放行 http(s) 与 mailto:（2026-09-25：关于页要能点开邮箱）；
+  // file:// javascript: data: 之类一律拒 —— 渲染进程给什么都不能让它开任意东西。
+  if (!/^https?:\/\//i.test(u) && !/^mailto:[^\s@]+@[^\s@]+$/i.test(u)) {
+    console.log('[akdagent] open-external 拒绝非 http(s)/mailto 链接: ' + u)
     return
   }
   shell.openExternal(u).catch((err) => console.log('[akdagent] openExternal 失败: ' + err.message))
@@ -919,6 +921,10 @@ function buildTrayMenu() {
   return Menu.buildFromTemplate([
     { label: i18n.t('orb.menu.toggleChat'), click: () => toggleOrbPanel() },
     { label: i18n.t(orbVisible ? 'orb.menu.hideToTray' : 'orb.menu.showOrb'), click: () => toggleOrbWindow() },
+    { type: 'separator' },
+    // 🆕 帮助（2026-09-25 用户定：悬浮球右键 + 托盘右键都放；同一个 openHelp）
+    { label: i18n.t('orb.menu.settings'), click: () => openSettings() },
+    { label: i18n.t('orb.menu.help'), click: () => openHelp() },
     { type: 'separator' },
     { label: i18n.t('orb.menu.quit'), click: () => quitApp() },
   ])
@@ -1001,11 +1007,34 @@ function openSettings(page) {
   }
 }
 
+/** 应用内帮助页（2026-09-25 用户定：把演示/说明页挂到**悬浮球右键 → 帮助**）。
+ *
+ *  文件来路：`electron/src/help/index.html`（由 `tools/gen-demo-data.cjs` 从
+ *  `README-发布版草案-v2.md` 生成 —— 与 `docs/demo/index.html` 同一份，**别手改**；
+ *  唯一的相对依赖是 `bg.png`，一并复制过去）。它在 `files: src/**` 里 ⇒ 进 asar，
+ *  `loadFile` 读 asar 内的页面没问题（bg.png 也照样能相对取到）。
+ *  窗口**不带 node/预加载**：帮助页是纯静态内容，没必要给它任何能力。 */
+let helpWin = null
+function openHelp() {
+  if (helpWin && !helpWin.isDestroyed()) { helpWin.show(); helpWin.focus(); return }
+  helpWin = new BrowserWindow({
+    width: 1180, height: 820, minWidth: 720, minHeight: 520,
+    title: i18n.t('help.windowTitle'),
+    autoHideMenuBar: true,
+    backgroundColor: '#141117',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  helpWin.loadFile(path.join(__dirname, 'help', 'index.html'))
+  helpWin.on('closed', () => { helpWin = null })
+}
+
 function showOrbContextMenu() {
   if (!orbWin || orbWin.isDestroyed()) return
   const menu = Menu.buildFromTemplate([
     { label: i18n.t('orb.menu.settings'), click: () => openSettings() },
     { label: i18n.t('orb.menu.toggleChat'), click: () => toggleOrbPanel() },
+    // 🆕 帮助（与"设置"同级：新手第一眼要找的东西）
+    { label: i18n.t('orb.menu.help'), click: () => openHelp() },
     { label: i18n.t('orb.menu.hideToTray'), click: () => hideOrbToTray() },
     { type: 'separator' },
     { label: i18n.t('orb.menu.quit'), click: () => quitApp() },
@@ -1203,7 +1232,7 @@ ipcMain.handle('akdagent-get-version', () => {
   try {
     return require('../package.json').version
   } catch {
-    return '0.1.0'
+    return '1.0.0'
   }
 })
 
@@ -1270,16 +1299,30 @@ function setSvConfig(cfg) {
   writeSettings(s)
 }
 
-/** 每个 scripts 目录的派生信息（Agent 目录 = scripts 的上级 + Agent；桥脚本 = scripts/Agent 子目录） */
+/** 每个 scripts 目录的派生信息（Agent 目录 = scripts 的上级 + Agent；桥脚本 = scripts/Agent 子目录）
+ *  🆕 2026-09-25：一并给出**面板**的状态与"这个宿主要不要面板"，供设置页的目录列表显示徽标 + 手动部署。 */
 function svDirInfo(scriptsDir) {
   const agentDir = path.join(path.dirname(scriptsDir), 'Agent')
   // ⛔ 只能部署 **Lua 桥**：旧的 JS 剪贴板桥已退役（`SVAgentBridge.js`，归档目录 `legacy/` 亦于 2026-09-19 删除），不得再分发/部署
   const bridgeTarget = path.join(scriptsDir, 'Agent', 'AKDAgentBridge.lua')
+  const panelTarget = path.join(scriptsDir, 'Agent', 'AKDAgentPanel.js')
+  const bundle = (p) => { try { return fs.readFileSync(p) } catch { return null } }
+  const same = (a, b) => { const x = bundle(a), y = bundle(b); return !!(x && y && x.equals(y)) }
+  const src = bridgeSourcePath()
+  const pSrc = panelSourcePath()
   return {
     scriptsDir,
     agentDir,
     exists: fs.existsSync(scriptsDir),
     bridgeInstalled: fs.existsSync(bridgeTarget),
+    // 面板（只有 SV2 / IX 需要）：是否已装、是否与随包那份一致、这个目录该不该装
+    kind: hostKindOfScriptsDir(scriptsDir),
+    panelInstalled: fs.existsSync(panelTarget),
+    panelCurrent: same(panelTarget, pSrc),
+    panelWanted: wantsPanel(scriptsDir),
+    bridgePath: bridgeTarget,
+    panelPath: panelTarget,
+    bridgeSource: src,
   }
 }
 
@@ -1289,6 +1332,37 @@ function bridgeSourcePath() {
   if (fs.existsSync(bundled)) return bundled
   const dev = path.join(__dirname, '..', '..', 'sv', 'lua', 'AKDAgentBridge.lua')
   return fs.existsSync(dev) ? dev : null
+}
+
+/** 面板脚本源（2026-09-25 加）：与桥同样的取法（打包后 resources/assets，开发态仓库 sv/panel） */
+function panelSourcePath() {
+  const bundled = path.join(process.resourcesPath, 'assets', 'AKDAgentPanel.js')
+  if (fs.existsSync(bundled)) return bundled
+  const dev = path.join(__dirname, '..', '..', 'sv', 'panel', 'AKDAgentPanel.js')
+  return fs.existsSync(dev) ? dev : null
+}
+
+/** 从一个 scripts 目录**认宿主**（2026-09-25）—— 决定要不要给它装面板。
+ *
+ *  为什么必须认：面板是 **JS 侧栏脚本（SidePanelSection）**，只有 **SV2 / IX** 有侧栏；
+ *  **SV1 与 OPSV（SV1 引擎）没有侧栏、也没有 `project scriptData`** ⇒ 面板在那边没意义，
+ *  而且 SV1 的脚本菜单会把 `scripts\Agent\` 里的 `.js` 也列出来 ⇒ 多一个"点了就出事"的菜单项
+ *  （用户 2026-09-25 明确：面板误放到 SV1 **会**出问题）⇒ **不装**。
+ *  ⚠️ **认不出来的一律不装**（默认拒绝）：宁可少装一个文件，也不往未知宿主里塞一个会崩的脚本。
+ *  返回 'sv1' | 'sv2' | 'ix' | 'opsv' | null */
+function hostKindOfScriptsDir(dir) {
+  const p = String(dir || '').replace(/[\\/]+/g, '/').toLowerCase()
+  if (!p) return null
+  if (p.includes('/instrument x/')) return 'ix'
+  if (p.includes('/synthesizer v studio 2/')) return 'sv2'
+  if (p.includes('/opsv/')) return 'opsv'                       // 便携(flat)版 = SV1 引擎
+  if (p.includes('/synthesizer v studio/')) return 'sv1'
+  return null
+}
+/** 这个 scripts 目录要不要装面板（只有 sv2 / ix 要） */
+function wantsPanel(dir) {
+  const k = hostKindOfScriptsDir(dir)
+  return k === 'sv2' || k === 'ix'
 }
 
 /** 自动检测常见 SV scripts 目录（SV1 文档目录 / SV2 AppData / OPSV 便携版等） */
@@ -1313,6 +1387,7 @@ ipcMain.handle('akdagent-get-sv-config', () => {
     scriptsDirs: cfg.scriptsDirs,
     entries: cfg.scriptsDirs.map(svDirInfo),
     bridgeSource: bridgeSourcePath(),
+    panelSource: panelSourcePath(),
   }
 })
 
@@ -1335,22 +1410,50 @@ ipcMain.handle('akdagent-remove-sv-scripts-dir', (_e, dir) => {
   return { ok: true, entries: cfg.scriptsDirs.map(svDirInfo) }
 })
 
-/** 一键部署：对每个 scripts 目录 ① 复制桥脚本 ② 创建 Agent 工作目录 */
+/** 一键部署：对每个 scripts 目录
+ *   ① 复制桥脚本（AKDAgentBridge.lua）—— **所有**目录（SV1 / SV2 / IX / OPSV 都要）
+ *   ② **只有 SV2 / IX** 额外复制侧栏面板（AKDAgentPanel.js）；SV1 / OPSV 与认不出的目录跳过
+ *      （理由见 hostKindOfScriptsDir 的注释：那两个宿主没有侧栏 ⇒ 面板会是个"点了就出事"的菜单项）
+ *   ③ 清掉退役的 Lua 面板（AKDAgentPanel.lua）—— 旧版本遗留，留着同样是菜单地雷（先备份）
+ *   ④ 创建 Agent 工作目录（提取的伴奏 / 日志等） */
 ipcMain.handle('akdagent-deploy-sv-bridge', () => {
   const src = bridgeSourcePath()
+  const panelSrc = panelSourcePath()
   const cfg = getSvConfig()
   const results = cfg.scriptsDirs.map((scriptsDir) => {
-    const r = { scriptsDir, ok: false, error: '', steps: [] }
+    const r = { scriptsDir, kind: hostKindOfScriptsDir(scriptsDir), ok: false, error: '', steps: [], panel: 'skipped' }
     try {
       if (!src) throw new Error(i18n.t('main.deploy.srcMissing'))
       if (!fs.existsSync(scriptsDir)) throw new Error(i18n.t('main.deploy.dirMissing'))
-      // 1) 复制桥脚本到 <scriptsDir>/Agent/AKDAgentBridge.lua（scripts 下子目录，SV 可读到）
+      // 1) 桥脚本 → <scriptsDir>/Agent/AKDAgentBridge.lua（scripts 下子目录，SV 可读到）
       const targetDir = path.join(scriptsDir, 'Agent')
       fs.mkdirSync(targetDir, { recursive: true })
       const target = path.join(targetDir, 'AKDAgentBridge.lua')
       fs.copyFileSync(src, target)
       r.steps.push(i18n.t('main.deploy.bridgeStep', target))
-      // 2) 创建 Agent 工作目录（提取的伴奏 / 日志等）
+      // 2) 侧栏面板：只有 SV2 / IX 装
+      if (wantsPanel(scriptsDir)) {
+        if (!panelSrc) {
+          r.panel = 'missing-src'
+          r.steps.push(i18n.t('main.deploy.panelNoSrc'))
+        } else {
+          const panelTarget = path.join(targetDir, 'AKDAgentPanel.js')
+          fs.copyFileSync(panelSrc, panelTarget)
+          r.panel = 'deployed'
+          r.steps.push(i18n.t('main.deploy.panelStep', panelTarget))
+        }
+      } else {
+        r.panel = 'skipped'
+        r.steps.push(i18n.t('main.deploy.panelSkipped', r.kind || 'unknown'))
+      }
+      // 3) 退役的 Lua 面板（曾经的面板方案，2026-09-15 换成 JS）：留着就是菜单地雷 ⇒ 备份后删掉
+      const retired = path.join(targetDir, 'AKDAgentPanel.lua')
+      if (fs.existsSync(retired)) {
+        const bak = retired + '.bak-retired-' + new Date().toISOString().slice(0, 10)
+        try { fs.copyFileSync(retired, bak); fs.rmSync(retired, { force: true }); r.steps.push(i18n.t('main.deploy.retiredPanelStep', bak)) }
+        catch (e) { r.steps.push(i18n.t('main.deploy.retiredPanelFail', e.message)) }
+      }
+      // 4) Agent 工作目录（提取的伴奏 / 日志等）
       const agentDir = path.join(path.dirname(scriptsDir), 'Agent')
       fs.mkdirSync(agentDir, { recursive: true })
       r.steps.push(i18n.t('main.deploy.agentStep', agentDir))
@@ -1360,7 +1463,39 @@ ipcMain.handle('akdagent-deploy-sv-bridge', () => {
     }
     return r
   })
-  return { results, bridgeSource: src }
+  return { results, bridgeSource: src, panelSource: panelSrc }
+})
+
+/** 🆕 2026-09-25（用户：可以在目录列表里手动部署面板）—— **单个目录**单独部署一个文件。
+ *  与"一键部署"的区别：这里**尊重手动意愿**，不做宿主推断拦截；
+ *  认不出/认出是 SV1·OPSV 而用户仍要装面板时，**照装**但在结果里带一条明确警告（用户自己决定）。 */
+ipcMain.handle('akdagent-deploy-sv-file', (_e, dir, what) => {
+  const steps = []
+  const scriptsDir = String(dir || '')
+  const kind = hostKindOfScriptsDir(scriptsDir)
+  try {
+    if (!scriptsDir) throw new Error(i18n.t('main.deploy.dirMissing'))
+    if (!fs.existsSync(scriptsDir)) throw new Error(i18n.t('main.deploy.dirMissing'))
+    const targetDir = path.join(scriptsDir, 'Agent')
+    fs.mkdirSync(targetDir, { recursive: true })
+    if (what === 'panel') {
+      const src = panelSourcePath()
+      if (!src) throw new Error(i18n.t('main.deploy.panelNoSrc'))
+      const target = path.join(targetDir, 'AKDAgentPanel.js')
+      fs.copyFileSync(src, target)
+      steps.push(i18n.t('main.deploy.panelStep', target))
+      if (!wantsPanel(scriptsDir)) steps.push(i18n.t('main.deploy.panelForcedWarn', kind || 'unknown'))
+    } else {
+      const src = bridgeSourcePath()
+      if (!src) throw new Error(i18n.t('main.deploy.srcMissing'))
+      const target = path.join(targetDir, 'AKDAgentBridge.lua')
+      fs.copyFileSync(src, target)
+      steps.push(i18n.t('main.deploy.bridgeStep', target))
+    }
+    return { ok: true, steps, kind, info: svDirInfo(scriptsDir) }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), steps, kind }
+  }
 })
 
 // ── SV Flat 版（数据目录）检测 + nofs JSON 读写 ────────────────────
@@ -2052,22 +2187,73 @@ const panelBridge = createPanelBridge({
   getSessionId: () => orbSessionId,
 })
 
-/** 面板链路只在**桥自称支持**时启动（心跳 panel:true，桥 0.3.7+ 且有 project scriptData）。 */
+/** 面板链路只在**桥自称支持**时启动（心跳 `panel:true`，桥 0.3.7+ 且有 project scriptData）。
+ *
+ * ⚠️ 2026-09-25 实机修（用户报「面板不响应 electron」）—— 原来这里是「每 10s 读一次，满 30 次
+ *    （5 分钟）就永久放弃」，两个缺陷叠在一起会让面板**一辈子起不来**：
+ *   ① **放弃是永久的**：客户端先开、面板后挂载（或宿主的桥比客户端晚跑）⇒ 过了那 5 分钟窗口，
+ *      后面心跳就算变成 panel:true 也再没人看。实机日志原话：
+ *        `10:20:59 [panel] 桥未宣称支持面板（心跳 panel:true）⇒ 面板链路不启动`
+ *      而 10:29 采样时心跳**已经是** panel:true（SV2 面板挂载了）—— 时间差就是症状本身。
+ *   ② **SV1 与 SV2 共用同一个心跳文件**（host id 都是 `sv`）⇒ 两台桥互相覆盖，
+ *      单次采样可能连读几分钟都是另一台的 `panel:false`。所以这里改成**一个周期内连采 3 次**
+ *      （间隔 250ms），只要有一拍读到 panel:true 就启动。
+ *    现在：**一直重试**（10s 一轮，timer unref 不挡退出）；日志只在状态变化时打，不刷屏；
+ *    顺带在发现"同一通道被两台不同 sv 宿主轮流写"时明确告警（这正是 ② 的现场）。
+ *    （host id 的根因修法 —— 给 SV1/SV2 分不同通道 —— 属于协议级改动，另议。） */
+const PANEL_TICK_MS = 10000;
+const PANEL_BURST = 3;
+const PANEL_BURST_GAP_MS = 250;
 function startPanelBridge() {
-  let tries = 0
-  const tick = () => {
-    tries += 1
-    const dir = process.env.TEMP || require('node:os').tmpdir()
+  const dir = process.env.TEMP || require('node:os').tmpdir();
+  const readHb = (h) => {
+    try { return JSON.parse(fs.readFileSync(path.join(dir, `akdagent-hb-${h}.json`), 'utf8')); } catch { return null; }
+  };
+  /* 同一通道被几个"宿主身份"写过（SV1/SV2 共用 `sv` ⇒ 会看到两个） */
+  const seenIdent = new Map();
+  let waited = 0;
+  let lastWaitLog = 0;
+  let collisionLogged = false;
+
+  const sampleOnce = () => {
     for (const h of ['sv', 'ix']) {
-      try {
-        const hb = JSON.parse(fs.readFileSync(path.join(dir, `akdagent-hb-${h}.json`), 'utf8'))
-        if (hb && hb.panel === true) { panelBridge.start(h); return }
-      } catch { /* 没心跳就继续等 */ }
+      const hb = readHb(h);
+      if (!hb) continue;
+      if (h === 'sv') {
+        const ident = `${hb.isSV2 ? 'SV2' : 'SV1'} ${hb.hostVersionNumber || '?'}`;
+        if (!seenIdent.has(h)) seenIdent.set(h, new Set());
+        seenIdent.get(h).add(ident);
+        if (!collisionLogged && seenIdent.get(h).size > 1) {
+          collisionLogged = true;
+          console.log(`[panel] ⚠️ 两个 sv 宿主在共用同一通道（${[...seenIdent.get(h)].join(' / ')}）`
+            + ` ⇒ 心跳与请求文件会互相覆盖，面板链路可能起不来；请只开一台同类宿主`);
+        }
+      }
+      if (hb.panel === true) return h;
     }
-    if (tries < 30) panelBridgeTimer = setTimeout(tick, 10000)
-    else console.log('[panel] 桥未宣称支持面板（心跳 panel:true）⇒ 面板链路不启动')
-  }
-  tick()
+    return null;
+  };
+
+  const tick = async () => {
+    for (let i = 0; i < PANEL_BURST; i += 1) {
+      const host = sampleOnce();
+      if (host) {
+        panelBridge.start(host);
+        console.log(`[panel] 面板链路已启动（host=${host}）`);
+        return;
+      }
+      if (i < PANEL_BURST - 1) await new Promise((r) => setTimeout(r, PANEL_BURST_GAP_MS));
+    }
+    waited += 1;
+    const now = Date.now();
+    if (waited === 1 || now - lastWaitLog >= 300000) {
+      lastWaitLog = now;
+      console.log(`[panel] 等面板挂载（心跳还没有 panel:true，已等 ~${Math.round(waited * PANEL_TICK_MS / 1000)}s）—— 会一直等，不放弃`);
+    }
+    panelBridgeTimer = setTimeout(() => { tick().catch(() => {}); }, PANEL_TICK_MS);
+    if (panelBridgeTimer.unref) panelBridgeTimer.unref();
+  };
+  tick().catch(() => {});
 }
 
 /** 悬浮球藏在托盘里时，若来了「提问 / 工具确认」⇒ 弹一条系统通知（点一下把球叫回来）

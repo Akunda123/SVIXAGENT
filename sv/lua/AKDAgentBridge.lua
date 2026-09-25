@@ -115,7 +115,15 @@ local CFG = {
   --    再点一次"运行"**不会**替换掉旧实例（实测 2026-09-12：旧实例 09:07 起一直活着，
   --    09:19 的"运行"没有产生新 boot）—— 于是"明明改了却没生效"。
   --    有了版本号，`ping`/心跳里就能一眼看出跑的是哪一版。
-  VERSION        = "0.3.30",  -- 0.3.30 = 治 **tempo-mark-no-update**（真机记录的宿主行为）：
+  VERSION        = "0.3.31",  -- 0.3.31 = 写音符**写哪里**按宿主分（用户 2026-09-25 定）：
+                              --          `write_chords` / `create_harmony_group` 新增 `args.target`（auto/main/new）
+                              --          与 `args.allowAppend`：**SV1 默认写主组**（主组就是用户音符容器、可写），
+                              --          SV2/IX 默认且只能新建组；主组非空且未 allowAppend ⇒ 返回
+                              --          `{ok=false,needConfirm=true,existingNoteCount,endQuarter,hint}`，**一个字节都不写**。
+                              --          另：`get_current_group` 补 `isMain` + `hostIsSv2`（判据从"猜组名"变成"读宿主版本"）。
+                              --          起因此前这条规则在技能里是无条件的（"写音符一律新建组"，理由写的是 SV2 限制）
+                              --          ⇒ 真机上 SV1 的旋律被写进了新组而非主组。
+                              -- 0.3.30 = 治 **tempo-mark-no-update**（真机记录的宿主行为）：
                               --          `TimeAxis.addTempoMark` **不会更新同位置已有的标**（文档说会更新，实测不更新）
                               --          ⇒ `apply_tempo` 每次 `addTempoMark` 前**先 `removeTempoMark(同位置)`**，
                               --          否则"改了 BPM 却没生效"。守卫 `tools/check-tempo-mark-replace.cjs` 盯住这条顺序。
@@ -899,11 +907,17 @@ local function capabilityReport()
     set_note_dur = { { ed, "getCurrentGroup" }, { grp, "getNote" }, { note, "setAttributes" },
                      { proj, "newUndoRecord" } },
     write_chords = { { proj, "newUndoRecord" }, { proj, "addNoteGroup" }, { track, "addGroupReference" },
-                     { track, "removeGroupReference" }, { grp, "addNote" }, { note, "setTimeRange" } },
+                     { track, "removeGroupReference" }, { grp, "addNote" }, { note, "setTimeRange" },
+                     -- 🆕 2026-09-25 主组路线（target=main，SV1 默认）额外要这些：
+                     { track, "getMainReference" }, { ref, "getTarget" }, { grp, "getNumNotes" },
+                     { grp, "getNote" }, { note, "getOnset" }, { note, "getDuration" } },
     write_pit = { { proj, "newUndoRecord" }, { ta, "getSecondsFromBlick" }, { ta, "getBlickFromSeconds" },
                   { note, "setAttributes" }, { note, "setPitchAutoMode" } },
     create_harmony_group = { { proj, "addNoteGroup" }, { ed, "getCurrentTrack" }, { grp, "addNote" },
-                             { note, "setTimeRange" }, { track, "addGroupReference" }, { ref, "getTimeOffset" } },
+                             { note, "setTimeRange" }, { track, "addGroupReference" }, { ref, "getTimeOffset" },
+                             -- 🆕 同上：主组路线（target=main）要这些
+                             { track, "getMainReference" }, { ref, "getTarget" }, { grp, "getNumNotes" },
+                             { grp, "getNote" }, { note, "getOnset" }, { note, "getDuration" } },
     align_audio = { { ta, "getMeasureMarkAt" }, { ta, "getBlickFromSeconds" }, { ref, "getDuration" } },
     apply_tempo = { { ta, "addTempoMark" }, { ta, "getBlickFromSeconds" } },
     run_script = {},        -- 只用 Lua 的 load（宿主必然有）
@@ -1116,13 +1130,22 @@ function OPS.get_current_group(args)
   if ref == nil then return { current = false } end
   local grp = call(ref, "getTarget")
   if grp == nil then return { current = false } end
+  -- 🆕 2026-09-25：把 **isMain / hostIsSv2** 一起报出来。
+  --   为什么：调用方要按宿主决定"能不能直接写当前组" ——
+  --     · `hostIsSv2=false`（SV1）⇒ 主组就是用户音符容器、**可写**；
+  --     · `hostIsSv2=true`（SV2/IX）⇒ 主组不能 `addNote`，必须另建组。
+  --   以前这两个字段只在 `get_layout` 里有，于是"该怎么写"只能靠**组名猜**（`name=="main"`），
+  --   而组名不可靠（用户可以把任意组改名 main，音频轨的组名也叫 main）⇒ 2026-09-25 真机事故：
+  --   SV1 上把生成的旋律写进了**新组的"Melody"**，而不是本该写的主组。
   return {
     current = true,
     name = call(grp, "getName"),
     uuid = call(grp, "getUUID"),
     noteCount = call(grp, "getNumNotes"),
     timeOffsetBlicks = call(ref, "getTimeOffset"),
-    pitchOffset = call(ref, "getPitchOffset")
+    pitchOffset = call(ref, "getPitchOffset"),
+    isMain = (function() local ok, v = pcall(function() return ref:isMain() end) return (ok and v) or nil end)(),
+    hostIsSv2 = ST.isSV2
   }
 end
 
@@ -2097,6 +2120,61 @@ end
 
 -- 与 JS 的 svhOpWriteChords 对齐：{ok, trackIndex, groupName, noteCount, minPitch, maxPitch}
 -- args: { notes | chordSegs, groupName?, pattern?, octaveShift?, trackIndex?(0 起), instrument? }
+-- ============================================================================
+-- 写音符「写哪里」的统一解析（2026-09-25 新增 · 用户 2026-09-25 定）
+-- ============================================================================
+-- 规则（真机事故驱动：SV1 上生成的旋律被写进了新组，而用户要的是主组）：
+--   · **SV1**：主组就是**用户音符所在的容器、可读可写** ⇒ 旋律与伴奏都写主组。
+--   · **SV2 / IX**：主组不能 `addNote`（宿主限制）⇒ 只能新建组。
+-- 契约（三条建组型 op 共用：`write_chords` / `create_harmony_group` / 走同一 op 的 `write_texture`）：
+--   `args.target`      = "auto"(默认) | "main" | "new"
+--                        · auto ⇒ 按宿主：SV1 = main，SV2/IX = new
+--                        · main ⇒ 强制主组（SV2/IX 上直接报错，不写坏一半）
+--                        · new  ⇒ 强制新建具名组（带同名幂等替换，原行为）
+--   `args.allowAppend` = 主组**非空**时必须显式 true；否则返回
+--                        `{ok=false, needConfirm=true, existingNoteCount, endQuarter, hint}`
+--                        —— 主组里有用户的音符时**绝不悄悄追加/覆盖**，由调用方先问用户再带 true 重试。
+-- 返回：mode("main"|"new") · group(主组对象，mode=main 时) · existing · endQuarter(拍)
+local function resolveWriteTarget(args, track)
+  local want = tostring((args and args.target) or "auto")
+  if want == "auto" then want = ST.isSV2 and "new" or "main" end
+  if want ~= "main" and want ~= "new" then
+    error("args.target 只能是 auto / main / new（收到：" .. want .. "）")
+  end
+  if want == "new" then return "new", nil, 0, nil end
+  if ST.isSV2 then
+    error("本宿主（" .. ((ST.host == "ix") and "Instrument X" or "SV2")
+      .. "）的主组不能 addNote ⇒ 请用 target=\"new\"（或省略，默认就是新建组）")
+  end
+  local mainRef = track and call(track, "getMainReference") or nil
+  local grp = mainRef and call(mainRef, "getTarget") or nil
+  if grp == nil then error("拿不到主组（getMainReference / getTarget 失败）") end
+  local n = call(grp, "getNumNotes") or 0
+  local endQ = 0
+  for i = 1, n do
+    local nt = call(grp, "getNote", i)
+    if nt ~= nil then
+      local o = call(nt, "getOnset") or 0
+      local d = call(nt, "getDuration") or 0
+      local e = (o + d) / 705600000
+      if e > endQ then endQ = e end
+    end
+  end
+  return "main", grp, n, endQ
+end
+
+-- 主组非空且未显式 allowAppend ⇒ 统一的"先问用户"回执（**一个字节都不写**）
+local function needConfirmResult(args, existing, endQ)
+  if existing == nil or existing <= 0 or (args and args.allowAppend == true) then return nil end
+  return {
+    ok = false, needConfirm = true, target = "main",
+    existingNoteCount = existing, endQuarter = endQ,
+    hint = "主组（SV1 上就是用户音符所在的那个组）里已有 " .. tostring(existing) .. " 个音符（末尾约第 "
+      .. string.format("%.2f", endQ) .. " 拍）⇒ 先问用户：① 追加到末尾 ② 从指定小节起写 ③ 还是新建组；"
+      .. "确认后再带 allowAppend=true 调一次（不会覆盖，但可能与时值重叠，重叠会在 layout 里报出来）。",
+  }
+end
+
 function OPS.write_chords(args)
   args = args or {}
   local groupName = args.groupName and tostring(args.groupName) or "Chords"
@@ -2136,21 +2214,31 @@ function OPS.write_chords(args)
   local track = call(proj, "getTrack", targetTrack + 1)
   if track == nil then error("getTrack 失败：0 起索引 " .. tostring(targetTrack)) end
 
+  -- 🆕 2026-09-25：先定"写哪里"（SV1 默认写主组），**再**动工程
+  local mode, mainGroup, existingMain, endQMain = resolveWriteTarget(args, track)
+  local confirm = needConfirmResult(args, existingMain, endQMain)
+  if confirm ~= nil then return confirm end
+
   call(proj, "newUndoRecord")
 
-  -- 幂等：先摘掉目标轨上同名的旧组引用（**倒序**删，避免下标位移）
-  local ng = call(track, "getNumGroups") or 0
-  for gi = ng, 1, -1 do
-    local refGi = call(track, "getGroupReference", gi)
-    local tg = refGi and call(refGi, "getTarget") or nil
-    if tg ~= nil and call(tg, "getName") == groupName then
-      call(track, "removeGroupReference", gi)
+  local group = nil
+  if mode == "main" then
+    group = mainGroup                    -- 直接写主组：不建新组、不加组引用
+  else
+    -- 幂等：先摘掉目标轨上同名的旧组引用（**倒序**删，避免下标位移）
+    local ng = call(track, "getNumGroups") or 0
+    for gi = ng, 1, -1 do
+      local refGi = call(track, "getGroupReference", gi)
+      local tg = refGi and call(refGi, "getTarget") or nil
+      if tg ~= nil and call(tg, "getName") == groupName then
+        call(track, "removeGroupReference", gi)
+      end
     end
-  end
 
-  local group = SC("create", "NoteGroup")
-  if group == nil then error("SV:create('NoteGroup') 不可用") end
-  call(group, "setName", groupName)
+    group = SC("create", "NoteGroup")
+    if group == nil then error("SV:create('NoteGroup') 不可用") end
+    call(group, "setName", groupName)
+  end
   local quarter = tonumber(SV and SV.QUARTER) or 705600000
   local minP, maxP = nil, nil
   for i = 1, #notesIn do
@@ -2200,11 +2288,15 @@ function OPS.write_chords(args)
     end
   end
 
-  call(proj, "addNoteGroup", group)      -- 省略 suggestedIndex（同 create_harmony_group 的理由）
-  local ref = SC("create", "NoteGroupReference")
-  if ref == nil then error("SV:create('NoteGroupReference') 不可用") end
-  call(ref, "setTarget", group)
-  call(ref, "setTimeOffset", 0)          -- 位置统一由音符 onset 表达
+  -- 只有"新建组"这条路才需要把组加进库 + 造组引用挂到轨道；写主组时主组本来就在轨上
+  if mode ~= "main" then
+    call(proj, "addNoteGroup", group)      -- 省略 suggestedIndex（同 create_harmony_group 的理由）
+    local ref = SC("create", "NoteGroupReference")
+    if ref == nil then error("SV:create('NoteGroupReference') 不可用") end
+    call(ref, "setTarget", group)
+    call(ref, "setTimeOffset", 0)          -- 位置统一由音符 onset 表达
+    call(track, "addGroupReference", ref)
+  end
 
   -- 乐器 database（可选）
   if type(args.instrument) == "table" then
@@ -2217,10 +2309,13 @@ function OPS.write_chords(args)
     end
   end
 
-  call(track, "addGroupReference", ref)
   return {
-    ok = true, trackIndex = targetTrack, groupName = call(group, "getName"),
-    noteCount = call(group, "getNumNotes"), minPitch = minP, maxPitch = maxP,
+    ok = true, trackIndex = targetTrack, target = mode,
+    groupName = call(group, "getName"),
+    noteCount = call(group, "getNumNotes"), written = #notesIn,
+    appendedToMain = (mode == "main") and ((existingMain or 0) > 0),
+    existingNoteCountBefore = (mode == "main") and existingMain or nil,
+    minPitch = minP, maxPitch = maxP,
     layout = LAYOUT.scan(group),     -- 🆕 P7 ③：重叠=违规（必须报）· 缝隙=允许但告知（消缝需用户同意）
   }
 end
@@ -3484,9 +3579,19 @@ function OPS.create_harmony_group(args)
   if track == nil then error("no current track") end
   local proj = SC("getProject")
 
-  local group = SC("create", "NoteGroup")
-  if group == nil then error("SV:create('NoteGroup') 不可用") end
-  call(group, "setName", args.groupName and tostring(args.groupName) or "Harmony")
+  -- 🆕 2026-09-25：先定"写哪里"（SV1 默认写主组），**再**动工程
+  local mode, mainGroup, existingMain, endQMain = resolveWriteTarget(args, track)
+  local confirm = needConfirmResult(args, existingMain, endQMain)
+  if confirm ~= nil then return confirm end
+
+  local group = nil
+  if mode == "main" then
+    group = mainGroup
+  else
+    group = SC("create", "NoteGroup")
+    if group == nil then error("SV:create('NoteGroup') 不可用") end
+    call(group, "setName", args.groupName and tostring(args.groupName) or "Harmony")
+  end
 
   local added = 0
   for i = 1, #notesIn do
@@ -3500,15 +3605,23 @@ function OPS.create_harmony_group(args)
     added = added + 1
   end
 
-  call(proj, "addNoteGroup", group)      -- 省略 suggestedIndex（见上面的说明）
+  -- 只有"新建组"这条路才加库 + 造引用；写主组时主组本来就在轨上
+  if mode ~= "main" then
+    call(proj, "addNoteGroup", group)      -- 省略 suggestedIndex（见上面的说明）
 
-  local ref = SC("create", "NoteGroupReference")
-  if ref == nil then error("SV:create('NoteGroupReference') 不可用") end
-  call(ref, "setTarget", group)
-  call(ref, "setTimeOffset", call(scope, "getTimeOffset") or 0)
-  call(track, "addGroupReference", ref)
+    local ref = SC("create", "NoteGroupReference")
+    if ref == nil then error("SV:create('NoteGroupReference') 不可用") end
+    call(ref, "setTarget", group)
+    call(ref, "setTimeOffset", call(scope, "getTimeOffset") or 0)
+    call(track, "addGroupReference", ref)
+  end
 
-  return { ok = true, groupName = call(group, "getName"), noteCount = call(group, "getNumNotes") }
+  return {
+    ok = true, target = mode, groupName = call(group, "getName"),
+    noteCount = call(group, "getNumNotes"), written = added,
+    appendedToMain = (mode == "main") and ((existingMain or 0) > 0),
+    existingNoteCountBefore = (mode == "main") and existingMain or nil,
+  }
 end
 
 -- 与 JS 的 svhOpFillTrackLyrics 对齐：{ok, track, group, notes, lyricTotal, filled}

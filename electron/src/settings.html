@@ -77,6 +77,10 @@
   .row .label { color: var(--body); }
   .row .hint { color: var(--muted); font-size: 11px; margin-top: 2px; }
   .row .value { color: var(--muted); font-size: 12px; }
+  /* 关于页三个联系方式（B 站 / 邮箱 / GitHub）之间的分隔符与链接样式（2026-09-25） */
+  .contact-sep { color: var(--muted); opacity: .5; margin: 0 .4em; }
+  .row .value a.extlink { color: var(--muted); text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.25); }
+  .row .value a.extlink:hover { color: #fff; }
   select, input[type="text"] {
     background: var(--bg); color: var(--body);
     border: 1px solid var(--border); border-radius: 8px;
@@ -203,7 +207,7 @@
   <div class="nav-item" data-page="status" data-i18n="settings.nav.status">状态</div>
   <div class="nav-item" data-page="about" data-i18n="settings.nav.about">关于</div>
   <div class="spacer"></div>
-  <div class="nav-foot" id="ver">v0.1.0</div>
+  <div class="nav-foot" id="ver">v1.0.0</div>
 </div>
 
 <!-- 右侧内容 -->
@@ -339,6 +343,13 @@
         </div>
         <span class="badge" id="sv-bridge-badge"><span class="dot"></span><span id="sv-bridge-text" data-i18n="settings.status.unknown">未知</span></span>
       </div>
+      <!-- 🆕 2026-09-25（用户：SV 集成里应该还有面板文件）：面板只往 SV2 / IX 装 -->
+      <div class="row">
+        <div>
+          <div class="label">AKDAgentPanel.js</div>
+          <div class="hint" id="sv-panel-src" data-i18n="settings.sv.panelNote">侧栏面板脚本（只有 SV2 / IX 有侧栏；SV1 与 OPSV 不装）</div>
+        </div>
+      </div>
     </section>
 
     <section>
@@ -466,17 +477,20 @@
     <section>
       <div class="row">
         <div class="label" data-i18n="settings.about.version">版本</div>
-        <div class="value" id="ver-val">0.1.0</div>
+        <div class="value" id="ver-val">1.0.0</div>
       </div>
       <div class="row">
         <div class="label" data-i18n="settings.about.feedback">反馈 / 联系</div>
-        <!-- 联系方式：**链接是常量**（不随语种变），文字由 i18n 填（四语同一串 URL）。
-             点击走主进程的 akdagent-open-external（只放行 http(s)，见 main.js），
-             不让渲染进程自己开浏览器（设置页是 sandbox 渲染进程，没有 shell 权限）。 -->
-        <div class="value"><a id="link-feedback" href="https://github.com/Akunda123" data-i18n="settings.about.feedbackValue">https://github.com/Akunda123</a></div>
-      </div>
-      <div class="row" style="border:none">
-        <div class="hint" data-i18n="settings.about.feedbackHint">遇到问题直接联系作者即可（说明现象与复现步骤）。本程序不联网、不上报任何数据；宿主（SV / IX）升级后只会弹一次本地通知，提示你去下载最新安装包。</div>
+        <!-- 三个联系方式（2026-09-25 用户定）：**链接与邮箱都是常量**（不随语种变），
+             只有"叫什么"由 i18n 填。点击统一走主进程的 akdagent-open-external
+             （放行 http(s) 与 mailto:，见 main.js）—— 设置页是 sandbox 渲染进程，没有 shell 权限。 -->
+        <div class="value">
+          <a class="extlink" id="link-bili" href="https://space.bilibili.com/12131593" data-i18n="settings.about.contactBili">B 站主页</a>
+          <span class="contact-sep">·</span>
+          <a class="extlink" id="link-mail" href="mailto:1073243952@qq.com" title="1073243952@qq.com">1073243952@qq.com</a>
+          <span class="contact-sep">·</span>
+          <a class="extlink" id="link-repo" href="https://github.com/Akunda123/SVIXAGENT" data-i18n="settings.about.contactRepo">GitHub 仓库</a>
+        </div>
       </div>
       <div class="row" style="border:none">
         <div class="label" data-i18n="settings.about.bridgeInstall">桥脚本安装</div>
@@ -896,8 +910,11 @@
   $('btn-always-top').addEventListener('click', () => window.svsettings.toggleAlwaysTop())
   $('btn-orb-reset').addEventListener('click', () => window.svsettings.resetOrbPosition())
   $('btn-bridge-doc').addEventListener('click', (e) => { e.preventDefault(); window.svsettings.openBridgeDoc() })
-  /* 关于页的「反馈 / 联系」链接：交给主进程开系统浏览器（渲染进程不许自己开） */
-  $('link-feedback').addEventListener('click', (e) => { e.preventDefault(); window.svsettings.openExternal($('link-feedback').href) })
+  /* 关于页的「反馈 / 联系」三处链接（B 站 / 邮箱 / GitHub）：统一交给主进程开系统浏览器
+     （渲染进程是 sandbox，不许自己开；主进程只放行 http(s) 与 mailto:） */
+  document.querySelectorAll('a.extlink').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); window.svsettings.openExternal(a.href) })
+  })
 
   window.svsettings.getVersion().then((v) => {
     if (v) { $('ver').textContent = 'v' + v; $('ver-val').textContent = v }
@@ -1078,6 +1095,10 @@
     const hasSrc = !!svConfig.bridgeSource
     setBadge($('sv-bridge-badge'), hasSrc ? I.t('settings.sv.available') : I.t('settings.sv.missing'), hasSrc)
     $('sv-bridge-src').textContent = hasSrc ? svConfig.bridgeSource : I.t('settings.sv.bridgeNotFound')
+    // 面板源（找不到就只显示说明那句）
+    $('sv-panel-src').textContent = svConfig.panelSource
+      ? I.t('settings.sv.panelNote') + ' — ' + svConfig.panelSource
+      : I.t('settings.sv.panelNotFound')
     // 目录列表
     const list = $('sv-dir-list')
     list.innerHTML = ''
@@ -1090,6 +1111,7 @@
     for (const e of svConfig.entries) {
       const row = document.createElement('div')
       row.className = 'row'
+      row.style.flexWrap = 'wrap'
       const info = document.createElement('div')
       info.style.cssText = 'min-width:0'
       const label = document.createElement('div')
@@ -1101,12 +1123,48 @@
       hint.className = 'hint'
       hint.textContent = I.t('settings.sv.agentDir', e.agentDir)
       info.appendChild(hint)
+      // 🆕 2026-09-25：面板状态一行（只有 SV2 / IX 需要面板；其余显示"此宿主无侧栏"）
+      const panelHint = document.createElement('div')
+      panelHint.className = 'hint'
+      panelHint.id = 'sv-panel-hint'
+      if (!e.exists) panelHint.textContent = ''
+      else if (!e.panelWanted) panelHint.textContent = I.t('settings.sv.panelNotNeeded')
+      else if (e.panelInstalled && e.panelCurrent) panelHint.textContent = I.t('settings.sv.panelDeployed')
+      else if (e.panelInstalled) panelHint.textContent = I.t('settings.sv.panelOutdated')
+      else panelHint.textContent = I.t('settings.sv.panelNotDeployed')
+      if (panelHint.textContent) info.appendChild(panelHint)
       row.appendChild(info)
       const right = document.createElement('div')
-      right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0'
+      right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap'
       if (!e.exists) right.appendChild(svBadge(false, I.t('settings.sv.dirMissing')))
       else if (e.bridgeInstalled) right.appendChild(svBadge(true, I.t('settings.sv.bridgeDeployed')))
       else right.appendChild(svBadge(false, I.t('settings.sv.notDeployed')))
+      // 手动部署（用户 2026-09-25：目录列表里要能单独部署面板）
+      const mkDeploy = (what, labelText) => {
+        const b = document.createElement('button')
+        b.textContent = labelText
+        b.style.cssText = 'font-size:11px;padding:2px 8px'
+        b.addEventListener('click', async () => {
+          const r = await window.svsettings.deploySvFile(e.scriptsDir, what)
+          const tip = document.createElement('div')
+          tip.className = 'hint'
+          tip.style.cssText = 'flex-basis:100%;text-align:right;word-break:break-all'
+          tip.textContent = r && r.ok
+            ? I.t('settings.sv.deployedOk') + (r.steps || []).join('；')
+            : I.t('settings.sv.deployFail', (r && r.error) || '?')
+          if (r && r.ok && what === 'panel' && !e.panelWanted) {
+            // 强制装到"没有侧栏"的宿主：如实提醒（用户自己决定要不要留着）
+            tip.textContent += ' ' + I.t('settings.sv.panelForcedTip')
+          }
+          row.appendChild(tip)
+          setTimeout(() => { tip.remove() }, 8000)
+          svConfig = await window.svsettings.getSvConfig()
+          renderSvConfig()
+        })
+        return b
+      }
+      right.appendChild(mkDeploy('bridge', I.t('settings.sv.deployBridgeBtn')))
+      right.appendChild(mkDeploy('panel', I.t('settings.sv.deployPanelBtn')))
       const del = document.createElement('button')
       del.textContent = I.t('settings.common.remove')
       del.style.color = 'var(--danger)'
