@@ -131,7 +131,11 @@ local CFG = {
   --    再点一次"运行"**不会**替换掉旧实例（实测 2026-09-12：旧实例 09:07 起一直活着，
   --    09:19 的"运行"没有产生新 boot）—— 于是"明明改了却没生效"。
   --    有了版本号，`ping`/心跳里就能一眼看出跑的是哪一版。
-  VERSION        = "0.3.32",  -- 0.3.32 = **`dynamics` 不许走组级 automation**（2026-09-25 用户定性 + 一天两次崩宿主）：
+  VERSION        = "1.0.0",   -- 1.0.0 = **版本轴与产品版本对齐**（用户 2026-09-25 定：「直接把桥变 1.0.0，面板也是」）：
+                              --          内容 = 原 0.3.32（`dynamics` 不许走组级 automation）+ 此前的 0.3.31 等。
+                              --          ⚠️ 从这版起**不再沿用 0.3.x 序号**；历史沿革仍按 0.3.x 记在下面（那些是"某能力自哪版起"）。
+                              --          面板脚本同步为 `1.0.0-js`（`sv/panel/AKDAgentPanel.js` 的 `PANELUI.VERSION`）。
+                              -- 0.3.32 = **`dynamics` 不许走组级 automation**（2026-09-25 用户定性 + 一天两次崩宿主）：
                               --          `set_automation` 见 `dynamics` **直接报错、连 `getParameter` 都不调**；
                               --          `run_script` 静态拦 `getAutomation/getParameter("dynamics")`
                               --          （只拦"当 automation 参数用"的写法，不误伤 `setAttributes{dynamics=…}` /

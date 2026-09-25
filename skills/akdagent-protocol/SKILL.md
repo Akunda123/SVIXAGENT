@@ -12,7 +12,7 @@ version: 1.0.0
 > **`<dir>` 解析顺序（两端同序）**：① `%USERPROFILE%\AKDAgent\ipc`（**存在且可写才用** —— Lua 不能 mkdir）② `os.tmpdir()`（= `%TEMP%`）。
 > ⚠️ 客户端另有环境变量 `AKDAGENT_IPC_DIR` 可覆盖，**桥不读它** ⇒ 设了就必须让桥也落在同一目录。**"两端 `dir` 不一致"是这套通道最常见的故障**（心跳里会写实际 `dir`，先对一眼）。
 > 桥只有 Lua 一种 ⇒ **`run_script` 执行的是 Lua**（冒号调用、索引 1 起），不再是 JS。
-> 本文件后文凡提到 `SVCMD:`/`SVRES:`/剪贴板的，均**只作历史参考**；现役事实以 `sv/lua/AKDAgentBridge.lua`（现 **0.3.25**）与 `server/src/fileipc.ts` 为准。
+> 本文件后文凡提到 `SVCMD:`/`SVRES:`/剪贴板的，均**只作历史参考**；现役事实以 `sv/lua/AKDAgentBridge.lua`（现 **1.0.0**）与 `server/src/fileipc.ts` 为准。
 
 通信双方：**Bridge**（宿主内常驻 Lua 脚本，执行方）与 **Client**（MCP server / Electron 客户端，请求方）。
 另有旁路产物 `akdagent-log-<host>.txt`（桥的运行日志）与 `akdagent-diag-*`（诊断），排障时先看它们。
@@ -247,7 +247,7 @@ Client（MCP / Electron）                          Bridge（宿主内常驻 Lua
 dir=<实际目录>            ← 两端目录不一致是头号故障
 host=sv
 heartbeatAge=11028s      ← 桥可能早就停了（>15s 即判不新鲜）
-boot={"bridge":"0.3.25","hostVersion":"2.2.1","indexBase":1,…}
+boot={"bridge":"1.0.0","hostVersion":"2.2.1","indexBase":1,…}
 log尾部=…（akdagent-log-<host>.txt 最后 6 行）   ← boot 之外的运行期线索
 ```
 

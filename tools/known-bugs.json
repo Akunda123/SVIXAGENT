@@ -1222,7 +1222,7 @@
           {
             "at": "2026-09-25",
             "event": "observed",
-            "note": "用户定性「dynamics 不能用 getAllPoints，那个是 note 属性」；同日真机两次崩宿主（17:44:30 fail-fast 0xc0000409 @0x1561bf1 / 17:51:02 AV 0xc0000005 @0xf1d8ef，均 BEX64、均延时、空工程也复现）。桥 0.3.32 起：set_automation 硬拒 dynamics + run_script 静态拦；知识文档与 sv-ix 技能同步摘掉\"dynamics 是 automation 类型\"的说法。"
+            "note": "用户定性「dynamics 不能用 getAllPoints，那个是 note 属性」；同日真机两次崩宿主（17:44:30 fail-fast 0xc0000409 @0x1561bf1 / 17:51:02 AV 0xc0000005 @0xf1d8ef，均 BEX64、均延时、空工程也复现）。桥 **1.0.0** 起（原 0.3.32）：set_automation 硬拒 dynamics + run_script 静态拦；知识文档与 sv-ix 技能同步摘掉\"dynamics 是 automation 类型\"的说法。"
           }
         ]
       }

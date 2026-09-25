@@ -4,7 +4,7 @@
 > `sv/lua/AKDAgentBridge.lua`（Lua）。本文件里凡提到 `SVCMD:`/`SVRES:`、剪贴板、`SVAgentBridge.js`
 > 的内容都**只作历史记录**。
 > 📌 **2026-09-19 据实重写**（原版还是剪贴板时代的选路/格式/18 op）：事实以
-> `sv/lua/AKDAgentBridge.lua`（现 **0.3.25**）与 `server/src/fileipc.ts` 为准；
+> `sv/lua/AKDAgentBridge.lua`（现 **1.0.0**）与 `server/src/fileipc.ts` 为准；
 > **面向模型的同一份规范在 `skills/akdagent-protocol/SKILL.md`，两处改协议要一起改。**
 
 通信双方：**Bridge**（宿主内常驻 Lua 脚本，执行方）与 **Client**（MCP server / Electron 客户端，请求方）。

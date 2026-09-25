@@ -23,7 +23,7 @@
  * ⚠️ 面板脚本报错会弹宿主对话框并中断脚本 ⇒ 所有入口/回调一律 try/catch。
  */
 var PANELUI = {
-  VERSION: '0.3.0-js',
+  VERSION: '1.0.0-js',
   log: '',
   inRev: -1,
   outSeq: 0,

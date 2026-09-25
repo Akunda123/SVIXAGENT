@@ -1,7 +1,7 @@
 # 已知缺陷与平台约束（人读版）
 
 > **本文件由 `node tools/known-bugs.cjs --doc` 从 `tools/known-bugs.json` 生成 —— 不要手改，改 JSON。**
-> 生成时间：2026-09-25 09:58 · 共 20 条
+> 生成时间：2026-09-25 09:59 · 共 20 条
 
 ## 0. 怎么用（三条纪律）
 
@@ -456,4 +456,4 @@
 - `2026-09-21` observed：升级当天用户报「直接报error了」→ 复现出 REQUEST_EXTENSION（宿主不崩、stderr 干净）→ 读 provider 包定位到 prepareExtensions 的 cause 被吞 → 逐个禁用贡献方 A/B 定位到 plugin-package-inventory-deepseek → 精确 diff 定位到 mcp-akdagent 的裸包名解析失败 → 客户端侧停用该贡献者并验证真跑通一轮
 
 **IX-006**
-- `2026-09-25` observed：用户定性「dynamics 不能用 getAllPoints，那个是 note 属性」；同日真机两次崩宿主（17:44:30 fail-fast 0xc0000409 @0x1561bf1 / 17:51:02 AV 0xc0000005 @0xf1d8ef，均 BEX64、均延时、空工程也复现）。桥 0.3.32 起：set_automation 硬拒 dynamics + run_script 静态拦；知识文档与 sv-ix 技能同步摘掉"dynamics 是 automation 类型"的说法。
+- `2026-09-25` observed：用户定性「dynamics 不能用 getAllPoints，那个是 note 属性」；同日真机两次崩宿主（17:44:30 fail-fast 0xc0000409 @0x1561bf1 / 17:51:02 AV 0xc0000005 @0xf1d8ef，均 BEX64、均延时、空工程也复现）。桥 **1.0.0** 起（原 0.3.32）：set_automation 硬拒 dynamics + run_script 静态拦；知识文档与 sv-ix 技能同步摘掉"dynamics 是 automation 类型"的说法。
