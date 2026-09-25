@@ -106,6 +106,22 @@ function getClientInfo()
   }
 end
 
+-- ⛔⛔ `dynamics` **不是组级 automation** —— 2026-09-25 用户定性 + 两次崩宿主的真机实测：
+--   IX 里 `dynamics` 是**音符级力度包络**（`notes[].dynamics`，见 knowledge/docs/InstrumentX-API枚举.md §6.2.2），
+--   但宿主的 `getAutomation("dynamics")` / `getParameter("dynamics")` **不会报错**，而是返回一个
+--   **像模像样的假对象**（`getType()` 给 "dynamics"、`getDefinition()` 给 DisplayName="Dynamics"、
+--   range=[-1,1]）——可它的折点表根本没被初始化 ⇒ **在它上面按 automation 读点/写点会把宿主内存写坏**，
+--   然后在**几秒~几十秒后、在无关位置崩**（所以崩点每次都不一样）：
+--     · 2026-09-25 17:44:30 `instx.exe` 1.0.1 `0xc0000409` fail-fast @0x1561bf1
+--     · 2026-09-25 17:51:02 同一宿主 `0xc0000005` 访问违例 @0xf1d8ef（WER 两次都报 BEX64）
+--   两次都发生在"脚本里读了 dynamics 的折点"之后，**空工程（0 音符）也能复现**。
+--   ⇒ 本桥**任何 automation 通道都不接受 `dynamics`**（`set_automation` 直接拒、`run_script` 静态拦）。
+--   要改力度包络走**文件路线**（`node tools/ixp-dynamics.cjs`）；要读它请解析工程文件（`.ixp`）。
+local DYN_NOT_AUTOMATION = "dynamics 不是组级 automation —— IX 里它是**音符级力度包络**（notes[].dynamics）；" ..
+  "宿主的 getAutomation(\"dynamics\") 会返回一个**像真的假对象**，按 automation 读点/写点会把宿主内存写坏，" ..
+  "几秒~几十秒后在无关位置崩（2026-09-25 实测两次：0xc0000409 fail-fast @0x1561bf1 / 0xc0000005 访问违例 @0xf1d8ef，" ..
+  "都是延时崩、空工程也复现）⇒ 改力度包络请走 .ixp 文件路线（node tools/ixp-dynamics.cjs），读它请解析工程文件"
+
 -- ============================================================================
 -- 0. 配置与状态
 -- ============================================================================
@@ -115,7 +131,17 @@ local CFG = {
   --    再点一次"运行"**不会**替换掉旧实例（实测 2026-09-12：旧实例 09:07 起一直活着，
   --    09:19 的"运行"没有产生新 boot）—— 于是"明明改了却没生效"。
   --    有了版本号，`ping`/心跳里就能一眼看出跑的是哪一版。
-  VERSION        = "0.3.31",  -- 0.3.31 = 写音符**写哪里**按宿主分（用户 2026-09-25 定）：
+  VERSION        = "0.3.32",  -- 0.3.32 = **`dynamics` 不许走组级 automation**（2026-09-25 用户定性 + 一天两次崩宿主）：
+                              --          `set_automation` 见 `dynamics` **直接报错、连 `getParameter` 都不调**；
+                              --          `run_script` 静态拦 `getAutomation/getParameter("dynamics")`
+                              --          （只拦"当 automation 参数用"的写法，不误伤 `setAttributes{dynamics=…}` /
+                              --           `setScriptData("dynamics",…)` / 注释里提到）。
+                              --          起因：`dynamics` 是**音符级力度包络**（不是 automation），但宿主**不报错**、
+                              --          返回一个像模像样的**假对象** ⇒ 在它上面读点/写点会毒坏宿主内存，
+                              --          几秒~几十秒后在**无关位置**崩（0xc0000409 @0x1561bf1 / 0xc0000005 @0xf1d8ef，
+                              --          空工程也复现）⇒ 台账 **IX-006** + 守卫 `check-no-crash-api.cjs` 第④段
+                              --          + 知识文档/`sv-ix` 技能同步摘除"dynamics 是 automation 类型"的说法。
+                              -- 0.3.31 = 写音符**写哪里**按宿主分（用户 2026-09-25 定）：
                               --          `write_chords` / `create_harmony_group` 新增 `args.target`（auto/main/new）
                               --          与 `args.allowAppend`：**SV1 默认写主组**（主组就是用户音符容器、可写），
                               --          SV2/IX 默认且只能新建组；主组非空且未 allowAppend ⇒ 返回
@@ -3800,6 +3826,18 @@ function OPS.run_script(args)
     error("write script must call SV:getProject():newUndoRecord(); or pass readonly:true")
   end
 
+  -- ⛔ 手写脚本也拦一道（2026-09-25）：把 `dynamics` 当**组级 automation** 用 =
+  --    `getAutomation("dynamics")` / `getParameter("dynamics")` ⇒ 拿到假对象后读点/写点会毒坏宿主内存
+  --    （两次真机崩溃：0xc0000409 / 0xc0000005，都是延时崩）。见文件头 DYN_NOT_AUTOMATION。
+  --    ⚠️ 只拦"当 automation 参数用"这一种写法：合法的音符级用法（`setAttributes{dynamics=…}` /
+  --    `setScriptData("dynamics", …)` / 注释里提到 / 变量名叫 dynamics）**不拦**。
+  local function dynAsAuto(fnName)
+    return string.find(code, fnName .. "%s*%(?%s*[\"']dynamics[\"']") ~= nil
+  end
+  if dynAsAuto("getAutomation") or dynAsAuto("getParameter") then
+    error("⛔ " .. DYN_NOT_AUTOMATION)
+  end
+
   -- ⚠️ Lua 5.2+ 的 load(chunk, name, "t", env) 会把 _ENV **整个换成 env** ⇒
   --    标准库（tostring / pairs / ipairs / string / table / math / os / io）全部消失，
   --    脚本一用就报 "attempt to call a nil value (global 'tostring')"（实测踩到）。
@@ -3849,6 +3887,8 @@ end
 local AUTO_RANGE = {
   pitchdelta = { -1200, 1200 }, vibratoenv = { 0, 2 }, loudness = { -48, 12 },
   tension = { -1, 1 }, breathiness = { -1, 1 }, voicing = { 0, 1 }, gender = { -1, 1 },
+  -- ⛔ **永远不要**往这张表里加 `dynamics`：它不是 automation（是音符级力度包络）⇒ 见 DYN_NOT_AUTOMATION。
+  --    加了就等于给"在假对象上读点/写点"开门，会延时崩宿主（2026-09-25 实测两次）。
 }
 
 local ORN = {}
@@ -4317,6 +4357,9 @@ function OPS.set_automation(args)
   if param == "" then
     error("args.parameter required（loudness / tension / breathiness / voicing / gender / vibratoEnv / pitchDelta / vocalMode_*）")
   end
+  local key = param:lower()
+  -- ⛔ 连 `getParameter` 都**不许调**：见文件头 DYN_NOT_AUTOMATION 那段（在假对象上碰一下就毒内存 ⇒ 延时崩宿主）
+  if key == "dynamics" then error(DYN_NOT_AUTOMATION) end
   local points = args.points
   local dry = (args.dryRun ~= false)
 
@@ -4328,7 +4371,6 @@ function OPS.set_automation(args)
   local auto = call(grp, "getParameter", param)
   if auto == nil then error("getParameter('" .. param .. "') 返回 nil（该组/该宿主没有这个参数？）") end
 
-  local key = param:lower()
   local rng = AUTO_RANGE[key]
   if rng == nil and key:sub(1, 10) == "vocalmode_" then rng = { 0, 150 } end
 

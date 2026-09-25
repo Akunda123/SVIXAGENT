@@ -1724,6 +1724,23 @@ do
   ok("点里缺 onsetQuarter/value ⇒ 报错（无可用点）",
      pcall(OPS.set_automation, { parameter = "voicing", points = { { value = 1 } } }) == false)
 
+  -- ⛔ `dynamics` 不许走 automation 通道（2026-09-25：用户定性"它是音符级属性" + 两次毒崩宿主的真机实测）
+  ok("★ set_automation 直接拒收 dynamics（连 getParameter 都不调）",
+     pcall(OPS.set_automation, { parameter = "dynamics", points = { { onsetQuarter = 0, value = 1 } } }) == false)
+  ok("★ dynamics 的 probe（只读采样）也拒收",
+     pcall(OPS.set_automation, { parameter = "dynamics", probe = { 0, 1 } }) == false)
+  ok("★ 大小写混写（Dynamics）一样拒",
+     pcall(OPS.set_automation, { parameter = "Dynamics", points = { { onsetQuarter = 0, value = 1 } } }) == false)
+  ok("★ run_script 拦下 getAutomation(\"dynamics\")",
+     pcall(OPS.run_script, { readonly = true,
+       code = 'local g = SV:getMainEditor():getCurrentGroup():getTarget()\nreturn g:getAutomation("dynamics")' }) == false)
+  ok("★ run_script 拦下 getParameter('dynamics')（单引号写法）",
+     pcall(OPS.run_script, { readonly = true,
+       code = "local g = SV:getMainEditor():getCurrentGroup():getTarget()\nreturn g:getParameter('dynamics')" }) == false)
+  ok("合法的音符级用法不误伤（脚本里只用字符串提 dynamics）",
+     pcall(OPS.run_script, { readonly = true,
+       code = 'local note = "dynamics 是音符级属性，不是 automation"\nreturn note' }) == true)
+
   -- ⛔ 离线防线：假宿主**故意不提供** crash 清单上的方法 ⇒ 桥若误调，这里会立刻红
   local auto = g:getParameter("voicing")
   ok("★ 假宿主的 Automation 不提供 getPoints（crash 清单）", auto.getPoints == nil)

@@ -105,8 +105,27 @@ getPitchControl(i), getNumPitchControls, addPitchControl, removePitchControl
 ```
 
 ⚠️ `getAutomation`/`getParameter` **是同一个函数**（`getParameter` 为 SV2 废弃别名，错误信息一致）。
-参数是**字符串类型名**，不是数字索引；有效类型：`loudness`、`tension`、`breathiness`、
-`vibratoEnv`、`gender`、`toneShift`、`dynamics`、`pitchDelta`、`voicing`。
+参数是**字符串类型名**，不是数字索引；**实测有效类型**：`loudness`、`tension`、`breathiness`、
+`vibratoEnv`、`gender`、`toneShift`、`pitchDelta`、`voicing`（+ `vocalMode_*`）。
+
+⛔⛔ **`dynamics` 不是组级 automation**（2026-09-25 用户定性 + 两次崩宿主的真机实测）——
+**不要把 `dynamics` 放进上面那张清单，也不要用 `getAutomation("dynamics")`**：
+它是**音符级力度包络**（`notes[].dynamics`，见下面 §6.2.2 与 §6.4 的三者辨析）。
+宿主在这里**不报错**：`getAutomation("dynamics")` 会返回一个**像模像样的假对象**
+（`getType()` 给 `"dynamics"`、`getDefinition()` 给 `DisplayName="Dynamics"`、`range=[-1,1]`、`interp="cubic"`），
+可它的折点表**没被初始化** ⇒ 在它上面按 automation **读点/写点会把宿主内存写坏**，然后在
+**几秒~几十秒后、在无关位置崩**（所以崩点每次都不一样）：
+
+| 时刻（2026-09-25） | 宿主 | 异常码 | 偏移 | WER |
+|---|---|---|---|---|
+| 17:44:30 | `instx.exe` 1.0.1 | `0xc0000409` fail-fast | `0x1561bf1` | BEX64 |
+| 17:51:02 | `instx.exe` 1.0.1 | `0xc0000005` 访问违例 | `0xf1d8ef` | BEX64 |
+
+两次都发生在"脚本读了 `dynamics` 的折点"之后，**空工程（0 音符）也能复现**。
+⇒ **要改力度包络走文件路线**（`node tools/ixp-dynamics.cjs`，改 `.ixp` 的 `notes[].dynamics`）；
+**要读它请解析工程文件**。桥侧已硬拒：`set_automation` 见 `dynamics` 直接报错（连 `getParameter` 都不调）、
+`run_script` 静态拦 `getAutomation/getParameter("dynamics")`。
+
 `getPitchControl(0)` 在当前组无控制点时抛"越界访问"。
 
 ---
@@ -332,10 +351,10 @@ getPlayhead, getStatus, seek, play, pause, stop, loop
 
 | 项目 | SV2 | Instrument X 实测 |
 |---|---|---|
-| `target.getAutomation(type)` | 用 `SV.parameterTypes` 常量（枚举值） | **字符串类型名**：`loudness`/`tension`/`breathiness`/`vibratoEnv`/`gender`/`toneShift`/`dynamics`/`pitchDelta`/`voicing`；数字索引全部报 `unknown automation type` |
+| `target.getAutomation(type)` | 用 `SV.parameterTypes` 常量（枚举值） | **字符串类型名**：`loudness`/`tension`/`breathiness`/`vibratoEnv`/`gender`/`toneShift`/`pitchDelta`/`voicing`（+`vocalMode_*`）；数字索引全部报 `unknown automation type`。⛔ **`dynamics` 不在这个清单里**（它是音符级包络；传进去不报错但返回假对象 ⇒ 见 §6 那条 ⛔） |
 | `target.getParameter(type)` | 独立 API | **与 `getAutomation` 是同一函数**（错误信息完全一致，为废弃别名） |
-| `Automation.getPoints(start,end)`/`getAllPoints()`/`getLinear(blick)` | 返回 JS 数组 | **同样返回普通数组，可安全序列化**（IX ≥1.0.1；⚠️ 参数个数：2 / 0 / 1，写错抛 `InvocationError`）。**IX 1.0.0 上会冻桥** ⇒ 版本检测见 §14 |
-| `Automation.remove(b)` / `remove(begin,end)` | 两个重载 | **与 SV2 同构**（官方文档两重载都写了；按 blick 删、返回布尔）；实测 IX 1.0.1 正常。⚠️ **IX 1.0.0 上会冻桥** ⇒ 靠 `hostOutdated` 版本检测 |
+| `Automation.getPoints(start,end)`/`getAllPoints()`/`getLinear(blick)` | 返回 JS 数组 | **返回普通数组，可安全序列化**（IX ≥1.0.1；⚠️ 参数个数：2 / 0 / 1，写错抛 `InvocationError`）。⚠️ **前提是"真的是 automation 对象"**：`getAutomation("dynamics")` 拿到的是**假对象** ⇒ 在它上面调这些 = **毒坏宿主内存、延时崩**（2026-09-25 两次）。**IX 1.0.0 上会冻桥** ⇒ 版本检测见 §14 |
+| `Automation.remove(b)` / `remove(begin,end)` | 两个重载 | **与 SV2 同构**（官方文档两重载都写了；按 blick 删、返回布尔）；实测 IX 1.0.1 正常。⚠️ 同上：**只对真 automation 对象**用。⚠️ **IX 1.0.0 上会冻桥** ⇒ 靠 `hostOutdated` 版本检测 |
 | `Automation.get(x)/add(x,v)/removeAll` | 正常 | 正常（`add(0,0.5)` 后 `get(0)`→`0.5`；`removeAll` 安全） |
 | `Automation.getDefinition()` | 正常 | 正常：`{displayName, typeName, range, defaultValue}`；`range` 是**普通 `[min,max]` 数组**（宿主权威范围，可用来校表） |
 | `Note.getAttributes()` | 方法较多的对象 | 仅 **3 个字段** `{muted, articulations, articulationsFixed}`，无方法 |

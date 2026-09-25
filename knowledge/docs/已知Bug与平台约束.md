@@ -1,7 +1,7 @@
 # 已知缺陷与平台约束（人读版）
 
 > **本文件由 `node tools/known-bugs.cjs --doc` 从 `tools/known-bugs.json` 生成 —— 不要手改，改 JSON。**
-> 生成时间：2026-09-22 11:57 · 共 19 条
+> 生成时间：2026-09-25 09:58 · 共 20 条
 
 ## 0. 怎么用（三条纪律）
 
@@ -29,7 +29,7 @@
 
 | ID | 类别 | 宿主 | 状态 | 记录版本 | 一句话 |
 |---|---|---|---|---|---|
-| `IX-001` | 🔴 崩溃 | ix | 未能复现 | 1.0.1(65537) | Automation 读点类 API：**IX 1.0.0 会冻桥（1.0.1 已修）** —— 只保留一道「版本检测」防线 |
+| `IX-001` | 🔴 崩溃 | ix | 未能复现 | 1.0.1(65537) | Automation 读点类 API：**IX 1.0.0 会冻桥（1.0.1 已修）** —— 只保留一道「版本检测」防线 ⚠️ **2026-09-25 真机补正：这组 API 只对"真正的 automation 对象"安全** —— 把 `dynamics` 当 automation 读点会**毒坏宿主内存、延时崩宿主**（一天两次），见 `IX-006`。 |
 | `IX-002` | 🟡 能力缺口 | ix | 存在 | 1.0.1(65537) | 音符级 dynamics 曲线：API **不能直接设**（但 **`clone()` 能复制模板包络**）· 也读不出（验证只能靠文件 / recovery 快照） |
 | `IX-003` | 🟡 能力缺口 | ix | 未能复现 | 1.0.1(65537) | Automation 的「区间读点」是 getPoints(begin, end) —— 原判「没有任何区间读点接口」不成立（1.0.0 上会冻桥，见 IX-001） |
 | `IX-004` | 📄 文档缺席 | ix | 存在 | 1.0.1(65537) | 官方脚本 API 文档未覆盖 Instrument X |
@@ -48,15 +48,18 @@
 | `IX-005` | 🟡 能力缺口 | ix | 存在 | 1.0.1(65537) | IX 音高曲线（宿主侧为「暴力移植」实现）在和弦上不可靠：同 onset 的多音可能被压成同度 |
 | `DSH-001` | 🟡 能力缺口 | dsh | 存在 | 0.1.5-rc.2(0) | 内嵌 DSH 升到 0.1.5-rc.2 后，旧版（0.1.0-rc.5）写的 **v0 会话读不了也续不了** —— 上游 v0→v1 迁移器拒收 |
 | `DSH-002` | 🟡 能力缺口 | dsh | 已修复 | 0.1.5-rc.2(0) | 内嵌 host 上「插件包清单」请求贡献者解析不了我们插入的裸包名 ⇒ **每条消息都在 HTTP 前失败**（`REQUEST_EXTENSION`）—— 已由客户端停用该条目修掉 |
+| `IX-006` | 🔴 崩溃 | ix | 存在 | 1.0.1(65537) | `dynamics` **不是组级 automation**（是音符级力度包络）：`getAutomation("dynamics")` 返回**假对象**，在其上按 automation 读点/写点会**毒坏宿主内存 ⇒ 延时崩宿主** |
 
-## 🔴 崩溃（2 条）
+## 🔴 崩溃（3 条）
 
-### IX-001 · Automation 读点类 API：**IX 1.0.0 会冻桥（1.0.1 已修）** —— 只保留一道「版本检测」防线
+### IX-001 · Automation 读点类 API：**IX 1.0.0 会冻桥（1.0.1 已修）** —— 只保留一道「版本检测」防线 ⚠️ **2026-09-25 真机补正：这组 API 只对"真正的 automation 对象"安全** —— 把 `dynamics` 当 automation 读点会**毒坏宿主内存、延时崩宿主**（一天两次），见 `IX-006`。
 
 - **宿主**：ix · **状态**：未能复现 · **复检**：是
 - **涉及 API**：`Automation#getPoints(start, end) —— **2 个参数**` · `Automation#getAllPoints() —— 0 个参数` · `Automation#getLinear(blick) —— 1 个参数` · `Automation#getDefinition() → {typeName, range, displayName, defaultValue}` · `Automation#remove(b) / remove(begin, end) —— **两个重载**，均返回布尔（**按 blick** 删）` · `Automation#removeAll() —— 0 个参数（清空）`
 - **现象**：🔴 **IX 1.0.0 上**：调用读点类 API（`getPoints`/`getAllPoints`/`getLinear`/`getDefinition`）会让**宿主弹模态框挡住 Lua 主线程** ⇒ 桥无响应、宿主可能重启，未保存工程会丢（2026-09-14 实测）。<br>✅ **IX 1.0.1 起已修**（2026-09-20 真机重测）：同一批调用 **67~319ms 正常返回**，且**返回的是普通嵌套数字数组**（`getAllPoints()` → `{{0,-800},{1411200000,0},{2822400000,800}}`，**原样 return 给桥序列化 319ms 正常**；`getDefinition().range` → `[-800,800]`，252ms）。<br>⚠️ **当时的归因（「返回宿主内部对象 ⇒ 序列化卡死」）是错的，已按实测推翻。** 真正会踩的是**参数个数**：`getPoints(start, end)` 要 **2 个**、`getLinear(blick)` 要 **1 个**、`getAllPoints()` 要 **0 个** —— 写错只抛 `InvocationError`（消息里写明「预期 N 个参数」），**不冻桥**。<br>🆕 **写/删点也一并测了（2026-09-20，自造 4 个点逐形式打 —— 结论与官方文档逐字吻合）**：**`remove(b)` 的 `b` 是 blick**，删该位置上的那个点 —— `remove(0)` → `true` 且点真没了、`remove(2*Q)` → `true`、**`remove(1)` → `false` 因为 blick 1 上本来就没有点**（文档原话「if there is one」⇒ **返回 false 是正确行为，不是怪癖**）；`remove(begin, end)` 删区间内所有点；3 参 ⇒ `InvocationError：预期 2 个参数`；`removeAll()` 清空 ✓。**全程 69ms、无冻桥。**<br>📗 **签名以官方文档为准、不需要「探」**：`skills/sv-scripting/api/Automation.md` 逐方法都写了（`getPoints(begin, end)` · `getAllPoints()` · `getLinear(b)` · `get(b)` · `remove(b)` / `remove(begin, end)` 两个重载 · `removeAll()`），**本次 IX 实测与它逐条一致** ⇒ 这族 API 是**有官方文档的正式接口**；此前把整族标成「危险/未知」是**过度泛化**（起因只是一次 IX 1.0.0 的事故）。
 - **影响**：读点/写点类 API 在 IX ≥1.0.1 上**可以正常用**（`getAllPoints()` 一把拿全部折点，比按 1/64 拍采样更准更快；删点按 blick）。**唯一的现实风险是宿主版本**：1.0.0 上这类调用会把桥冻住 ⇒ 靠**版本检测**兜（见 workaround）。⚠️ **SV2 不需要「再验证」——它本来就有官方文档**（`skills/sv-scripting/api/Automation.md`，本次 IX 实测与其逐条吻合）；**真正没验的只剩 SV1**。
+
+⚠️ **2026-09-25 补正**：上面"≥1.0.1 可以正常用"只对 `loudness`/`tension`… 这些**真的 automation 类型**成立；`getAutomation("dynamics")` 返回的是**假对象**，在它上面读点/写点会延时崩宿主 ⇒ 见 `IX-006`。
 - **实测版本**：2026-09-14 @ 1.0.0 (`65536`) · 2026-09-20 @ 1.0.1 (`65537`)
 - **规避 / 正确做法**：
   - 🔑 **版本检测（唯一保留的防线；用户 2026-09-20 指示「清除所有禁调用的痕迹，保留一个版本检测」）**：桥在 `ping` / 心跳 / `boot` / `diag` 里报 **`hostOutdated` + `hostWarning`**；**检测到 IX 1.0.0（或更早）就先让用户升级 Instrument X（≥1.0.1）**，再做读点类操作。判据 = `CFG.hostIsOutdated(host, hostVerNum)`（**只有 IX 且版本号 < 65537 才为真**；SV 一律 false；版本号拿不到时不误报），回归见 `sv/lua/tests/test-ops.lua` 的「宿主版本检测」节
@@ -86,6 +89,31 @@
   - 预期：修复前：宿主闪退 · 修复后：报错或钳制而不崩
   - ⚠️ 不提供一键探针：必须由用户在**临时工程**里手动安排
 - **记账命令**：`node tools/known-bugs.cjs --verified SV-002 --status fixed|partial|open --note "..."`
+
+### IX-006 · `dynamics` **不是组级 automation**（是音符级力度包络）：`getAutomation("dynamics")` 返回**假对象**，在其上按 automation 读点/写点会**毒坏宿主内存 ⇒ 延时崩宿主**
+
+- **宿主**：ix · **状态**：存在 · **复检**：是
+- **涉及 API**：`NoteGroup#getAutomation("dynamics") / getParameter("dynamics") —— **不报错**，返回一个像模像样的**假对象**（getType()="dynamics"、getDefinition() 给 DisplayName="Dynamics"/range=[-1,1]/defaultValue=0/interp="cubic"，但折点表未初始化）` · `在该假对象上调用 Automation#getAllPoints() / getPoints() / getDefinition() / getLinear() ⇒ **毒内存（本条触发点）**` · `音符级力度包络的真身：工程文件 `notes[].dynamics = {mode:"cubic", points:[x,y,…]}`（见 knowledge/docs/InstrumentX-API枚举.md §6.2.2）` · `⛔ 直接写包络的 API 不存在（那是 IX-002）⇒ 只能走文件路线 `tools/ixp-dynamics.cjs``
+- **现象**：🔴 **宿主内存被写坏 ⇒ 延时崩**（不是立刻崩、也不是冻桥）：在假对象上读点之后，`instx.exe` 会在**几秒~几十秒后、在无关位置**崩，所以崩点每次都不一样：
+
+| 时刻（2026-09-25） | 异常码 | 偏移 | WER | 距触发 |
+|---|---|---|---|---|
+| 17:44:30 | `0xc0000409` fail-fast | `0x1561bf1` | BEX64 | 触发脚本后 ~1s |
+| 17:51:02 | `0xc0000005` 访问违例 | `0xf1d8ef` | BEX64 | 单发读点后 ~9s |
+
+两次都在"读了 `dynamics` 的折点"之后；**空工程（0 音符）也复现**；崩前最后被服务的请求是无害的例行 ping（所以"崩前最后一条日志"会误导人）。
+- **影响**：任何"把 `dynamics` 当 automation"的路径都会**崩宿主 = 丢未保存工程**（我们的桥/脚本**没有保存工程的能力**，见 `API-003`）⇒ 属于必须硬规避的一类。注意宿主**不报错**：写成 `getAutomation("dynamics")` 时既不抛 `unknown automation type`，`getDefinition()` 还给得出 `DisplayName/range` ⇒ **靠"有没有报错"判断不出来**，只能靠纪律（本条的清单 + 桥里的硬拒）。
+- **实测版本**：2026-09-25 @ 1.0.1 (`65537`)
+- **规避 / 正确做法**：
+  - ⛔ **绝不要把 `dynamics` 当组级 automation**。宿主不会报错（既不抛 `unknown automation type`，`getDefinition()` 还给得出 `DisplayName`/`range`）⇒ 靠"有没有报错"判断不出来，只能靠清单与硬拒。
+  - **桥侧已硬拒**（2026-09-25）：`set_automation` 见到 `dynamics` **直接报错、连 `getParameter` 都不调**；`run_script` **静态拦** `getAutomation/getParameter("dynamics")`（只拦"当 automation 参数用"的写法，不误伤 `setAttributes{dynamics=…}` / `setScriptData("dynamics",…)` / 注释里提到）。
+  - **组级 automation 只用**：`loudness` / `tension` / `breathiness` / `vibratoEnv` / `gender` / `pitchDelta` / `vocalMode_*`（桥的 `AUTO_RANGE` 白名单，**永远不要把 dynamics 加进去**）。
+  - **改音符级力度包络走文件路线**：`node tools/ixp-dynamics.cjs <file.ixp>`（改前让用户保存、改完让用户重载）；要"读"它请解析工程文件（`.ixp` 的 `notes[].dynamics`）。
+  - 手写脚本前自问一句："我拿的这个 type，是 `SV.parameterTypes` 里**真的** automation 吗？" —— `dynamics` 是例外，永远是音符级。
+- **复检探针**：`dangerous`（须用户知情同意） —— ⚠️ **本条的复现就是崩宿主**（用户 2026-09-25 在场、明确要求"每 10 秒调一次看什么时候闪退"才做的）：① 只发一条 `getAllPoints()`（或 `getDefinition()`）打在 `getAutomation("dynamics")` 上；② 之后**静默等待** ≥60s（别连发，否则分不清是哪一发）。⚠️ 别把 `dynamics` 与别的类型混在一发里（当时一发包了 4 个调用 ⇒ 事后无法指认）
+  - 预期：**2026-09-25 实测（1.0.1）**：第 1 发（含 dynamics 的 4 连）返回正常（325ms）——**假对象上的读点不一定当场发作**；第 2 发（`loudness` 的 getAllPoints）正常 77ms；随后宿主在 **17:51:02** 崩（`0xc0000005` @0xf1d8ef）。⇒ 判据不是"这一发有没有返回"，而是"**之后 60 秒内宿主有没有消失**"
+  - 命令：`node tools/known-bugs.cjs --probe IX-006 --confirm`
+- **记账命令**：`node tools/known-bugs.cjs --verified IX-006 --status fixed|partial|open --note "..."`
 
 ## 🟡 能力缺口（9 条）
 
@@ -364,6 +392,7 @@
 - `2026-09-20` probe-responded：探针**有回应**（45ms）⇒ 不再复现"调用即冻桥"；结论=不再冻桥，仍需人工确认宿主未重启。返回={"ok":true,"result":{"resultType":"table","result":{"results":[{"api":"getPoints","detail":"InvocationError in getPoints: 预期 2 个参数，实际得到 0 个。","t":"table","ok":false},{"api":"getAllPoints","detail":"table(n=0)","t":"table","ok":true},{"api":"getLinear","detail":"InvocationError in getLinear: 预期 1 个参数
 - `2026-09-20` verified：IX 1.0.1 真机重测：读点类全部正常（getAllPoints 返回普通嵌套数组、原样序列化 319ms；getDefinition().range=[-800,800] 252ms）⇒ 「宿主内部对象无法序列化」被否掉；真正坑是参数个数（getPoints 要 2 参、getLinear 要 1 参）。remove(index) 与 SV 侧仍未测（部分修复 @ 1.0.1）
 - `2026-09-20` verified：IX 1.0.1 全清单实测完毕：读点(getPoints/getAllPoints/getLinear/getDefinition)+写点(remove/removeAll) 全部 67~319ms 正常、返回普通数组、无一次冻桥 ⇒ 原「调用即冻桥」在 1.0.1 上未能复现；真正会踩的是参数个数（getPoints 2 / getLinear 1 / remove 2；单参 remove 静默返回 false 不删点）。1.0.0 用户由 hostOutdated 版本检测拦住（未能复现 @ 1.0.1）
+- `2026-09-25` observed：真机补正：`dynamics` 不是组级 automation（是音符级力度包络）。对 `getAutomation("dynamics")` 返回的假对象读点（getDefinition/getAllPoints）后，instx.exe 1.0.1 于 17:44:30（0xc0000409 fail-fast @0x1561bf1）与 17:51:02（0xc0000005 AV @0xf1d8ef）两次崩溃，均延时崩、空工程也复现 ⇒ 另立 IX-006；桥侧已硬拒 dynamics 走 automation。
 
 **IX-002**
 - `2026-09-14` observed：8 种写法实测全静默；{dynamic=<table>} 被强转 0；scriptData 路线持久化但不生效
@@ -425,3 +454,6 @@
 
 **DSH-002**
 - `2026-09-21` observed：升级当天用户报「直接报error了」→ 复现出 REQUEST_EXTENSION（宿主不崩、stderr 干净）→ 读 provider 包定位到 prepareExtensions 的 cause 被吞 → 逐个禁用贡献方 A/B 定位到 plugin-package-inventory-deepseek → 精确 diff 定位到 mcp-akdagent 的裸包名解析失败 → 客户端侧停用该贡献者并验证真跑通一轮
+
+**IX-006**
+- `2026-09-25` observed：用户定性「dynamics 不能用 getAllPoints，那个是 note 属性」；同日真机两次崩宿主（17:44:30 fail-fast 0xc0000409 @0x1561bf1 / 17:51:02 AV 0xc0000005 @0xf1d8ef，均 BEX64、均延时、空工程也复现）。桥 0.3.32 起：set_automation 硬拒 dynamics + run_script 静态拦；知识文档与 sv-ix 技能同步摘掉"dynamics 是 automation 类型"的说法。

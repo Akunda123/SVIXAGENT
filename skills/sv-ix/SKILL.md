@@ -86,9 +86,9 @@ version: 1.0.0
 | 项 | SV2 | IX |
 |---|---|---|
 | `SV.create('Note', …)` | 多参数展开 | **对象形式**；属性**小写**（`onset`/`duration`）；`duration` 可能要先传再 `setDuration(blick)` |
-| `target.getAutomation(type)` | `SV.parameterTypes` 常量 | **字符串类型名**（`loudness`/`tension`/`dynamics`/`vibratoEnv`…）；**数字索引报 `unknown automation type`** |
+| `target.getAutomation(type)` | `SV.parameterTypes` 常量 | **字符串类型名**（`loudness`/`tension`/`breathiness`/`vibratoEnv`/`gender`/`toneShift`/`pitchDelta`/`voicing`）；**数字索引报 `unknown automation type`**。⛔ **`dynamics` 不是 automation**（是音符级力度包络）：传进去**不报错**，但返回**假对象** ⇒ 见下条 |
 | `target.getParameter(type)` | 独立 API | **与 `getAutomation` 同一函数**（废弃别名） |
-| `Automation.getPoints(start,end)`/`getAllPoints()`/`getLinear(blick)`/`getDefinition()`/`get(blick)` | 正常 | **IX ≥1.0.1 正常**（返回普通数组，可序列化；⚠️ 参数个数：2 / 0 / 1 / 0 / 1）。**IX 1.0.0 上会冻桥** ⇒ 靠 `hostOutdated` 版本检测（见 §1 第 2 条） |
+| `Automation.getPoints(start,end)`/`getAllPoints()`/`getLinear(blick)`/`getDefinition()`/`get(blick)` | 正常 | **IX ≥1.0.1 正常**（返回普通数组，可序列化；⚠️ 参数个数：2 / 0 / 1 / 0 / 1）。**IX 1.0.0 上会冻桥** ⇒ 靠 `hostOutdated` 版本检测（见 §1 第 2 条）。⛔⛔ **但只对真正的 automation 对象**：`getAutomation("dynamics")` 拿到的是**假对象**（`getType`/`getDefinition` 都给得出东西、折点表却没初始化）⇒ 在它上面读点/写点会把**宿主内存写坏、延时崩宿主**（2026-09-25 两次：`0xc0000409` fail-fast @0x1561bf1 / `0xc0000005` AV @0xf1d8ef，空工程也复现）。**桥已硬拒**（`set_automation` 直接拒 `dynamics`；`run_script` 静态拦 `getAutomation/getParameter("dynamics")`）；改力度包络走 `.ixp` 文件路线 |
 | `Automation.remove(b)` / `remove(begin,end)` / `removeAll()` | 两个重载 + 清空 | **与 SV2 同构**（官方文档两个重载都写了；按 **blick** 删、返回布尔，该处无点就是 `false`）；实测 IX ≥1.0.1 正常（`remove(0)`→true、`remove(1)`→false）。**1.0.0 上会冻桥** ⇒ 同靠 `hostOutdated` |
 | `p.addNoteGroup(name)` | 传字符串 | **必须传 NoteGroup 对象** |
 | main group 加音符 | 允许 | **禁止** |
