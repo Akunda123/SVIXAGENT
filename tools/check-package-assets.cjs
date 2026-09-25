@@ -510,6 +510,38 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
   }
 }
 
+/* ── 键盘焦点纪律（2026-09-25 立）──────────────────────────────────────────────
+ * 用户报「**刚启动后第一次**开设置窗，配置预设模型那里输不进去：**有光标、敲键没字**」。
+ * 形态 = 窗口可见、点得动、还画着光标，但 key 事件被 OS 送去了别的窗口（焦点状态不同步）。
+ * 两条纪律（都是踩出来的）：
+ *   ① 设置窗必须**等页面画出来（ready-to-show）再显示**，显示后**显式给渲染进程焦点**
+ *      （`webContents.focus()`）并自查补一次 —— 只调 `win.focus()` 管不到渲染进程那一层。
+ *   ② **悬浮球不许抢激活**：`showOrbFromTray()` 必须用 `showInactive()`（球是 64px 的球，
+ *      不需要键盘焦点；`show()` 会在启动/第二次实例时把焦点从用户正在打字的窗口抢走）。 */
+{
+  const mainJs = path.join(ROOT, 'electron', 'src', 'main.js');
+  const main = fs.existsSync(mainJs) ? fs.readFileSync(mainJs, 'utf8') : '';
+  if (!main) {
+    console.log('  [--]   读不到 electron/src/main.js —— 跳过键盘焦点纪律检查');
+  } else {
+    if (/function ensureWindowKeyboardFocus\s*\(/.test(main) && /win\.webContents\.focus\(\)/.test(main)) {
+      ok('键盘焦点：有 ensureWindowKeyboardFocus() 且真的给渲染进程 focus（webContents.focus）');
+    } else {
+      fail('main.js 缺 ensureWindowKeyboardFocus()/webContents.focus()：窗口"看着是活的、敲键没字"这类问题会复发');
+    }
+    if (/settingsWin\.once\('ready-to-show'/.test(main) && !/settingsWin\.show\(\)\s*\n\s*settingsWin\.focus\(\)/.test(main)) {
+      ok('设置窗：等 ready-to-show 再显示（不是 loadFile 之后立刻 show）');
+    } else {
+      fail('openSettings() 又变成"loadFile 后立刻 show()"了 ⇒ 首次打开会在页面就绪前就可交互（用户报的那个 bug）');
+    }
+    if (/function showOrbFromTray[\s\S]{0,400}?showInactive\(\)/.test(main)) {
+      ok('悬浮球：用 showInactive() 显示（不抢用户的键盘焦点）');
+    } else {
+      fail('showOrbFromTray() 又用 show() 了 ⇒ 悬浮球会把焦点从正在打字的窗口抢走（启动/第二次实例时最常见）');
+    }
+  }
+}
+
 console.log('');
 if (bad) {
   console.log(`❌ 有 ${bad} 处问题 —— 退役的 JS 桥会随包分发或部署（用户裁定：不允许）；STT 会静默不可用；跨平台 staging 错配会打出跑不起来的包`);

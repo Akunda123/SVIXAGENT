@@ -577,6 +577,8 @@ function killTree(pid) {
 // ── 窗口状态 ───────────────────────────────────────────────────────
 let orbWin = null
 let settingsWin = null
+/** 设置窗要直达的页（`ready-to-show` 之前就记下，等页面就绪再发 —— 见 openSettings） */
+let settingsPendingPage = null
 let tray = null
 let hostChild = null
 let hostReady = false
@@ -790,6 +792,35 @@ function createSettingsWindow() {
   })
 }
 
+/** 给窗口**真正**拿到键盘焦点（2026-09-25 加，治「有光标但敲键没字」）。
+ *
+ *  为什么不能只调 `win.focus()`：Electron 里「窗口是活动的」与「渲染进程拿到键盘焦点」是两件事
+ *  （`win.isFocused()` vs `win.webContents.isFocused()`）。用户报的那种症状 =
+ *  窗口可见、点进去还画着光标，但 key 事件被 OS 送去了**别的窗口** ⇒ 敲键一个字符都不出。
+ *  ⇒ 显示后显式给 `webContents.focus()`，并在 +250ms / +900ms **自查**：若渲染进程仍没焦点，
+ *     补一次（必要时用 `setAlwaysOnTop(true)→false` 这种 Windows 上把窗口顶到前台的常规手法），
+ *     且**打日志**——下次再犯，`akdagent.log` 会直接告诉我们它当时到底有没有焦点。 */
+function ensureWindowKeyboardFocus(win, tag) {
+  if (!win || win.isDestroyed()) return
+  const give = (why) => {
+    try { win.focus() } catch { /* 忽略 */ }
+    try { win.webContents.focus() } catch { /* 忽略 */ }
+    if (why) console.log(`[${tag}] ${why} ⇒ 补 focus（winFocused=${win.isFocused()} wcFocused=${win.webContents.isFocused()}）`)
+  }
+  give(null)
+  for (const delay of [250, 900]) {
+    setTimeout(() => {
+      if (!win || win.isDestroyed()) return
+      if (win.webContents.isFocused()) return
+      if (!win.isFocused()) {
+        // Windows：短暂 alwaysOnTop 能把窗口可靠地顶到前台（不这么做时 setForegroundWindow 会被前台锁拒掉）
+        try { win.setAlwaysOnTop(true); win.setAlwaysOnTop(false) } catch { /* 忽略 */ }
+      }
+      give(`显示后 ${delay}ms 渲染进程仍没键盘焦点`)
+    }, delay)
+  }
+}
+
 // ── API 密钥检测 + 首次启动弹窗 ────────────────────────────────────
 let keyPromptWin = null
 
@@ -824,7 +855,7 @@ function hasDeepSeekKey() {
 
 function createKeyPromptWindow() {
   if (keyPromptWin && !keyPromptWin.isDestroyed()) {
-    keyPromptWin.focus()
+    ensureWindowKeyboardFocus(keyPromptWin, 'key-prompt')
     return
   }
   keyPromptWin = new BrowserWindow({
@@ -858,7 +889,11 @@ function createKeyPromptWindow() {
      录完即弃 ⇒ 连同分支一起删掉 —— 否则它会随包分发（`files: src/**` ⇒ 进 asar）。
      以后要再录：临时复制一份 key-prompt.html 改那 3 处，**别把它留在仓里**。 */
   keyPromptWin.loadFile(path.join(__dirname, 'key-prompt.html'))
-  keyPromptWin.once('ready-to-show', () => keyPromptWin.show())
+  // 页面画出来再显示；显示后同样**显式给渲染进程焦点**（密钥输入框最怕"有光标但敲键没字"）
+  keyPromptWin.once('ready-to-show', () => {
+    keyPromptWin.show()
+    ensureWindowKeyboardFocus(keyPromptWin, 'key-prompt')
+  })
   keyPromptWin.on('closed', () => {
     keyPromptWin = null
   })
@@ -1015,17 +1050,50 @@ function pushHostStatusToSettings() {
   settingsWin.webContents.send('akdagent-host-status', hostReady, '')
 }
 
-/** 打开集中设置窗口 */
+/** 打开集中设置窗口。
+ *
+ *  ⚠️ 2026-09-25（用户报「**刚启动后第一次**开设置窗，配置预设模型那里输不进去：有光标、敲键没字」）：
+ *   原来这里是 `loadFile()` 之后**立刻** `show()+focus()`。首次打开要现加载页面（启动那会儿主进程
+ *   还在忙 spawn / 加载 STT 模型），窗口可能**先可见、渲染进程还没拿到键盘焦点** —— 用户点进输入框
+ *   看到光标，敲键却进不去（key 事件被 OS 送去了别的窗口）。第二次打开页面已在缓存里，就正常了。
+ *   ⇒ 现在：**等 `ready-to-show` 再显示**（1.5s 兜底，页面加载失败时也不能"点了设置没反应"），
+ *     显示后走 `ensureWindowKeyboardFocus()`（显式 `webContents.focus()` + 两次自查补 focus + 打日志）。 */
+const SETTINGS_REVEAL_FALLBACK_MS = 1500
+function revealSettingsWindow() {
+  if (!settingsWin || settingsWin.isDestroyed()) return
+  if (!settingsWin.isVisible()) settingsWin.show()
+  ensureWindowKeyboardFocus(settingsWin, 'settings')
+}
+
 function openSettings(page) {
-  if (!settingsWin || settingsWin.isDestroyed()) createSettingsWindow()
-  settingsWin.show()
-  settingsWin.focus()
-  // 推送最新状态到设置窗口
-  pushHostStatusToSettings()
-  // 可选：直达某一页（key-prompt 的「配置其他模型」用 'model'）
-  if (page && /^[a-z]+$/.test(String(page))) {
-    settingsWin.webContents.send('akdagent-settings-goto', String(page))
+  const fresh = !settingsWin || settingsWin.isDestroyed()
+  if (fresh) createSettingsWindow()
+  const want = (page && /^[a-z]+$/.test(String(page))) ? String(page) : null
+
+  if (settingsWin.isVisible()) {          // 已经显示过：直接前置 + 补焦点
+    ensureWindowKeyboardFocus(settingsWin, 'settings')
+    pushHostStatusToSettings()
+    if (want) settingsWin.webContents.send('akdagent-settings-goto', want)
+    return
   }
+
+  /* 还没显示过：等页面画出来（ready-to-show）再显示；要跳的页等显示后再发 */
+  settingsPendingPage = want
+  let revealed = false
+  const doReveal = (why) => {
+    if (revealed) return
+    revealed = true
+    clearTimeout(fallback)
+    revealSettingsWindow()
+    pushHostStatusToSettings()
+    if (settingsPendingPage && settingsWin && !settingsWin.isDestroyed()) {
+      settingsWin.webContents.send('akdagent-settings-goto', settingsPendingPage)
+      settingsPendingPage = null
+    }
+    if (why) console.log(`[settings] ${why} ⇒ 仍然显示（"点了设置却什么都没出来"才是最糟的）`)
+  }
+  settingsWin.once('ready-to-show', () => doReveal(null))
+  const fallback = setTimeout(() => doReveal(`ready-to-show 等了 ${SETTINGS_REVEAL_FALLBACK_MS}ms 还没来`), SETTINGS_REVEAL_FALLBACK_MS)
 }
 
 /** 应用内帮助页（2026-09-25 用户定：把演示/说明页挂到**悬浮球右键 → 帮助**）。
@@ -1037,7 +1105,7 @@ function openSettings(page) {
  *  窗口**不带 node/预加载**：帮助页是纯静态内容，没必要给它任何能力。 */
 let helpWin = null
 function openHelp() {
-  if (helpWin && !helpWin.isDestroyed()) { helpWin.show(); helpWin.focus(); return }
+  if (helpWin && !helpWin.isDestroyed()) { helpWin.show(); ensureWindowKeyboardFocus(helpWin, 'help'); return }
   helpWin = new BrowserWindow({
     width: 1180, height: 820, minWidth: 720, minHeight: 520,
     title: i18n.t('help.windowTitle'),
@@ -1082,14 +1150,23 @@ function hideOrbToTray() {
   console.log('[akdagent] 悬浮球已隐藏到托盘（进程照常运行）')
 }
 
-/** 从托盘把悬浮球显示回来 */
+/** 从托盘把悬浮球显示回来。
+ *
+ *  ⚠️ 2026-09-25：这里必须用 **`showInactive()`**，不是 `show()`。
+ *  用户报「刚启动后第一次开设置窗，输入框有光标但敲键没字」——那是**键盘焦点状态不同步**
+ *  （OS 把键盘给了别的窗口，而设置窗的渲染进程还以为自己活着 ⇒ 还画着光标）。
+ *  悬浮球是个 64px 的球、**不需要键盘焦点**，但 `show()` 会**激活**它 ⇒ 它常在启动/第二次实例
+ *  （`second-instance` → 这里）把焦点从用户正在打字的窗口抢走。
+ *  `showInactive()` = 显示但不激活：球照常出现在右下角，键盘焦点不动。
+ *  （用户点球上的输入框时，点击本来就会激活它 ⇒ 对话面板不受影响。） */
 function showOrbFromTray() {
   if (!orbWin || orbWin.isDestroyed()) {
     createOrbWindow()                    // 万一窗口被销毁过，重建一个
     refreshTrayMenu()
     return
   }
-  orbWin.show()
+  if (typeof orbWin.showInactive === 'function') orbWin.showInactive()
+  else orbWin.show()                     // 兜底（旧 Electron）
   refreshTrayMenu()
 }
 
