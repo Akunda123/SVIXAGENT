@@ -46,7 +46,7 @@ case "$ARCH_IN" in
     fi
     say "⚠️ Intel(x64) 包：server 侧 onnxruntime = 1.23.2（官方 1.24 起没 darwin/x64）；功能齐全，ONNX 两个音频工具首次使用请实测"
     ARCHS=(x64) ;;
-  *)         die "架构只能是 arm64 / x64 / both（收到：$ARCH_IN）" ;;
+  *)         die "架构只能是 arm64 / x64 / both（收到：${ARCH_IN}）" ;;
 esac
 
 say "== 0. 前置检查 =="
@@ -87,7 +87,7 @@ fi
 
 for ARCH in "${ARCHS[@]}"; do
   say ""
-  say "== 1. server-runtime（darwin/$ARCH）=="
+  say "== 1. server-runtime（darwin/${ARCH}）=="
   # 产物固定落 dist/server-runtime（electron-builder 的 extraResources 只认它）；台账 STAGING.json 会写平台
   # 🆕 2026-09-25（借来的 Mac 最短路径）：如果没有 server/node_modules（说明这台机器没装 server 依赖），
   #    但仓库里带着**预装好的** dist/server-runtime-darwin-<arch>，就直接用它 —— 省掉 npm ci + 240 MB 模型拷贝。
@@ -102,11 +102,11 @@ for ARCH in "${ARCHS[@]}"; do
   fi
 
   say ""
-  say "== 2. 内嵌 node（darwin/$ARCH）=="
+  say "== 2. 内嵌 node（darwin/${ARCH}）=="
   node "$REPO_DIR/tools/stage-node-runtime.cjs" --platform darwin --arch "$ARCH" --activate
 
   say ""
-  say "== 3. 打包（$ARCH）=="
+  say "== 3. 打包（${ARCH}）=="
   cd "$ELECTRON_DIR"
   # 不签名试包：CSC_IDENTITY_AUTO_DISCOVERY=false（有证书时不要设它）
   # 依据：app-builder-lib/out/macPackager.js:209 找不着证书时只 warn 后 return false（不会失败）；

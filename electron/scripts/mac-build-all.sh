@@ -28,6 +28,16 @@
 # ============================================================================
 set -uo pipefail
 
+# ── locale 兜底（2026-09-25 真机踩到）──────────────────────────────────────────
+# macOS 自带 **bash 3.2** 在**非 UTF-8 locale** 下会把 `$VAR` **后面紧跟的中文**当成变量名的一部分
+# ⇒ 报 `label?: unbound variable` 并把脚本打断（截图原话）。两手一起上：
+#   ① 脚本里这类写法一律用 `${VAR}`（花括号会把变量名明确截断）—— 已全量改过；
+#   ② 这里再把 locale 兜成 UTF-8（macOS 一定有 en_US.UTF-8），新写的插值也不会再踩。
+case "${LC_ALL:-${LANG:-}}" in
+  *UTF-8*|*utf8*|*UTF8*) : ;;
+  *) export LC_ALL=en_US.UTF-8 ;;
+esac
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # 本脚本在整包根目录（打包时复制过去的）；也允许在 electron/scripts/ 里直接跑
 if [[ -d "$HERE/electron" ]]; then ROOT="$HERE"
@@ -49,7 +59,7 @@ exec > >(tee "$LOG") 2>&1
 
 say() { printf '%s\n' "$*"; }
 step() { say ""; say "──────────────────────────────────────────────"; say "$*"; say "──────────────────────────────────────────────"; }
-die() { say ""; say "⛔ $*"; say ""; say "把 $LOG 带回来（整段），我按日志定位。"; exit 1; }
+die() { say ""; say "⛔ $*"; say ""; say "把 $LOG 带回来（整段），我按日志定位。"; sleep 0.3; exit 1; }
 
 say "AKDAgent mac 出包（一条命令版）· $(date '+%Y-%m-%d %H:%M:%S')"
 say "目录：$ROOT"
@@ -120,7 +130,7 @@ npm_ci() {
   label="${2:-?}"
   [ -n "$dir" ] || { say "！npm_ci 少了目录参数"; return 1; }
   say ""
-  say "▶ npm ci（$label）"
+  say "▶ npm ci（${label}）"
   if ( cd "$dir" && npm ci --no-audit --no-fund ); then say "✓ $label 装好了"; return 0; fi
   say "！官方源失败 ⇒ 换国内镜像重试（registry + ELECTRON_MIRROR）"
   if ( cd "$dir" && ELECTRON_MIRROR="$MIRROR_ELECTRON" npm ci --no-audit --no-fund --registry="$MIRROR_REG" ); then
@@ -148,7 +158,7 @@ else
 fi
 
 # ── 4. 出包 ────────────────────────────────────────────────────────────────
-step "4/5　打包（electron-builder --mac --$BUILD_ARCH）"
+step "4/5　打包（electron-builder --mac --${BUILD_ARCH}）"
 EXTRA="${1:-}"
 export SKIP_SIGN="${SKIP_SIGN:-1}"        # 默认不签名（没证书）⇒ build-mac.sh 第 4 步会补 ad-hoc
 say "SKIP_SIGN=$SKIP_SIGN  ARCH=$BUILD_ARCH  EXTRA=${EXTRA:-（无）}"
@@ -179,7 +189,7 @@ step "结果"
 say "日志：$LOG"
 if [[ $FAIL -eq 0 ]]; then
   say "✅ 全部通过。把这两样带回来："
-  say "   ① $LOG（**出任何问题都靠它定位**）"
+  say "   ① ${LOG}（**出任何问题都靠它定位**）"
   say "   ② electron/release/AKDAgent-<版本>-$BUILD_ARCH.zip（我能在 Windows 上拆开验内容）"
 else
   say "⚠️ 有 $FAIL 项自检没过（上面带 ✗ 的）—— 把 $LOG 带回来，我按日志定位"
@@ -188,3 +198,9 @@ say ""
 say "在 Mac 上还能顺手验的（可选）："
 say "  open '$APP'    ⇒ 菜单栏出现 AKDAgent 图标、桌面上出现悬浮球；设置页能开、能切语言"
 say "  设置 → 关于 里有「帮助」入口（悬浮球/托盘右键也有）"
+
+# ⚠️ 收尾等一下：本脚本开头用 `exec > >(tee "$LOG")` 把输出同时写进日志，而 **bash 3.2 退出时
+#    可能来不及把最后几行交给 tee** ⇒ 日志尾部被截断（那正是我们排障唯一依赖的文件）。
+#    睡 0.3 秒让 tee 落盘，成本可忽略。
+sleep 0.3
+exit 0
