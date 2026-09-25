@@ -309,6 +309,33 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
     if (!fs.existsSync(srvEntry)) {
       console.log('  [--]   没有 server/dist/index.js（还没 build server）—— 跳过陈旧检查');
     } else {
+      /* ① **build 本身是不是新的**：`server/dist` 必须不比 `server/src` 旧。
+       *    2026-09-25 又踩一次：改了 `server/src/index.ts`（版本 1.0.0）却忘了 `npm run build`
+       *    ⇒ dist 里还是旧字符串；而"运行时 vs server/dist"那条**查不出来**（两边一样旧）。
+       *    所以补这条：源码里最新的 mtime 一旦晚于 dist 里最新的 mtime ⇒ 判定 dist 陈旧。 */
+      const newest = (dir, ext) => {
+        let t = 0;
+        const walk = (d) => {
+          let ents = []; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+          for (const e of ents) {
+            const p = path.join(d, e.name);
+            if (e.isDirectory()) { walk(p); continue; }
+            if (ext && !p.endsWith(ext)) continue;
+            try { t = Math.max(t, fs.statSync(p).mtimeMs); } catch { /* 忽略 */ }
+          }
+        };
+        walk(dir);
+        return t;
+      };
+      const srcTs = newest(path.join(ROOT, 'server', 'src'), '.ts');
+      const distJs = newest(path.join(ROOT, 'server', 'dist'), '.js');
+      if (srcTs > distJs + 1000) {
+        fail('server/dist 比 server/src **旧** ⇒ 忘了 npm run build（包里的 server 会是旧代码）');
+      } else {
+        ok(`server/dist 不比源码旧（src ${new Date(srcTs).toISOString().slice(11, 16)} ≤ dist ${new Date(distJs).toISOString().slice(11, 16)} UTC）`);
+      }
+
+      /* ② 预装运行时必须与 server/dist 逐字节相同 */
       const want = fs.readFileSync(srvEntry);
       for (const d of ['server-runtime', 'server-runtime-darwin-arm64']) {
         const p = path.join(ROOT, 'dist', d, 'dist', 'index.js');

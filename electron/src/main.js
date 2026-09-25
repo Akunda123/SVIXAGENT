@@ -600,6 +600,8 @@ function setOrbStatus(ready) {
   if (ready) startBridgePoll()
   else { stopBridgePoll(); bridgePillKey = ''; refreshBridgePill() }
   resendOrbState()
+  // 🆕 2026-09-25：**设置页也要**（它自己不会轮询；以前只在打开时拿一次 ⇒ 早开的设置页永远"未就绪"）
+  pushHostStatusToSettings()
 }
 
 /* ── 悬浮球三态指示灯（2026-09-21 用户选"三态单点"）───────────────────
@@ -994,13 +996,24 @@ ipcMain.handle('akdagent-set-ui-locale', (_e, next) => {
 })
 
 // ── 悬浮球右键菜单 ────────────────────────────────────────────────
+/** 把 host 状态推给**已经开着**的设置窗口（2026-09-25 修）。
+ *
+ *  起因（用户报「设置里运行状态一直显示未就绪」）：`setOrbStatus()` 只把状态推给悬浮球，
+ *  设置页**只在打开的那一刻**拿一次（openSettings / requestStatus）⇒ 启动头十几秒内打开设置，
+ *  它会永远停在「未就绪 / 等待启动…」，而内嵌 host 其实早就 ready 了（实测：app 11:30:11 启动，
+ *  11:30:25 host 就绪，设置页却一直红着）。所以 host 状态一变就补一次推送。 */
+function pushHostStatusToSettings() {
+  if (!settingsWin || settingsWin.isDestroyed()) return
+  settingsWin.webContents.send('akdagent-host-status', hostReady, '')
+}
+
 /** 打开集中设置窗口 */
 function openSettings(page) {
   if (!settingsWin || settingsWin.isDestroyed()) createSettingsWindow()
   settingsWin.show()
   settingsWin.focus()
   // 推送最新状态到设置窗口
-  settingsWin.webContents.send('akdagent-host-status', hostReady, '')
+  pushHostStatusToSettings()
   // 可选：直达某一页（key-prompt 的「配置其他模型」用 'model'）
   if (page && /^[a-z]+$/.test(String(page))) {
     settingsWin.webContents.send('akdagent-settings-goto', String(page))
@@ -1099,11 +1112,7 @@ ipcMain.on('akdagent-quit', () => quitApp())
 ipcMain.on('akdagent-context-menu', () => showOrbContextMenu())
 
 // ── 设置窗口 IPC ──────────────────────────────────────────────────
-ipcMain.on('akdagent-request-status', () => {
-  if (settingsWin && !settingsWin.isDestroyed()) {
-    settingsWin.webContents.send('akdagent-host-status', hostReady, '')
-  }
-})
+ipcMain.on('akdagent-request-status', () => { pushHostStatusToSettings() })
 
 /** 打开聊天（设置页按钮）：切到悬浮球文本面板 */
 ipcMain.on('akdagent-open-chat', () => toggleOrbPanel())

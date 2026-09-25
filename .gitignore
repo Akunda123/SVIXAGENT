@@ -73,3 +73,6 @@ backup*/
 .env.*
 secrets*.json
 config.local.*
+
+# ── 整包步骤书（tools/pack-mac-payload.ps1 生成 → 打进 zip → 自己删掉）──
+MAC-STEPS.md
