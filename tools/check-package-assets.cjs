@@ -298,6 +298,37 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
     }
   }
 
+  /* ── 模态子窗会把**父窗口整个禁用**（2026-09-25 实测定案）────────────────────────────
+   * Windows 上 `modal: true` + `parent: <窗口>` ⇒ 父窗 `isEnabled()=false`，键鼠根本到不了页面。
+   * 用户报的「设置页看得见、输入框打不进字；关掉设置窗重开就好」就是这么来的：密钥弹窗当时
+   * 被写成设置窗的模态子窗。危险点在**顺序依赖**（父窗恰好开着才带 parent ⇒ 平时看不出来），
+   * 所以用负向断言钉死：密钥弹窗必须是独立窗口。 */
+  {
+    const mainJs = path.join(ROOT, 'electron', 'src', 'main.js');
+    const main = fs.existsSync(mainJs) ? fs.readFileSync(mainJs, 'utf8') : '';
+    if (!main) {
+      console.log('  [--]   读不到 electron/src/main.js —— 跳过模态子窗检查');
+    } else {
+      const m = /function createKeyPromptWindow\(\)[\s\S]*?\n}\n/.exec(main);
+      const body = m ? m[0] : '';
+      /* ⚠️ 必须**先剥注释再匹配**：这条约定的注释里就写着 `modal: true`（说明为什么不能用），
+       *   不剥的话守卫会拿注释当代码、永远红（2026-09-25 当场踩到）。 */
+      const code = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      if (!body) {
+        fail('找不到 createKeyPromptWindow()（"密钥弹窗不许是模态子窗"这条约定要重新确认）');
+      } else if (/\bmodal:\s*true/.test(code)) {
+        fail('createKeyPromptWindow() 又用 modal:true 了 ⇒ 设置窗开着时父窗会被整个禁用（输入框打不进字）');
+      } else if (/\bparent:\s*settingsWin/.test(code)) {
+        fail('createKeyPromptWindow() 又把设置窗当 parent 了 ⇒ 加回 modal 就会禁用父窗，且随设置窗生死');
+      } else {
+        ok('密钥弹窗是独立窗口（不 modal、不挂 settings 当父窗）');
+      }
+      const modals = (main.match(/^\s*modal:\s*true\s*,?\s*$/gm) || []).length;
+      if (modals > 0) fail(`main.js 里还有 ${modals} 处 modal:true —— 模态子窗会禁用父窗，先确认父窗是谁`);
+      else ok('main.js 没有 modal:true（不存在会把父窗禁掉的模态子窗）');
+    }
+  }
+
   /* ── 预装 server 运行时**不能是旧代码**（2026-09-25 真踩）────────────────────────────
    * 经过：当天改了 `server/src`（`target`/`allowAppend`/`needConfirm`）→ `npm run build` 了
    *   `server/dist`，但**忘了重跑** `tools/build-server-runtime.cjs` ⇒ 两处预装运行时还是两天前的

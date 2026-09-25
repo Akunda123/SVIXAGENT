@@ -832,8 +832,15 @@ function createKeyPromptWindow() {
     height: 320,
     resizable: false,
     show: false,
-    modal: true,
-    parent: settingsWin && !settingsWin.isDestroyed() ? settingsWin : undefined,
+    /* ⛔ 这里**不能**用 `modal: true` + `parent: settingsWin`（2026-09-25 实测定案）。
+     *   Windows 上模态子窗会把**父窗口整个禁用**（`BrowserWindow.isEnabled() === false`）
+     *   ⇒ 设置窗看得见、但键鼠根本到不了页面 = 用户报的「输入框打不进字」。
+     *   而且它是**顺序依赖**的：设置窗开着时建密钥窗才带 parent（启动弹窗时 settingsWin 还不存在
+     *   ⇒ parent=undefined ⇒ 不模态），所以"有时好有时坏"、关掉设置窗重开就恢复。
+     *   实测：带 modal ⇒ 设置窗 isEnabled=false / isFocused=false /
+     *   document.hasFocus=false；去掉 modal+parent ⇒ isEnabled=true 且密钥窗照样在前台。
+     *   ⇒ 密钥窗做成**独立窗口**：不抢禁用、不随设置窗生死，行为与正常启动弹窗一致。
+     *   这条有守卫钉着（tools/check-package-assets.cjs 的"模态子窗"检查），别再手滑加回来。 */
     title: i18n.t('app.keyPromptTitle'),
     icon: assetPath('icon.ico'),
     backgroundColor: '#2e2e2e',   // 与设置页 --bg 一致（防白闪）
@@ -3092,7 +3099,8 @@ app.whenReady().then(async () => {
     /* 开发辅助：AKDAGENT_OPEN_KEY_PROMPT=1 启动即弹「配置 API 密钥」窗
        —— 录演示视频用（正常逻辑是"无 key 才弹"，配好 key 的人看不到它）。
        不动真实凭据：它只是把那个窗口开出来；「确定」会把输入写进凭据（填或留空都行），
-       「稍后配置」只关窗、不会退出应用。窗口是 modal，设置窗开着时会作为它的子窗。 */
+       「稍后配置」只关窗、不会退出应用。
+       ⚠️ 它**不是**设置窗的模态子窗（曾经是 —— 那会让设置窗整个不可输入，见 createKeyPromptWindow 注释）。 */
     if (process.env.AKDAGENT_OPEN_KEY_PROMPT === '1') {
       console.log('[akdagent] 开发辅助 AKDAGENT_OPEN_KEY_PROMPT=1 ⇒ 强制打开密钥窗')
       setTimeout(() => createKeyPromptWindow(), 1200)
