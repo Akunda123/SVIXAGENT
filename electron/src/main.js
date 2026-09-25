@@ -845,11 +845,12 @@ function createKeyPromptWindow() {
       nodeIntegration: false,
     },
   })
-  /* 演示专用页：AKDAGENT_KEY_PROMPT_DEMO=1 ⇒ 载入 key-prompt.demo.html
-     （密钥链接指向 /api_keys；点「确定」任意输入都通过、且不写真实凭据）
-     线上页 key-prompt.html 原样不动 —— 见该演示页头部的说明。 */
-  const keyPromptPage = process.env.AKDAGENT_KEY_PROMPT_DEMO === '1' ? 'key-prompt.demo.html' : 'key-prompt.html'
-  keyPromptWin.loadFile(path.join(__dirname, keyPromptPage))
+  /* ⛔ 2026-09-25：**演示页已删除**（用户录完视频后删掉）。
+     这里原来是一条 `AKDAGENT_KEY_PROMPT_DEMO=1 ⇒ 载入 key-prompt.demo.html` 的分支；
+     那份演示页是"与线上页只差 3 处"的临时副本（密钥链接指向 /api_keys、点确定不写真实凭据），
+     录完即弃 ⇒ 连同分支一起删掉 —— 否则它会随包分发（`files: src/**` ⇒ 进 asar）。
+     以后要再录：临时复制一份 key-prompt.html 改那 3 处，**别把它留在仓里**。 */
+  keyPromptWin.loadFile(path.join(__dirname, 'key-prompt.html'))
   keyPromptWin.once('ready-to-show', () => keyPromptWin.show())
   keyPromptWin.on('closed', () => {
     keyPromptWin = null
