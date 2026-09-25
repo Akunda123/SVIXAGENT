@@ -28,6 +28,7 @@ const WebSocket = require('ws')
 const sttModel = require('./stt-model.js')
 const { createPanelBridge } = require('./panel-bridge.js')
 const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge, probeBridgeHeartbeat } = require('./sv-bridge-client.js')
+const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf } = require('./host-pick.js')
 const { ensureHome } = require('./dsh-home.js')
 const util = require('node:util')
 
@@ -687,11 +688,10 @@ function sendOrbStatus() {
 function resendOrbState() {
   sendOrbStatus()
   notifyAgentReady()
-  querySvHostType().then((type) => {
-    if (orbWin && !orbWin.isDestroyed()) {
-      orbWin.webContents.send('akdagent-host-type', type)
-    }
-  }).catch(() => { /* 忽略：宿主类型只是图标，取不到就不切 */ })
+  /* 宿主皮肤：先把上次算出的类型**同步**推过去（窗口从托盘重建时别干等 ping 往返），
+   * 再按"当前宿主"刷新一次（可能有变）。 */
+  if (lastOrbHostType !== null) sendOrbHostType(lastOrbHostType)
+  refreshOrbHostType(true).catch(() => { /* 忽略：宿主类型只是图标，取不到就不切 */ })
 }
 
 /** agent 对话通道是否就绪（host 就绪且 mux 事件流已连接） */
@@ -1135,9 +1135,12 @@ ipcMain.on('akdagent-check-bridge', async () => {
     }
   }
   try {
-    const sv = await probeBridge('sv')
-    const ix = sv.online ? null : await probeBridge('ix')
-    const hit = sv.online ? sv : (ix && ix.online ? ix : null)
+    /* 先探**当前宿主**（最近在用的那台），再探另一台兜底 —— 原来写死 sv 优先，
+     * 同时开两台时永远只报 SV（见 host-pick.js 的说明）。 */
+    const [first, second] = orderCandidates(activeHost())
+    const a = await probeBridge(first)
+    const b = a.online ? null : await probeBridge(second)
+    const hit = a.online ? a : (b && b.online ? b : null)
     if (hit) {
       const tag = hit.host === 'ix' ? 'IX' : 'SV'
       reply(true, i18n.t('main.bridge.online', tag, hit.hostName, hit.version) +
@@ -1147,8 +1150,8 @@ ipcMain.on('akdagent-check-bridge', async () => {
     }
     // 都不在线：把两座桥的最有价值原因拼出来
     const parts = []
-    if (sv.reason) parts.push(i18n.t('main.bridge.offlineDetail', 'sv', sv.reason))
-    if (ix && ix.reason) parts.push(i18n.t('main.bridge.offlineDetail', 'ix', ix.reason))
+    if (a.reason) parts.push(i18n.t('main.bridge.offlineDetail', first, a.reason))
+    if (b && b.reason) parts.push(i18n.t('main.bridge.offlineDetail', second, b.reason))
     reply(false, parts.join(i18n.t('main.bridge.reasonSep')) || i18n.t('main.bridge.offline'))
   } catch (e) {
     reply(false, i18n.t('main.bridge.checkFailed', e.message))
@@ -2223,21 +2226,92 @@ function adaptEventFrame(value) {
 //   所以两侧必须由桥搬运（设计 + 测试清单见 docs/SidePanel桥设计.md）。
 // ⚠️ 政策：不出网；异常只打日志，不影响悬浮球。
 let panelBridgeTimer = null
-const panelBridge = createPanelBridge({
-  log: (m) => console.log(m),
-  t: (k, ...a) => i18n.t(k, ...a),
-  tmpDir: process.env.TEMP || require('node:os').tmpdir(),
-  appVersion: app.getVersion(),      // 写进在线心跳，供面板显示"悬浮球已连接"
-  sendPrompt: async (text) => {
-    await waitHostReady()
-    const sessionId = await ensureOrbSession()
-    return dshCall('session/prompt', promptArgs(sessionId, text))
-  },
-  respond: (rpcId, value) => dshRespond(rpcId, value),
-  cancel: async () => { try { await dshCall('session/cancel', { request: { sessionId: orbSessionId } }) } catch { /* 忽略 */ } },
-  // 消息镜像只认悬浮球/面板正在用的那个会话（宿主里可能还有别的会话在跑）
-  getSessionId: () => orbSessionId,
-})
+
+/** 宿主活动台账（ms）：面板里动过 / agent 在那台上干过活。
+ *  用途：① 选「当前宿主」给 orb 切皮肤（host-pick）② ping / 取工程名的候选顺序。 */
+const hostActivity = {}
+let orbHostTypeTimer = null
+let lastOrbHostType = null
+
+/** 每台宿主**各一个**面板中继实例（2026-09-25 修）。
+ *
+ *  以前只有一个实例（`state.host` 单值），`startPanelBridge()` 按 `['sv','ix']` 顺序采样、
+ *  **sv 优先**且启动后直接 `return`（不再采样）⇒ SV 一开着，IX 的侧栏就永远显示
+ *  「⚠️ 还没连上悬浮球」：判据是 `akdagent-client-ix.json`（桥 `AKDAgentBridge.lua` 里
+ *  「客户端每 ~5s 写、超 20s 视为未连接」），而那份文件从来没人写。
+ *  现在两台**同时**服务：各自写各自的 `client-<host>.json` / `panel-in-<host>.jsonl` /
+ *  偏移文件，互不干扰（文件路径本来就带 `-<host>`）。
+ *  ⚠️ 两块面板镜像是**同一个悬浮球会话**（`getSessionId` 都指 `orbSessionId`）
+ *  ⇒ 在任一块里说话/答题都作用于同一个会话；某台答题后由 `respond` 收掉另一台的过期按钮。 */
+const panelBridges = {}
+for (const h of HOSTS) {
+  panelBridges[h] = createPanelBridge({
+    log: (m) => console.log(m),
+    t: (k, ...a) => i18n.t(k, ...a),
+    tmpDir: process.env.TEMP || require('node:os').tmpdir(),
+    appVersion: app.getVersion(),      // 写进在线心跳，供面板显示"悬浮球已连接"
+    sendPrompt: async (text) => {
+      await waitHostReady()
+      const sessionId = await ensureOrbSession()
+      noteHostActivity(h)              // 从这块面板发的话 ⇒ 这台是"当前宿主"
+      return dshCall('session/prompt', promptArgs(sessionId, text))
+    },
+    // 面板做了动作（答题/提交/跳过）⇒ 也让另一块面板把过期选项收掉
+    respond: (rpcId, value) => {
+      const r = dshRespond(rpcId, value)
+      for (const other of HOSTS) {
+        if (other === h) continue
+        try { panelBridges[other].clearAsk() } catch { /* 没起来就算了 */ }
+      }
+      return r
+    },
+    cancel: async () => { try { await dshCall('session/cancel', { request: { sessionId: orbSessionId } }) } catch { /* 忽略 */ } },
+    // 消息镜像只认悬浮球/面板正在用的那个会话（宿主里可能还有别的会话在跑）
+    getSessionId: () => orbSessionId,
+    // 面板里一动（用户打字/点选项）⇒ 记这台"最近活动"，orb 皮肤据此切
+    onActivity: () => noteHostActivity(h),
+  })
+}
+
+/** 任一台面板中继就绪（提问/确认要不要发系统通知时用） */
+const anyPanelReady = () => HOSTS.some((h) => panelBridges[h] && panelBridges[h].status.ready)
+
+/** 记一次宿主活动；「当前宿主」可能因此变化 ⇒ 去刷新 orb 皮肤（防抖 400ms） */
+function noteHostActivity (host) {
+  if (!HOSTS.includes(host)) return
+  hostActivity[host] = Date.now()
+  if (orbHostTypeTimer) return
+  orbHostTypeTimer = setTimeout(() => {
+    orbHostTypeTimer = null
+    refreshOrbHostType().catch(() => { /* 忽略：宿主类型只是图标 */ })
+  }, 400)
+  if (orbHostTypeTimer.unref) orbHostTypeTimer.unref()
+}
+
+/** 桥心跳是否新鲜（判"这台还活着"） */
+function hostFresh (host) {
+  try { return !!probeBridgeHeartbeat(host).fresh } catch { return false }
+}
+
+/** 当前宿主：最近活动的那台 → 桥活着的那台 → 兜底 sv（判据与单测见 src/host-pick.js） */
+function activeHost () {
+  const fresh = {}
+  for (const h of HOSTS) fresh[h] = hostFresh(h)
+  return pickActiveHost(hostActivity, fresh)
+}
+
+function sendOrbHostType (type) {
+  if (orbWin && !orbWin.isDestroyed()) orbWin.webContents.send('akdagent-host-type', type)
+}
+
+/** 刷新 orb 宿主皮肤：按候选顺序真 ping（哪台活着就是哪台），变了才推 */
+async function refreshOrbHostType (force) {
+  const type = await querySvHostType(orderCandidates(activeHost()))
+  if (!force && type === lastOrbHostType) return type
+  lastOrbHostType = type
+  sendOrbHostType(type)
+  return type
+}
 
 /** 面板链路只在**桥自称支持**时启动（心跳 `panel:true`，桥 0.3.7+ 且有 project scriptData）。
  *
@@ -2250,8 +2324,16 @@ const panelBridge = createPanelBridge({
  *   ② **SV1 与 SV2 共用同一个心跳文件**（host id 都是 `sv`）⇒ 两台桥互相覆盖，
  *      单次采样可能连读几分钟都是另一台的 `panel:false`。所以这里改成**一个周期内连采 3 次**
  *      （间隔 250ms），只要有一拍读到 panel:true 就启动。
- *    现在：**一直重试**（10s 一轮，timer unref 不挡退出）；日志只在状态变化时打，不刷屏；
- *    顺带在发现"同一通道被两台不同 sv 宿主轮流写"时明确告警（这正是 ② 的现场）。
+ *
+ * ⚠️ 2026-09-25 第二修（用户报「IX 连不上 electron」，并定「让 IX 与 SV 同时可用」）——
+ *    上面的版本**只服务最先找到的那台**（`['sv','ix']` 顺序 ⇒ sv 优先，而且启动后直接
+ *    `return` 不再采样）⇒ SV 与 IX 同时开着时，IX 的侧栏永远等不到 `akdagent-client-ix.json`。
+ *    现在：**两台各自一个中继、同时服务**；每个周期都重新采样，所以
+ *      ③ 面板后挂载（或宿主的桥后跑）⇒ 下一轮就会补上启动；
+ *      ④ 宿主关了/面板卸了（心跳过期或 `panel:false`）⇒ **停掉那台的中继**，
+ *         `akdagent-client-<host>.json` 随之消失 ⇒ 面板会如实显示"还没连上悬浮球"
+ *         （而不是我们一直举着一份过期在线标志骗它）。
+ *    另外每轮顺带用心跳里的 `lastSeq/opsRun/reqSeen` 变化来记"这台在干活"（给 orb 切皮肤用）。
  *    （host id 的根因修法 —— 给 SV1/SV2 分不同通道 —— 属于协议级改动，另议。） */
 const PANEL_TICK_MS = 10000;
 const PANEL_BURST = 3;
@@ -2263,12 +2345,16 @@ function startPanelBridge() {
   };
   /* 同一通道被几个"宿主身份"写过（SV1/SV2 共用 `sv` ⇒ 会看到两个） */
   const seenIdent = new Map();
+  /* 心跳里"在动"的指纹（判 agent 正在哪台上干活；ts 每拍都变，不能用它） */
+  const hbSig = {};
   let waited = 0;
   let lastWaitLog = 0;
   let collisionLogged = false;
 
+  /** 采样一轮：更新活动台账 + 该起的起、该停的停；返回本轮有没有"宣称支持面板"的宿主 */
   const sampleOnce = () => {
-    for (const h of ['sv', 'ix']) {
+    let anyPanel = false;
+    for (const h of HOSTS) {
       const hb = readHb(h);
       if (!hb) continue;
       if (h === 'sv') {
@@ -2281,26 +2367,41 @@ function startPanelBridge() {
             + ` ⇒ 心跳与请求文件会互相覆盖，面板链路可能起不来；请只开一台同类宿主`);
         }
       }
-      if (hb.panel === true) return h;
+      /* ① 活动：心跳里的计数器变过 ⇒ agent 正在这台干活（给"当前宿主"用） */
+      const sig = `${hb.lastSeq}|${hb.opsRun}|${hb.reqSeen}`;
+      if (hbSig[h] !== undefined && hbSig[h] !== sig) noteHostActivity(h);
+      hbSig[h] = sig;
+      /* ② 中继起停：panel:true 且心跳新鲜才服务 */
+      const fresh = hostFresh(h);
+      const want = hb.panel === true && fresh;
+      const st = panelBridges[h].status;
+      if (want && !st.ready) {
+        panelBridges[h].start(h);
+        console.log(`[panel] 面板链路已启动（host=${h}）`);
+      } else if (!want && st.ready) {
+        panelBridges[h].stop();
+        console.log(`[panel] 面板链路已停止（host=${h}：${fresh ? '未宣称支持面板' : '心跳过期/宿主已关'}）`);
+      }
+      if (want) anyPanel = true;
     }
-    return null;
+    return anyPanel;
   };
 
   const tick = async () => {
+    let anyPanel = false;
     for (let i = 0; i < PANEL_BURST; i += 1) {
-      const host = sampleOnce();
-      if (host) {
-        panelBridge.start(host);
-        console.log(`[panel] 面板链路已启动（host=${host}）`);
-        return;
-      }
+      anyPanel = sampleOnce() || anyPanel;
+      /* 两台中继都已就绪 ⇒ 不必连采 3 次（连采是为了跨过 SV1/SV2 共用通道时的互相覆盖） */
+      if (HOSTS.every((h) => panelBridges[h].status.ready)) break;
       if (i < PANEL_BURST - 1) await new Promise((r) => setTimeout(r, PANEL_BURST_GAP_MS));
     }
-    waited += 1;
-    const now = Date.now();
-    if (waited === 1 || now - lastWaitLog >= 300000) {
-      lastWaitLog = now;
-      console.log(`[panel] 等面板挂载（心跳还没有 panel:true，已等 ~${Math.round(waited * PANEL_TICK_MS / 1000)}s）—— 会一直等，不放弃`);
+    if (!anyPanel) {
+      waited += 1;
+      const now = Date.now();
+      if (waited === 1 || now - lastWaitLog >= 300000) {
+        lastWaitLog = now;
+        console.log(`[panel] 等面板挂载（心跳还没有 panel:true，已等 ~${Math.round(waited * PANEL_TICK_MS / 1000)}s）—— 会一直等，不放弃`);
+      }
     }
     panelBridgeTimer = setTimeout(() => { tick().catch(() => {}); }, PANEL_TICK_MS);
     if (panelBridgeTimer.unref) panelBridgeTimer.unref();
@@ -2315,9 +2416,9 @@ function maybeNotifyHiddenAsk(frame) {
   const p = frame && frame.payload
   if (!p || (p.type !== 'question/requested' && p.type !== 'approval/requested')) return
   if (orbVisible()) return                                  // 球看得见 ⇒ 用户自己会发现
-  // 面板链路在 ⇒ 侧栏面板就能看到题目/确认（面板会把选项与题面都显示出来）⇒ 不必打扰
-  //（用户 2026-09-17：「如果面板正在连接就不需要弹了吧」）
-  if (panelBridge.status && panelBridge.status.ready) return
+  /* 面板链路在 ⇒ 侧栏面板就能看到题目/确认（面板会把选项与题面都显示出来）⇒ 不必打扰
+   *（用户 2026-09-17：「如果面板正在连接就不需要弹了吧」；2026-09-25：两台任一就绪即算） */
+  if (anyPanelReady()) return
   if (Date.now() - lastHiddenNotifyAt < 3000) return
   lastHiddenNotifyAt = Date.now()
   const isQ = p.type === 'question/requested'
@@ -2418,7 +2519,12 @@ function muxDeliver(oldFrame) {
   if (!oldFrame) return
   // 面板链路先吃一帧（问题/工具确认要推给侧栏）——**别放在 orbWin 判空之后**，
   // 否则悬浮球窗口关掉时面板也跟着哑掉。
-  try { panelBridge.onMuxFrame(oldFrame) } catch (e) { console.log('[panel] mux 帧处理异常：' + e.message) }
+  /* 会话帧**广播给两台中继**（两块面板镜像同一个悬浮球会话）；哪台没起就跳过 */
+  for (const h of HOSTS) {
+    const b = panelBridges[h]
+    if (!b || !b.status.ready) continue
+    try { b.onMuxFrame(oldFrame) } catch (e) { console.log(`[panel] mux 帧处理异常（host=${h}）：` + e.message) }
+  }
   try { maybeNotifyHiddenAsk(oldFrame) } catch (e) { console.log('[hidden-notice] 异常（已忽略）：' + e.message) }
   if (!orbWin || orbWin.isDestroyed()) return
   orbWin.webContents.send('akdagent-agent-event', oldFrame)
@@ -2715,7 +2821,7 @@ ipcMain.handle('akdagent-agent-new', async () => {
     bindOrbSession(created.sessionId)
     return {
       ok: true, sessionId: orbSessionId, segId: seg.segId, gen: seg.gen,
-      project: projectKey, projectName: await querySvProjectName().catch(() => null),
+      project: projectKey, projectName: await querySvProjectName(activeHost()).catch(() => null),
     }
   } catch (e) {
     return { ok: false, error: e.message }
@@ -2728,7 +2834,7 @@ ipcMain.handle('akdagent-agent-new', async () => {
 ipcMain.handle('akdagent-agent-session-state', async () => {
   try {
     // 用缓存探测（SV 桥不可达时快速返回 no-project），不阻塞提问
-    const projectName = await querySvProjectName()
+    const projectName = await querySvProjectName(activeHost())
     const cur = orbSegments.activeSegment()
     return {
       ok: true,
@@ -2986,7 +3092,7 @@ ipcMain.handle('akdagent-orb-export', async () => {
     const md = renderTranscriptMulti(parts, cur)
 
     // 落盘位置：优先工程目录（有路径的工程），否则 userData
-    const projectFile = await querySvProjectName().catch(() => null)
+    const projectFile = await querySvProjectName(activeHost()).catch(() => null)
     let dir = app.getPath('userData')
     if (projectFile && /[\\/]/.test(projectFile)) dir = path.dirname(projectFile)
     const base = cur.projectKey ? cur.projectKey.slice(0, 12) : 'temp'

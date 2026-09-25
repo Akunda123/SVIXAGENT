@@ -16,6 +16,8 @@
     "check:i18n": "node dev/check-i18n-residue.cjs",
     "test:settings-ui": "electron dev/test-settings-clicks.cjs",
     "test:badge": "electron dev/test-badge-layout.cjs",
+    "test:host-pick": "node dev/test-host-pick.cjs",
+    "test:panel-dual": "node ../tools/test-panel-dual.cjs",
     "dist": "electron-builder --win nsis",
     "dist:msi": "electron-builder --win msi",
     "dist:mac": "electron-builder --mac dmg zip"

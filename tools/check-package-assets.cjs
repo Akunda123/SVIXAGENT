@@ -329,6 +329,63 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
     }
   }
 
+  /* ── 客户端「当前宿主」不许再写死/偏向 sv（2026-09-25 修；用户定「IX 与 SV 要能同时用」）──
+   * 同源四处：① 面板中继只有单实例、`['sv','ix']` 里 sv 优先且启动后直接 return（不再采样）
+   *   ② orb 宿主皮肤 `querySvHostType()` 不传 host ⇒ 吃 `HOST_DEFAULT='sv'`（IX 皮肤成死代码）
+   *   ③ 工程名 `querySvProjectName()` 同样默认宿主 ④ 设置页桥检查 sv 在线就不看 ix。
+   * 这几处出错的表现都是**静默**的（IX 侧栏说连不上 / 皮肤不变蓝 / 显示成 SV 的工程名），
+   * 所以用负向断言钉住最容易悄悄退回去的几处。 */
+  {
+    const mainJs = path.join(ROOT, 'electron', 'src', 'main.js');
+    const brJs = path.join(ROOT, 'electron', 'src', 'sv-bridge-client.js');
+    const pickJs = path.join(ROOT, 'electron', 'src', 'host-pick.js');
+    const main = fs.existsSync(mainJs) ? fs.readFileSync(mainJs, 'utf8') : '';
+    const br = fs.existsSync(brJs) ? fs.readFileSync(brJs, 'utf8') : '';
+    const pick = fs.existsSync(pickJs) ? fs.readFileSync(pickJs, 'utf8') : '';
+    if (!main || !br) {
+      console.log('  [--]   读不到 electron 源码 —— 跳过「当前宿主」检查');
+    } else {
+      // ① 面板中继：**每台宿主一个实例**（退回单实例 ⇒ IX 侧栏永远连不上悬浮球）
+      if (/for \(const h of HOSTS\)[\s\S]{0,160}?panelBridges\[h\] = createPanelBridge\(/.test(main)) {
+        ok('面板中继：每台宿主各一个实例（SV 与 IX 同时服务）');
+      } else {
+        fail('面板中继退回"单实例/单宿主"了 ⇒ SV 一开着，IX 侧栏就永远显示"还没连上悬浮球"');
+      }
+      // ② 宿主皮肤：必须显式传 host 逐台 ping（不许再吃默认宿主）
+      const q = /async function querySvHostType[\s\S]*?\n}\n/.exec(br);
+      const qc = q ? q[0].replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '') : '';
+      if (!q) {
+        fail('找不到 querySvHostType()（"宿主皮肤按真实宿主切"这条约定要重新确认）');
+      } else if (/svCall\('ping',\s*\{\},\s*\{\s*timeoutMs/.test(qc)) {
+        fail("querySvHostType() 又只 ping 默认宿主了（HOST_DEFAULT='sv'）⇒ orb 的 IX 皮肤永远不亮");
+      } else if (/host:/.test(qc)) {
+        ok('宿主皮肤：querySvHostType() 按候选宿主逐台 ping（IX 皮肤能亮）');
+      } else {
+        fail('querySvHostType() 里没看到显式 host 参数 ⇒ 可能又吃了默认宿主');
+      }
+      // ③ 工程名：调用点必须带宿主（IX 里干活不该显示 SV 的工程名）
+      if (/(?<![\w.$])querySvProjectName\(\)/.test(main)) {
+        fail('main.js 又有裸 querySvProjectName() 了 ⇒ 在 IX 里干活会显示 SV 的工程名');
+      } else if ((main.match(/querySvProjectName\(activeHost\(\)\)/g) || []).length >= 3) {
+        ok('工程名：3 个调用点都按"当前宿主"取');
+      } else {
+        fail('querySvProjectName 的调用点没都按当前宿主取（应为 activeHost()）');
+      }
+      // ④ 答题回执：一台面板答完 ⇒ 把另一台的过期选项收掉
+      if (/if \(other === h\) continue[\s\S]{0,160}?clearAsk\(\)/.test(main)) {
+        ok('答题回执：一台面板答完会收掉另一台的过期选项');
+      } else {
+        fail('面板 respond 里没有"给另一台 clearAsk" ⇒ 两块面板会各挂一份过期按钮');
+      }
+      // ⑤ 判据集中在 host-pick.js（有独立离线单测）
+      if (/function pickActiveHost/.test(pick) && /function orderCandidates/.test(pick)) {
+        ok('「当前宿主」判据集中在 electron/src/host-pick.js（单测 dev/test-host-pick.cjs）');
+      } else {
+        fail('electron/src/host-pick.js 缺 pickActiveHost / orderCandidates');
+      }
+    }
+  }
+
   /* ── 预装 server 运行时**不能是旧代码**（2026-09-25 真踩）────────────────────────────
    * 经过：当天改了 `server/src`（`target`/`allowAppend`/`needConfirm`）→ `npm run build` 了
    *   `server/dist`，但**忘了重跑** `tools/build-server-runtime.cjs` ⇒ 两处预装运行时还是两天前的

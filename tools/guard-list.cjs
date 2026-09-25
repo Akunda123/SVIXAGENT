@@ -34,6 +34,9 @@ if (fs.existsSync(luaDir)) {
 const TESTS = [
   ['离线自测（桥）', 'sv/lua/tests/test-ops.lua'],
   ['离线自测（面板）', 'sv/lua/tests/test-panel.lua'],
+  // 2026-09-25 加：客户端"当前宿主"判据 + 两台宿主同时服务（IX 与 SV 并用）
+  ['离线自测（宿主选择）', 'electron/dev/test-host-pick.cjs'],
+  ['离线自测（面板双宿主）', 'tools/test-panel-dual.cjs'],
   ['离线自测（技法规则）', 'server/tests/articulations.mjs'],
   ['离线自测（旋律）', 'server/tests/melody-check.mjs'],
   ['离线自测（歌词分类）', 'server/tests/lyric-classify.mjs'],

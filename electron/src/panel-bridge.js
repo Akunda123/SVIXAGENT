@@ -37,6 +37,9 @@ const POLL_MS = 500;
  * @param {string} deps.tmpDir                              %TEMP%
  * @param {()=>string|null} [deps.getSessionId]            悬浮球/面板正在用的 DSH 会话 id
  *        —— 镜像只认这一个会话（宿主里可能有别的会话在跑，不能混进面板）
+ * @param {()=>void} [deps.onActivity]                     面板里动了（用户打字/点选项）时回调
+ *        —— 供 `host-pick` 判「当前宿主」；⚠️ **每个宿主一个实例**（`main.js` 的 `panelBridges`），
+ *        实例内 `state.host` 仍是单值，同时服务两台靠的是"两台各一个实例"
  */
 function createPanelBridge(deps) {
   const log = deps.log || (() => {});
@@ -580,6 +583,9 @@ function createPanelBridge(deps) {
       saveOffset();                                          // 落盘：下次启动从这里续，不重放
       for (const line of buf.toString('utf8').split(/\r?\n/)) {
         if (!line.trim()) continue;
+        /* 面板里动过（用户打字/点选项）⇒ 记"这台宿主最近活动"。
+         * 用途：选「当前宿主」（orb 皮肤 / ping 顺序）——见 src/host-pick.js。 */
+        if (typeof deps.onActivity === 'function') { try { deps.onActivity() } catch { /* 记账失败不影响链路 */ } }
         let ev = null;
         try { ev = JSON.parse(line); } catch { log('[panel] 面板事件不是合法 JSON，已跳过'); continue; }
         Promise.resolve(handlePanelEvent(ev)).catch((e) => log('[panel] 处理面板事件失败：' + e.message));

@@ -14,7 +14,8 @@ const i18n = require('./i18n')
 
 const HOST_DEFAULT = 'sv'
 let seq = 0
-let projCache = { name: null, at: 0 }
+/** 工程名缓存：**一台宿主一份**（`projCache[host]`，见 querySvProjectName） */
+let projCache = { sv: { name: null, at: 0 }, ix: { name: null, at: 0 } }
 const PROJ_CACHE_MS = 5000   // 工程名缓存 5 秒
 /** 心跳新鲜判定（秒）—— probeBridge（真 ping）与 probeBridgeHeartbeat（只看心跳）共用，
  *  悬浮球三态指示灯也按这个阈值判"在线"。 */
@@ -45,19 +46,22 @@ async function svCall(op, args, opts = {}) {
   throw new Error(i18n.t('main.bridge.opFailed', op, r.error))
 }
 
-/** 查询宿主当前工程文件名（缓存 5 秒；无桥/无工程时返回 null） */
-async function querySvProjectName() {
+/** 查询宿主当前工程文件名（**按宿主**缓存 5 秒；无桥/无工程时返回 null）。
+ *  ⚠️ 2026-09-25：以前不分宿主（且写死默认宿主 `sv`）⇒ 在 IX 里干活时显示的是 SV 的工程名。
+ *  现在缓存也是一台一份（`projCache[host]`），别退回去用单份缓存。 */
+async function querySvProjectName(host = HOST_DEFAULT) {
+  const h = host === 'ix' ? 'ix' : 'sv'
   const now = Date.now()
-  if (now - projCache.at < PROJ_CACHE_MS) return projCache.name
+  const c = projCache[h]
+  if (c && now - c.at < PROJ_CACHE_MS) return c.name
   try {
-    const info = await svCall('get_project_info', {}, { timeoutMs: 3000 })
+    const info = await svCall('get_project_info', {}, { host: h, timeoutMs: 3000 })
     const fn = info && info.fileName
-    projCache = { name: (fn && typeof fn === 'string' && fn.length > 0 ? fn : null), at: now }
-    return projCache.name
+    projCache[h] = { name: (fn && typeof fn === 'string' && fn.length > 0 ? fn : null), at: now }
   } catch {
-    projCache = { name: null, at: now }
-    return null
+    projCache[h] = { name: null, at: now }
   }
+  return projCache[h].name
 }
 
 let eventTimer = null
@@ -102,16 +106,28 @@ function stopProjectEventWatch() {
   eventCallback = null
 }
 
-/** 查询宿主类型（'sv' | 'instrument-x' | null）——桥不可达返回 null */
-async function querySvHostType() {
-  try {
-    const info = await svCall('ping', {}, { timeoutMs: 2000 })
-    const host = info && info.host
-    if (!host) return null
-    return String(host).toLowerCase().includes('instrument') ? 'instrument-x' : 'sv'
-  } catch {
-    return null
+/**
+ * 查询宿主类型（`'sv' | 'instrument-x' | null`）—— 供 orb 切皮肤。
+ *
+ * ⚠️ 2026-09-25 修：原来是一句 `svCall('ping', {}, { timeoutMs: 2000 })`，**没传 host**
+ *   ⇒ 走 `HOST_DEFAULT = 'sv'`：SV 桥活着就永远回 `'sv'`，SV 桥不在就 catch 回 `null`
+ *   ⇒ orb 的 IX 皮肤（蓝主题 / IX logo / ixagent-text / 标题）**永远进不去**（死代码）。
+ *   现在按**候选顺序**逐台 ping（调用方用 `host-pick.orderCandidates(当前宿主)` 传进来），
+ *   谁活着用谁 —— 只有 IX 开着也能亮 IX 皮肤。
+ * @param {string[]} [candidates] 候选宿主顺序；省略时 `['sv','ix']`
+ */
+async function querySvHostType(candidates) {
+  const list = (Array.isArray(candidates) && candidates.length) ? candidates : ['sv', 'ix']
+  for (const host of list) {
+    const h = host === 'ix' ? 'ix' : 'sv'
+    try {
+      const info = await svCall('ping', {}, { host: h, timeoutMs: 2000 })
+      if (info && info.host) return h === 'ix' ? 'instrument-x' : 'sv'
+    } catch {
+      /* 这台不在线/没宣布 ping ⇒ 试下一台 */
+    }
   }
+  return null
 }
 
 /**
