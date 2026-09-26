@@ -35,6 +35,11 @@ const info = (m) => console.log('  [i]    ' + m);
 // 生成物根目录：不进版本库，绝不能被同步/拷贝
 const GENERATED_ROOTS = ['dist/', 'electron/release/'];
 
+// 这些是**同一次 job 里更早步骤现场产出的**构建物（`npm ci && npm run build` 之类），不是从 checkout 拿的
+// ⇒ 允许出现在 cp/rsync 的源里（2026-09-26：mac workflow 新增"用仓库里的 MCP server 覆盖整包"一步，
+//    源就是 runner 上现构建的 `server/dist`）
+const BUILD_OUTPUTS = ['server/dist'];
+
 // git 是否可用（不是仓库/没装 git 时不做跟踪校验，只做存在性校验）
 let gitOk = true;
 try { execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, stdio: 'ignore' }); }
@@ -63,6 +68,17 @@ function pathTokens(line) {
 function checkPath(where, rel) {
   if (!rel) return;
   const norm = rel.replace(/\\/g, '/').replace(/^\.\//, '');
+  // 不是"路径样子"的 token（例如 `for a in arm64 x64` 里的 arm64）不当路径判，免得误报
+  const looksLikePath = norm.includes('/') || fs.existsSync(path.join(ROOT, norm));
+  if (!looksLikePath && !tracked(norm)) {
+    info(`${where} 跳过非路径 token \`${norm}\``);
+    return;
+  }
+  // 同 job 里更早步骤现场构建出来的产物（如 `npm run build` 产出的 server/dist）不走跟踪校验
+  if (BUILD_OUTPUTS.some((b) => norm === b || norm.startsWith(b + '/'))) {
+    info(`${where} \`${norm}\` 是同 job 里更早步骤的构建产物 ⇒ 跳过跟踪校验`);
+    return;
+  }
   for (const g of GENERATED_ROOTS) {
     if (norm === g.slice(0, -1) || norm.startsWith(g)) {
       return fail(`${where} 引用了生成物目录 \`${norm}\` —— 它不在版本库里（\`${g}\` 是打包/脱敏产物）`);

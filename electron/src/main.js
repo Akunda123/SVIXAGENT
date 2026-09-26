@@ -1448,7 +1448,7 @@ ipcMain.handle('akdagent-get-version', () => {
   try {
     return require('../package.json').version
   } catch {
-    return '1.0.0'
+    return '1.0.1'
   }
 })
 

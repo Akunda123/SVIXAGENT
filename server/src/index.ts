@@ -19,7 +19,7 @@ const log = (msg: string) => { if (VERBOSE) process.stderr.write(`[akdagent-mcp]
 
 const server = new McpServer({
   name: "akdagent-mcp-server",
-  version: "1.0.0",
+  version: "1.0.1",
 });
 
 registerTools(server);

@@ -101,6 +101,25 @@ jobs:
           echo "  与仓库版一致？ $(shasum -a 256 < "$T/mac-build.sh" | cut -c1-16) vs $(shasum -a 256 < electron/scripts/mac-build-all.sh | cut -c1-16)"
           ls -la "$T/electron/scripts/"
 
+      - name: 用仓库里的 MCP server 覆盖整包里那份（server 代码改了也能生效）
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/tree"
+          # 为什么需要（2026-09-26 加）：整包里的 dist/server-runtime-darwin-<arch> 是**打包那天**的 server
+          # 产物；仓库里的 server/ 后来又改过（例如 onnx 改懒加载），而整包是 release 资产、冻住的
+          # ⇒ 不重新构建就会把**旧 server** 打进 mac 包。这里在 runner 上现场构建、只替换它的 dist/。
+          # （node_modules 与 models 仍用整包那份：省时间，且它们与平台绑定。）
+          npm ci --no-audit --no-fund --prefix server
+          npm run build --prefix server
+          for a in arm64 x64; do
+            if [ -d "$T/dist/server-runtime-darwin-$a/dist" ]; then
+              rm -rf "$T/dist/server-runtime-darwin-$a/dist"
+              cp -R server/dist "$T/dist/server-runtime-darwin-$a/dist"
+              echo "  ✓ 已替换 dist/server-runtime-darwin-$a/dist"
+            fi
+          done
+          node -e "console.log('  server 版本 = ' + require('./server/package.json').version)"
+
       - name: 出包（bash mac-build.sh）
         run: |
           set -o pipefail
