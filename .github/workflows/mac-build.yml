@@ -95,7 +95,7 @@ jobs:
               rsync -a --delete "$d/" "$T/$d/"
               echo "  ✓ 同步 $d"
             else
-              echo "  · 跳过 $d（仓库里没有这个目录）"
+              echo "  · 跳过 ${d}（仓库里没有这个目录）"
             fi
           done
           echo "覆盖后："
@@ -108,7 +108,7 @@ jobs:
               cp -f "$f" "$T/$f"
               echo "  ✓ 覆盖 $f"
             else
-              echo "  · 跳过 $f（仓库里没有）"
+              echo "  · 跳过 ${f}（仓库里没有）"
             fi
           done
           node -e "console.log(\"  electron 版本 = \" + require(\"./electron/package.json\").version)"
@@ -205,6 +205,8 @@ jobs:
           shopt -s nullglob
           FILES=("$D"/AKDAgent-*.zip "$D"/AKDAgent-*.dmg)
           if [ ${#FILES[@]} -eq 0 ]; then echo "！没有 dmg/zip（dir-only 模式？）⇒ 跳过"; exit 0; fi
-          echo "挂到 release $TAG：${FILES[*]}"
-          gh release upload "$TAG" "${FILES[@]}"
+          # ⚠️ 变量后面**必须**用 ${}**：macOS bash 3.2 + 非 UTF-8 locale 会把紧跟的中文吞进变量名
+          #    （2026-09-26 实测：`${TAG}：` ⇒ `TAG?: unbound variable`；与当初 `${label}：` 同一个坑）
+          echo "挂到 release ${TAG}：${FILES[*]}"
+          gh release upload "${TAG}" "${FILES[@]}" --clobber -R "${GITHUB_REPOSITORY}"
           echo "✓ 已挂上（同名资产已存在会报错，不带 --clobber 是有意的）"

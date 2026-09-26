@@ -117,6 +117,23 @@ if (!fs.existsSync(WF_DIR)) {
   }
 }
 
+console.log('\n== ③b workflow 里 $VAR 后面不许紧跟非 ASCII（macOS bash 3.2 会把中文吞进变量名）==');
+{
+  let hit = 0;
+  if (fs.existsSync(WF_DIR)) {
+    for (const f of fs.readdirSync(WF_DIR).filter((x) => /\.ya?ml$/.test(x))) {
+      const text = fs.readFileSync(path.join(WF_DIR, f), 'utf8');
+      text.split(/\r?\n/).forEach((line, i) => {
+        // 只看 `$VAR` 紧跟非 ASCII（CJK / 全角标点）的写法
+        if (/\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]/.test(line)) {
+          hit++;
+          fail(`${f}:${i + 1} 里 $VAR 后面紧跟非 ASCII —— macOS bash 3.2 在非 UTF-8 locale 下会把它吞进变量名（实测报 TAG?: unbound variable）；请写成 ${'${VAR}'} + 中文`);
+        }
+      });
+    }
+  }
+  if (!hit) ok('没有 $VAR 紧跟非 ASCII 的写法（都用 ${VAR}）');
+}
 console.log('\n== ③ 不许用已退役的 macOS runner ==');
 {
   const retired = /runs-on:\s*(macos-1[012]|macos-13)\b/;
