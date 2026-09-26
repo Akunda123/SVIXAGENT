@@ -65,6 +65,21 @@ console.log('== A. 行为验证：干净机器序列（module=' + path.relative(
     fs.writeFileSync(path.join(src, 'settings.yaml'), 'llm:\n  model: guard-model\n', 'utf8');
     H.ensureHome({ home, sourceHome: src, dshRoot: DSH_ROOT, log: quiet });
     if (fs.existsSync(path.join(home, 'settings.yaml'))) ok('⑤ settings.yaml 也被补齐'); else fail('⑤ settings.yaml 没被补齐');
+
+    // ⑥ 存量用户真实状态：隔离家目录**已存在**且里面是一份空/旧的凭据 ⇒ 也必须被覆盖成源里那份
+    //    （这是本次事故的存量形态：老用户升级前就已经踩过，升级后要能自愈）
+    fs.writeFileSync(path.join(home, '.credentials.yaml'), 'version: 1\nrefs: {}\n', 'utf8');   // 空凭据（历史遗留）
+    const before = fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8');
+    H.ensureHome({ home, sourceHome: src, dshRoot: DSH_ROOT, log: quiet });
+    const after = fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8');
+    if (after.includes('sk-guard-test-123456')) ok('⑥ 存量遗留（空凭据）被源里那份覆盖 ⇒ 升级后自愈');
+    else fail('⑥ 隔离家目录里已有的空凭据没有被覆盖（存量用户升级后仍会没 key）: before=' + JSON.stringify(before) + ' after=' + JSON.stringify(after));
+
+    // ⑦ 反向边界：源里**没有**凭据时，不能把隔离家目录里已有的那份擦掉
+    fs.unlinkSync(path.join(src, '.credentials.yaml'));
+    H.ensureHome({ home, sourceHome: src, dshRoot: DSH_ROOT, log: quiet });
+    if (fs.existsSync(path.join(home, '.credentials.yaml'))) ok('⑦ 源里没凭据时不擦隔离家目录那份（不会误伤）');
+    else fail('⑦ 源里没凭据却把隔离家目录那份删了/清空了');
   }
 }
 
