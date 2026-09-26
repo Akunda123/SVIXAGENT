@@ -1,0 +1,173 @@
+# ============================================================================
+# AKDAgent —— 在 GitHub 上出 macOS 版 .app（2026-09-25 立）
+# ============================================================================
+# 为什么放这儿做：
+#   · 出 .app 必须有 macOS —— hdiutil / codesign / electron-builder 的 mac 目标都是 mac 专有
+#   · GitHub 的 macOS runner 现在**只有 arm64**（macos-13 = Intel 已于 2025 年底退役）
+#     ⇒ 本工作流出的是 **Apple Silicon（arm64）** 版，也正是 README 对外承诺的那个架构
+#   · 公开仓库 ⇒ runner 分钟数免费；干净镜像不会踩本地那类
+#     `ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`（app-builder 二进制半装 / 被隔离）
+#
+# 两样输入：
+#   ① 整包 mac-payload-arm64.zip —— 作为 release 资产放好（内含 dist/ dsh-runtime/ node tar.gz
+#      这几个仓库里装不下的大件；仓库里只有源码）
+#   ② 脚本 —— **一律取本仓库 checkout 的最新版覆盖整包里那份**
+#      ⇒ 改了 mac-build.sh / build-mac.sh 之后**不需要重打整包**，重跑本工作流即可
+#
+# 产物：工作流 artifact ── AKDAgent-<版本>-arm64.zip / .dmg（+ dir-only 模式的 .app zip）
+#       以及 mac-build.log（无论如何都传，排障全靠它）
+# 触发：Actions → Build macOS app (arm64) → Run workflow；或 `gh workflow run`
+# ============================================================================
+name: Build macOS app (arm64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_url:
+        description: '整包 zip 的下载地址（默认取 build-inputs release 上的 arm64 包）'
+        required: false
+        default: 'https://github.com/Akunda123/SVIXAGENT/releases/download/build-inputs/akdagent-mac-payload-arm64.zip'
+      mode:
+        description: '出包模式：dmg+zip = 完整发行件；dir-only = 只出 .app（快，用来先确认能跑）'
+        required: true
+        type: choice
+        default: 'dmg+zip'
+        options:
+          - 'dmg+zip'
+          - 'dir-only'
+      release_tag:
+        description: '（可选）把产物挂到这个已有的 release 标签上，例如 v1.0.0；留空则只留 artifact'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14          # arm64（macos-13 = Intel 已退役；见文件头）
+    timeout-minutes: 90
+    steps:
+      - name: 取仓库（脚本以此为准）
+        uses: actions/checkout@v4
+
+      - name: 环境自述
+        run: |
+          sw_vers
+          echo "架构：$(uname -m)"
+          df -h /
+          bash --version | head -1
+
+      - name: 下载整包
+        env:
+          URL: ${{ inputs.payload_url }}
+        run: |
+          set -euo pipefail
+          echo "整包：$URL"
+          curl -fL --retry 3 --retry-delay 5 --connect-timeout 20 -o "$RUNNER_TEMP/payload.zip" "$URL"
+          ls -lh "$RUNNER_TEMP/payload.zip"
+
+      - name: 解开整包（--noqtn：不要把 quarantine 标记带进来）
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tree"
+          ditto -x -k --noqtn "$RUNNER_TEMP/payload.zip" "$RUNNER_TEMP/tree"
+          ls -la "$RUNNER_TEMP/tree"
+          test -d "$RUNNER_TEMP/tree/electron"
+          test -d "$RUNNER_TEMP/tree/dsh-runtime"
+          test -d "$RUNNER_TEMP/tree/dist"
+          # macOS runner 磁盘只有 14 GB：整包已解开，zip 留着没用（要重跑就重新下一次）
+          df -h / | tail -1
+          rm -f "$RUNNER_TEMP/payload.zip"
+
+      - name: 用仓库里最新的脚本覆盖整包内的同名件
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/tree"
+          cp -f electron/scripts/mac-build-all.sh "$T/mac-build.sh"
+          rsync -a --delete electron/scripts/ "$T/electron/scripts/"
+          rsync -a --delete tools/ "$T/tools/"
+          rsync -a --delete sv/ "$T/sv/"
+          rsync -a --delete skills/ "$T/skills/"
+          rsync -a --delete dist/knowledge/ "$T/dist/knowledge/"
+          echo "覆盖后："
+          grep -c . "$T/mac-build.sh" | sed 's/^/  mac-build.sh 行数 /'
+          echo "  和仓库版一致？ $(shasum -a 256 < "$T/mac-build.sh" | cut -c1-16) vs $(shasum -a 256 < electron/scripts/mac-build-all.sh | cut -c1-16)"
+          ls -la "$T/electron/scripts/"
+
+      - name: 出包（bash mac-build.sh）
+        run: |
+          set -o pipefail
+          T="$RUNNER_TEMP/tree"
+          ARGS=""
+          if [ "${{ inputs.mode }}" = "dir-only" ]; then ARGS="--dir"; fi
+          echo "模式：${{ inputs.mode }}　参数：${ARGS:-（无）}"
+          cd "$T"
+          if bash mac-build.sh $ARGS; then
+            echo "✓ mac-build.sh 结束（返回 0）"
+          else
+            echo "::error::mac-build.sh 返回非 0"
+            echo "----- mac-build.log 尾部 -----"
+            tail -n 120 "$T/mac-build.log" 2>/dev/null || echo "（没有日志）"
+            exit 1
+          fi
+          echo "----- 日志尾部（含自检段）-----"
+          tail -n 45 "$T/mac-build.log" || true
+          echo "----- release 目录 -----"
+          ls -lh "$T/electron/release" || true
+
+      - name: dir-only 模式：把 .app 压成 zip（否则 artifact 装目录很别扭）
+        if: inputs.mode == 'dir-only'
+        run: |
+          set -euo pipefail
+          D="$RUNNER_TEMP/tree/electron/release/mac-arm64"
+          ls -la "$D"
+          ditto -c -k --keepParent "$D/AKDAgent.app" "$RUNNER_TEMP/tree/electron/release/AKDAgent-app-only-arm64.zip"
+          ls -lh "$RUNNER_TEMP/tree/electron/release"
+
+      - name: 校验产物（清单 + sha256）
+        if: always()
+        run: |
+          set -o pipefail
+          D="$RUNNER_TEMP/tree/electron/release"
+          echo "== $D =="
+          ls -lh "$D" 2>/dev/null || true
+          for f in "$D"/AKDAgent-*.zip "$D"/AKDAgent-*.dmg; do
+            [ -f "$f" ] || continue
+            shasum -a 256 "$f"
+          done
+
+      - name: 上传产物
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AKDAgent-mac-arm64
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/tree/electron/release/AKDAgent-*.zip
+            ${{ runner.temp }}/tree/electron/release/AKDAgent-*.dmg
+
+      - name: 上传日志（无论如何）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build-log
+          if-no-files-found: warn
+          retention-days: 14
+          path: ${{ runner.temp }}/tree/mac-build.log
+
+      - name: （可选）挂到已有 release
+        if: success() && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          D="$RUNNER_TEMP/tree/electron/release"
+          shopt -s nullglob
+          FILES=("$D"/AKDAgent-*.zip "$D"/AKDAgent-*.dmg)
+          if [ ${#FILES[@]} -eq 0 ]; then echo "！没有 dmg/zip（dir-only 模式？）⇒ 跳过"; exit 0; fi
+          echo "挂到 release $TAG：${FILES[*]}"
+          gh release upload "$TAG" "${FILES[@]}"
+          echo "✓ 已挂上（同名资产已存在会报错，不带 --clobber 是有意的）"
