@@ -197,6 +197,12 @@ gh workflow run mac-build.yml -R Akunda123/SVIXAGENT -f mode=dmg+zip
 - ⚠️ **CI 不签名、不公证**：出的是 ad-hoc 签名包（`SKIP_SIGN=1` 为默认）⇒ 用户首次打开仍需「右键→打开」；
   而 Gatekeeper / 麦克风 / 与 SV 桥的验收**只能在真 mac 上做** —— CI 只负责**产出**。
 - runner 的系统盘只有 14 GB ⇒ workflow 解开整包后会先删掉那个 394 MB 的 zip 再出包。
+- **实测（2026-09-26 首次跑通）**：整跑约 **4 分钟**（含两次 `npm ci` + electron-builder + dmg），
+  runner 为 **macOS 14.8.9 / arm64**；产物 `AKDAgent-1.0.0-arm64.dmg` **435 MB**（sha256 `d073d613…`）、
+  `.zip` **434 MB**（`a17f73db…`），artifact `AKDAgent-mac-arm64` 共 **859 MB**；
+  `mac-build.sh` 的 5/5 自检 **9 项全过**（含 `codesign --verify` 通过），app 体积 **1.0 GB**。
+- 备注：`actions/checkout@v4` / `actions/upload-artifact@v4` 目前会打 **Node 20 弃用警告**
+  （不影响运行），将来可随官方升 v5 一起升。
 
 ## 4. 在 Mac 上出包
 
