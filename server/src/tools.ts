@@ -7,7 +7,8 @@ import { executeOp } from "./protocol.js";
 import { separateVocals, convertAudio, separateVocalsDual } from "./audio.js";
 import { analyzeAudio, computeTempoMarks } from "./audio/analyze.js";
 import { generateHarmony, detectKey } from "./audio/harmony.js";
-import { extractNotes } from "./audio/note-extract.js";
+// ⚠️ 不要在这里静态 import note-extract：它会静态拉 onnxruntime-node，原生绑定加载失败
+//    时整颗 server 起不来（2026-09-26 改）。见 sv_extract_notes 里的动态 import。
 import { analyzeEmotion } from "./audio/emotion.js";
 import { chroma as chromaDsp, detectChord } from "./audio/dsp.js";
 import { parseLrc, alignLyricsToNotes, type NoteTime } from "./audio/lyric-align.js";
@@ -685,10 +686,20 @@ server.tool(
     async ({ input }) => {
       const start = Date.now();
       try {
+        // ⚠️ **动态 import**（2026-09-26 改）：note-extract 静态 import onnxruntime-node，
+        //    而 onnxruntime 的原生绑定（*_binding.node）在干净用户机上可能加载不了
+        //    （最常见：缺 Microsoft Visual C++ 运行库；也见过杀软拦截）。
+        //    静态 import 会让**整颗 MCP server 起不来**（exit 1），44 个工具全陪葬；
+        //    改成运行时懒加载后，只有这一个工具报错，其余照常可用。
+        const { extractNotes } = await import("./audio/note-extract.js");
         const res = await extractNotes(input);
         return textResult({ ok: true, ...res, elapsedMs: Date.now() - start });
       } catch (e) {
-        return textResult({ ok: false, error: e instanceof Error ? e.message : String(e), elapsedMs: Date.now() - start });
+        const msg = e instanceof Error ? e.message : String(e);
+        const friendly = /onnxruntime|napi-v6|\.node\b/i.test(msg)
+          ? `${msg}\n⇒ ONNX 运行库没能加载（常见原因：缺 Microsoft Visual C++ 2015-2022 Redistributable；或被安全软件拦了）。只有这一个工具受影响，其它工具照常可用。`
+          : msg;
+        return textResult({ ok: false, error: friendly, elapsedMs: Date.now() - start });
       }
     }
   );

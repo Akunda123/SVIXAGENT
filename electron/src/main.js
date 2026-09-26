@@ -387,7 +387,76 @@ function ensureAkdagentDshHome() {
  * ⇒ 包内 `mcp__sv__*` 一颗工具都没有（用户 2026-09-19 记为 P13）。
  * 做法：**只在缺注册时写入**（已存在一律不动，尊重用户手改）；写前备份 `.bak-autoreg`。
  */
-function ensureMcpRegistration() {
+/**
+ * MCP server 自检：**真起一次**，走 `initialize` + `tools/list`，确认"握得上手"。
+ *
+ * 为什么必须有（2026-09-26 用户机事故）：客户端会往 profile 里写一条 MCP 注册；
+ * 如果那个 server 在用户机上起不来/握不上手，DSH 的**请求扩展准备**阶段就可能失败 ⇒
+ * 用户侧表现是「**每条消息都 回合结束（error）**」，而客户端日志里只有反复刷的重连噪音
+ * （`[dsh:err] [akdagent-mcp] server ready…`），根本定位不到。
+ * 所以：**注册前先自检；不自检通过就不注册** —— 宁可少 44 个工具，也不能让聊天整轮失败。
+ * 已存在的注册**一律不动**（只体检 + 留痕），避免把用户本来能用的配置改坏。
+ */
+function mcpSelfTest(nodeBin, serverEntry, timeoutMs = 6000) {
+  return new Promise((resolve) => {
+    let child = null
+    let done = false
+    let buf = ''
+    let errTail = ''
+    const finish = (r) => {
+      if (done) return
+      done = true
+      try { if (child) child.kill() } catch { /* 忽略 */ }
+      resolve(r)
+    }
+    const timer = setTimeout(() => finish({ ok: false, why: `${timeoutMs}ms 内没跑完 initialize+tools/list` }), timeoutMs)
+    try {
+      child = spawn(nodeBin, [serverEntry], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch (e) {
+      clearTimeout(timer)
+      return finish({ ok: false, why: 'spawn 失败：' + e.message })
+    }
+    child.stdout.on('data', (d) => {
+      buf += String(d)
+      let i
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i)
+        buf = buf.slice(i + 1)
+        let msg = null
+        try { msg = JSON.parse(line) } catch { continue }
+        if (msg.id === 1 && !done) {
+          try {
+            child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n')
+            child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) + '\n')
+          } catch { /* exit 分支会兜住 */ }
+        } else if (msg.id === 2) {
+          clearTimeout(timer)
+          const n = msg.result && Array.isArray(msg.result.tools) ? msg.result.tools.length : 0
+          finish(n > 0 ? { ok: true, tools: n } : { ok: false, why: 'tools/list 返回空' })
+        }
+      }
+    })
+    child.stderr.on('data', (d) => { errTail = (errTail + String(d)).slice(-600) })
+    child.on('error', (e) => { clearTimeout(timer); finish({ ok: false, why: '进程错误：' + e.message }) })
+    child.on('exit', (code) => {
+      if (done) return
+      clearTimeout(timer)
+      const tail = errTail.trim().split('\n').filter(Boolean).slice(-1)[0] || ''
+      finish({ ok: false, why: `进程提前退出（code=${code}）${tail ? ' · ' + tail : ''}` })
+    })
+    try {
+      child.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'akdagent-selftest', version: '1' } },
+      }) + '\n')
+    } catch (e) {
+      clearTimeout(timer)
+      finish({ ok: false, why: '写 initialize 失败：' + e.message })
+    }
+  })
+}
+
+async function ensureMcpRegistration() {
   try {
     const serverEntry = isPackaged
       ? path.join(process.resourcesPath, 'server', 'dist', 'index.js')
@@ -402,11 +471,37 @@ function ensureMcpRegistration() {
     const text = fs.existsSync(patch)
       ? fs.readFileSync(patch, 'utf8')
       : '# dsh profile patch（由 AKDAgent 客户端维护；用户手改的部分保留）\n'
-    if (/id:\s*mcp-akdagent/.test(text)) {
+    const alreadyRegistered = /id:\s*mcp-akdagent/.test(text)
+    const nodeBin = shortPathIfSpaced(resolveNodeBin()).replace(/\\/g, '/')
+
+    /* ── 自检（2026-09-26 新增）──────────────────────────────────────────────
+     * 每次启动都真起一次 server 做 initialize + tools/list，并把结果留痕到
+     * userData/mcp-selftest.json ⇒ 以后"聊天一直报回合结束（error）"这类报障，
+     * 一眼就能看出是不是 MCP 起不来（旧版这里完全无痕，只能靠用户猜）。 */
+    const st = await mcpSelfTest(nodeBin, serverEntry)
+    try {
+      fs.writeFileSync(
+        path.join(app.getPath('userData'), 'mcp-selftest.json'),
+        JSON.stringify({ at: new Date().toISOString(), ok: st.ok, tools: st.tools || 0, why: st.why || '', serverEntry, nodeBin }, null, 2),
+        'utf8'
+      )
+    } catch { /* 写不了就算了，不影响注册逻辑 */ }
+
+    if (!st.ok) {
+      console.error(`[akdagent] MCP 自检未通过：${st.why}`)
+      if (alreadyRegistered) {
+        console.error('[akdagent] 注册已存在 ⇒ 保持不动（不动用户配置）。若"每条消息都 回合结束（error）"，'
+          + '可把 profile 里 `id: mcp-akdagent` 那段整段注释掉再试 —— 只是没有 mcp__sv__* 工具，聊天照常')
+      } else {
+        console.error('[akdagent] ⇒ 本次**不写入** MCP 注册（宁可少 44 个工具，也不能让每轮请求都失败）')
+      }
+      return
+    }
+    console.log(`[akdagent] MCP 自检通过：tools/list = ${st.tools} 个工具`)
+    if (alreadyRegistered) {
       console.log('[akdagent] MCP 注册已存在（保留现状）')
       return
     }
-    const nodeBin = shortPathIfSpaced(resolveNodeBin()).replace(/\\/g, '/')
     const block = [
       '',
       '# AKDAgent：把 Lua 桥封装成 MCP 工具（mcp__sv__*）。由客户端启动时自动写入（P13）。',
@@ -2637,6 +2732,18 @@ function followBoundSession(sessionId) {
     onValue: (v) => {
       if (!v) return
       if (v.type === 'event') {
+        /* 一轮结束时把 reason 落日志（2026-09-26 新增）。
+         * 旧版这里完全无痕：用户报「一发消息就 回合结束（error）」时，我们只有 UI 上那句话，
+         * 定位不了（只有反复刷的 MCP 重连噪音）。console.* 已被顶部日志安全网接管 ⇒ 直接进 akdagent.log。 */
+        try {
+          const ev = v.event || {}
+          if (ev.type === 'turn/end') {
+            const r = (ev.data && ev.data.reason) || ev.reason
+            if (r && r.kind && r.kind !== 'completed') {
+              console.error('[akdagent] turn/end reason = ' + JSON.stringify(r).slice(0, 2000))
+            }
+          }
+        } catch { /* 记日志失败不影响主流程 */ }
         // 会话日志事件：形状与旧版一致（`{type,seq,time,data}`），原样给渲染层
         return muxDeliver({ type: 'server-request', rpcId: null, payload: {
           type: 'session/event', sessionId, event: v.event } })
