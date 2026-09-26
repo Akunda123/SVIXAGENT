@@ -456,6 +456,30 @@ function mcpSelfTest(nodeBin, serverEntry, timeoutMs = 6000) {
   })
 }
 
+/**
+ * 把「一轮失败」的 error 归类成一句人话（2026-09-26 加）。
+ *
+ * 为什么需要：用户机上"一发消息就 回合结束（error）"，我们手里只有一个 code（甚至只有一句话），
+ * 排查全靠猜。实测签名（隔离宿主 + probe 量出来的）：
+ *   · 密钥无效 ⇒ `{code:'AUTH', status:401, message:'Authentication Fails…'}`，**1.4 秒**就报
+ *   · 传输失败 ⇒ `{code:'TRANSPORT', …}`
+ * 这里把它翻成"下一步该查什么"，并落日志 + 落 userData/last-turn-error.json（方便用户回传）。
+ */
+function turnErrorHint(e) {
+  if (!e || typeof e !== 'object') return ''
+  const code = String(e.code || '').toUpperCase()
+  const status = Number(e.status || 0)
+  const msg = String(e.message || '')
+  if (code === 'AUTH' || status === 401) return '提供方拒绝了密钥（401 / AUTH）：key 无效或过期，或者这把 key 不属于当前选中的提供方'
+  if (status === 402 || /balance|quota|欠费|insufficient/i.test(msg)) return '提供方账户额度/余额问题（402）：去提供方后台看余额与结算状态'
+  if (status === 429 || /rate.?limit|too many|限流/i.test(msg)) return '被限流，或该 key 没有这个模型的权限（429）：稍后重试，或换模型 / 换 key'
+  if (status === 403) return '提供方拒绝访问（403）：key 权限不足，或该模型未对这把 key 开放'
+  if (code === 'TRANSPORT' || /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|getaddrinfo|socket hang up/i.test(msg)) return '网络到提供方不通（TRANSPORT）：本机网络 / 代理 / DNS 的问题（可在浏览器里试试打不打得到提供方接口域名）'
+  if (code === 'REQUEST_EXTENSION') return 'DSH 在发请求前的「扩展准备」阶段失败（REQUEST_EXTENSION）：通常是 profile 里某条插件条目解析不了（看 akdagent.log 里 dsh-home 的体检日志）'
+  if (status >= 500) return '提供方服务端错误（5xx）：过一会儿再试'
+  return ''
+}
+
 async function ensureMcpRegistration() {
   try {
     const serverEntry = isPackaged
@@ -2740,7 +2764,16 @@ function followBoundSession(sessionId) {
           if (ev.type === 'turn/end') {
             const r = (ev.data && ev.data.reason) || ev.reason
             if (r && r.kind && r.kind !== 'completed') {
+              const hint = turnErrorHint(r.error)
               console.error('[akdagent] turn/end reason = ' + JSON.stringify(r).slice(0, 2000))
+              if (hint) console.error('[akdagent] ⇒ 可能的原因：' + hint)
+              try {
+                fs.writeFileSync(
+                  path.join(app.getPath('userData'), 'last-turn-error.json'),
+                  JSON.stringify({ at: new Date().toISOString(), sessionId, reason: r, hint }, null, 2),
+                  'utf8'
+                )
+              } catch { /* 写不了就算了 */ }
             }
           }
         } catch { /* 记日志失败不影响主流程 */ }
