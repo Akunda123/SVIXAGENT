@@ -170,6 +170,34 @@ Compress-Archive -Path dsh-runtime, dist\server-runtime-darwin-arm64, server\dis
 ```
 > 缺点：`Compress-Archive` 慢、且不带源码/脚本/`MAC-STEPS.md`，Mac 上还得另想办法拿源码 ⇒ 改用 §3.1。
 
+### 3.5 GitHub Actions 出包（2026-09-26 落地；**手里没有 mac 也能出 .app**）
+
+`.github/workflows/mac-build.yml`，手动触发：
+
+```bash
+gh workflow run mac-build.yml -R Akunda123/SVIXAGENT -f mode=dmg+zip
+# 可选： -f release_tag=v1.0.0  把产物直接挂到已有 release
+# 快速验证： -f mode=dir-only   只出 .app（不跑 dmg，省时间）
+```
+
+- **runner = `macos-14`（arm64）**：GitHub 的 macOS 镜像现在**只有 arm64**（`macos-13` = Intel
+  已于 2025 年底退役）⇒ CI 出的是 **Apple Silicon** 包，与 §4/`electron-builder.yml` 里
+  「mac 只出 arm64」的现状一致。**Intel 包仍只能在 Intel Mac 上打**（见 §3.1.2）。
+- **输入 = release `build-inputs` 上的 `akdagent-mac-payload-arm64.zip`**（394 MB，即 §3.1 那个整包）。
+  仓库里只有源码 —— 大件（`dist/`、`dsh-runtime/dsh` 那棵 224 MB 的树、darwin node tar.gz）装不进 git。
+- **脚本一律取仓库最新版**（workflow 用 checkout 覆盖整包内那份）⇒ **只改出包脚本时不用重打整包**，
+  重跑 workflow 即可；但**整包内容变了**（例如 `dist/server-runtime-darwin-arm64`）就得重打并重传资产。
+- 产物 = workflow artifact：`AKDAgent-mac-arm64`（`AKDAgent-<版本>-arm64.zip` / `.dmg`，留 14 天）
+  与 `mac-build-log`（**排障只认它**）。
+- ⚠️ **首次运行踩的坑（已修）**：workflow 里曾对 `dist/knowledge/` 做 `rsync`，而它是**脱敏生成的
+  产物、不在版本库** ⇒ `rsync: link_stat ... No such file or directory`（exit 23）。现在只同步 git 里
+  真有的目录（`electron/scripts` · `tools` · `sv` · `skills`）并逐个判存在。
+- ⚠️ **推 `.github/workflows/` 需要 token 带 `workflow` 权限**：`gh auth refresh -h github.com -s workflow`。
+  缺权限时 GitHub 直接拒：`refusing to allow an OAuth App to create or update workflow ... without workflow scope`。
+- ⚠️ **CI 不签名、不公证**：出的是 ad-hoc 签名包（`SKIP_SIGN=1` 为默认）⇒ 用户首次打开仍需「右键→打开」；
+  而 Gatekeeper / 麦克风 / 与 SV 桥的验收**只能在真 mac 上做** —— CI 只负责**产出**。
+- runner 的系统盘只有 14 GB ⇒ workflow 解开整包后会先删掉那个 394 MB 的 zip 再出包。
+
 ## 4. 在 Mac 上出包
 
 ```bash
