@@ -151,6 +151,7 @@ function writeSettings(obj) {
   // 保持紧凑但可读的 YAML（2 空格缩进）
   const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
   fs.writeFileSync(SETTINGS_PATH, out, 'utf8')
+  mirrorDshFileToIsolatedHome('settings.yaml', out)
 }
 
 /** 合并局部设置到 settings.yaml（只动给定路径，保留其他键） */
@@ -365,6 +366,19 @@ function waitForWeb(port, timeoutMs = 90000) {
 const AKDAGENT_DSH_HOME = process.env.AKDAGENT_DSH_HOME_DIR
   || path.join(HOME_DIR, '.dsh-akdagent')
 const DSH_SOURCE_HOME = path.join(HOME_DIR, '.dsh')
+
+/** 把 `~/.dsh` 那份凭据/设置**即时镜像**一份进内嵌 host 的隔离家目录。
+ *  为什么（2026-09-26 修）：客户端只往 `~/.dsh` 写（CREDENTIALS_PATH / SETTINGS_PATH），
+ *  宿主读的却是隔离家目录 ⇒ "只在首次创建时抄一次"会漏掉**用户后填的** key
+ *  （干净机器必然踩：先建目录、后填 key ⇒ 宿主永远没 key ⇒ 每轮 AUTH/401）。
+ *  两道保险：① 写入时即时镜像（这里）；② dsh-home.js 的 ensureHome 每次启动再补齐。 */
+function mirrorDshFileToIsolatedHome(name, text) {
+  try {
+    if (!AKDAGENT_DSH_HOME) return
+    fs.mkdirSync(AKDAGENT_DSH_HOME, { recursive: true })
+    fs.writeFileSync(path.join(AKDAGENT_DSH_HOME, name), text, 'utf8')
+  } catch { /* 镜像失败不影响主流程（ensureHome 下次启动还会补） */ }
+}
 
 /** 首次启动 + 运行时换代：初始化/迁移独立 DSH_HOME（实现与测试见 src/dsh-home.js）
  *  只抄 credentials/settings；profile 交给运行时按随包模板生成。 */
@@ -1956,7 +1970,9 @@ function readCredentials() {
 function writeCredentials(obj) {
   const dir = path.dirname(CREDENTIALS_PATH)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(CREDENTIALS_PATH, yaml.dump(obj, { indent: 2, lineWidth: -1 }), 'utf8')
+  const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
+  fs.writeFileSync(CREDENTIALS_PATH, out, 'utf8')
+  mirrorDshFileToIsolatedHome('.credentials.yaml', out)
 }
 
 /** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */

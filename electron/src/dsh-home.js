@@ -272,20 +272,32 @@ function sanitizeAllPatches(home, dshRoot, log) {
 function ensureHome(opts) {
   const { home, sourceHome, dshRoot, log } = opts
   const say = typeof log === 'function' ? log : () => {}
-  if (!fs.existsSync(home)) {
+  const firstTime = !fs.existsSync(home)
+  if (firstTime) {
     fs.mkdirSync(home, { recursive: true })
-    // 只抄凭据 + 设置（API key / 模型配置）。
-    // ⚠️ 不再整份抄用户的 profiles：新版按随包模板生成 profile，抄过来的那份带私有
-    //    workspace 依赖（beijing-status）会直接让宿主起不来（实测）。
-    // ⚠️ 必须去掉 BOM/UTF-16：新版凭据层按正则校验 key 名，BOM 会让它拒启动（实测）。
-    for (const f of ['.credentials.yaml', 'settings.yaml']) {
-      const s = path.join(sourceHome, f)
-      if (fs.existsSync(s)) {
-        try { writeTextFile(path.join(home, f), readTextFile(s)) } catch { /* 忽略 */ }
-      }
-    }
     say(`[akdagent] initialized isolated DSH_HOME: ${home}`)
   }
+  // ⚠️ 凭据/设置**每次启动都同步**（2026-09-26 修；以前只在"首次创建隔离家目录"时抄一次）。
+  //    客户端**只**往 `~/.dsh` 那份写（main.js 的 CREDENTIALS_PATH / SETTINGS_PATH），
+  //    隔离家目录里的拷贝**从不被本地编辑** ⇒ 覆盖同步是安全的。
+  //    修之前的必然序列（干净机器）：
+  //      ① 首次启动：隔离家目录不存在 ⇒ 抄一次 —— 可这时用户**还没填 key** ⇒ 抄了个空；
+  //      ② 用户在客户端里填 key ⇒ 写进 `~/.dsh/.credentials.yaml`，**不是**隔离家目录；
+  //      ③ 之后每次启动：隔离家目录已存在 ⇒ 老代码**再也不抄** ⇒ 宿主永远没有 key
+  //         ⇒ 每个请求都在 HTTP 层被拒（AUTH/401，实测 1.4 秒）⇒ 用户侧正是
+  //         「一发消息就 回合结束（error）」，新建对话也一样，而他在界面上"明明配好了 key"。
+  //    只同步凭据 + 设置；**不抄 profiles**（用户 profile 带私有 workspace 依赖会让宿主起不来，实测）。
+  //    必须走 writeTextFile（去 BOM/UTF-16）：新版凭据层按正则校验 key 名，BOM 会让它拒启动（实测）。
+  const synced = []
+  for (const f of ['.credentials.yaml', 'settings.yaml']) {
+    const s = path.join(sourceHome, f)
+    if (!fs.existsSync(s)) continue
+    try {
+      writeTextFile(path.join(home, f), readTextFile(s))
+      synced.push(f)
+    } catch { /* 忽略 */ }
+  }
+  if (synced.length && !firstTime) say(`[akdagent] 已同步凭据/设置：${synced.join(', ')}`)
   // 每次启动都做的两件体检（都幂等且便宜；失败模式是宿主直接起不来，代价太大）：
   //   ① 凭据/设置的 BOM —— 新版凭据层按正则校验 key 名
   //   ② patch 层里指不到的插件 —— 加载器硬失败（实测 beijing-status 就是这样）

@@ -88,7 +88,9 @@ jobs:
           # ⚠️ 只同步**版本库里真的有的**源码目录。
           #   `dist/knowledge` 是脱敏生成的产物（不进 git）⇒ 用整包里那份，别去 rsync 它
           #   （2026-09-26 首次运行就栽在这：rsync 报 No such file or directory，exit 23）。
-          for d in electron/scripts tools sv skills; do
+          # ⚠️ electron/src 与下面那几个**文件**必须一起覆盖：以前只覆盖目录 ⇒ mac 包用的是
+          #    整包里那份旧客户端（版本号、凭据同步、诊断三件套全是旧的，2026-09-26 实测踩到）。
+          for d in electron/src electron/scripts tools sv skills; do
             if [ -d "$d" ]; then
               rsync -a --delete "$d/" "$T/$d/"
               echo "  ✓ 同步 $d"
@@ -100,6 +102,16 @@ jobs:
           grep -c . "$T/mac-build.sh" | sed 's/^/  mac-build.sh 行数 /'
           echo "  与仓库版一致？ $(shasum -a 256 < "$T/mac-build.sh" | cut -c1-16) vs $(shasum -a 256 < electron/scripts/mac-build-all.sh | cut -c1-16)"
           ls -la "$T/electron/scripts/"
+          # 决定版本号与打包配置的文件也要覆盖（否则 mac 包会一直是旧版本）
+          for f in electron/package.json electron/package-lock.json electron/electron-builder.yml; do
+            if [ -f "$f" ]; then
+              cp -f "$f" "$T/$f"
+              echo "  ✓ 覆盖 $f"
+            else
+              echo "  · 跳过 $f（仓库里没有）"
+            fi
+          done
+          node -e "console.log(\"  electron 版本 = \" + require(\"./electron/package.json\").version)"
 
       - name: 用仓库里的 MCP server 覆盖整包里那份（server 代码改了也能生效）
         run: |
