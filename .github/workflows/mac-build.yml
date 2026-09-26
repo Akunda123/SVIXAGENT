@@ -85,14 +85,20 @@ jobs:
           set -euo pipefail
           T="$RUNNER_TEMP/tree"
           cp -f electron/scripts/mac-build-all.sh "$T/mac-build.sh"
-          rsync -a --delete electron/scripts/ "$T/electron/scripts/"
-          rsync -a --delete tools/ "$T/tools/"
-          rsync -a --delete sv/ "$T/sv/"
-          rsync -a --delete skills/ "$T/skills/"
-          rsync -a --delete dist/knowledge/ "$T/dist/knowledge/"
+          # ⚠️ 只同步**版本库里真的有的**源码目录。
+          #   `dist/knowledge` 是脱敏生成的产物（不进 git）⇒ 用整包里那份，别去 rsync 它
+          #   （2026-09-26 首次运行就栽在这：rsync 报 No such file or directory，exit 23）。
+          for d in electron/scripts tools sv skills; do
+            if [ -d "$d" ]; then
+              rsync -a --delete "$d/" "$T/$d/"
+              echo "  ✓ 同步 $d"
+            else
+              echo "  · 跳过 $d（仓库里没有这个目录）"
+            fi
+          done
           echo "覆盖后："
           grep -c . "$T/mac-build.sh" | sed 's/^/  mac-build.sh 行数 /'
-          echo "  和仓库版一致？ $(shasum -a 256 < "$T/mac-build.sh" | cut -c1-16) vs $(shasum -a 256 < electron/scripts/mac-build-all.sh | cut -c1-16)"
+          echo "  与仓库版一致？ $(shasum -a 256 < "$T/mac-build.sh" | cut -c1-16) vs $(shasum -a 256 < electron/scripts/mac-build-all.sh | cut -c1-16)"
           ls -la "$T/electron/scripts/"
 
       - name: 出包（bash mac-build.sh）
