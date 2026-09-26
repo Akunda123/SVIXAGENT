@@ -251,7 +251,10 @@ function loadHostRecord() {
 }
 function saveHostRecord(port, pid, session) {
   try {
-    const rec = { port, pid: pid || null, at: Date.now() }
+    /* `v` = **启动这个宿主的客户端版本**（2026-09-26 加）。复用判定要比它：老客户端起的宿主
+     *  体内没有客户端侧的修复（凭据同步等），复用它 = 「升级了却还在跑旧逻辑」—— 本次事故
+     *  （装 1.0.1 仍报错、手工 copy 却好）就是这个：复用了 1.0.0 时期起的孤儿宿主。 */
+    const rec = { port, pid: pid || null, at: Date.now(), v: app.getVersion() }
     // 0.1.5-rc.2：复用孤儿 host 时需要同一套会话凭据（token URL + cookie）才能调 /api/*
     if (session && session.tokenUrl) rec.tokenUrl = session.tokenUrl
     if (session && session.cookie) rec.cookie = session.cookie
@@ -649,8 +652,13 @@ function spawnHost(port) {
     : [entry, 'web', '--port', String(port), ...tail]
   const env = { ...process.env }
   delete env.DSH_OPEN_INBOX
-  // 独立 DSH_HOME：与 watchdog（~/.dsh）隔离，避免共用会话存储导致提问应答冲突
-  ensureAkdagentDshHome()
+  /* ⛔ 凭据/设置的启动同步**不在这里**（2026-09-26 热修）：
+   *  `spawnHost()` 只在"没得复用"时被调（ready 段的 `if (!hostPort)`）⇒ 一旦复用孤儿 host
+   *  就整段跳过 ⇒ 用户「装了新版还是每轮 AUTH/401」，而手工 copy 凭据却立刻好
+   *  （宿主对 `$DSH_HOME/.credentials.yaml` 是 chokidar 热重载，与客户端版本无关）。
+   *  ⇒ 已移到 ready 段**复用判定之前**（搜 `ensureAkdagentDshHome()` 的另一个调用点）。
+   *  下面两条留在原地是对的：它们改的是 profile 里的 MCP 注册，复用旧 host 时改了也不生效
+   *  （要新起的宿主才会读），而凭据是热重载的 ⇒ 两者处理方式本来就不同。 */
   // P13：profile 里要有 MCP 注册（指向随包分发的 server）——干净机器靠这一步
   ensureMcpRegistration()
   // P11：MCP 注册的 node 路径必须**不含空格**（旧运行时会按空格切开 command ⇒ MCP 起不来）
@@ -3397,7 +3405,15 @@ app.whenReady().then(async () => {
     // 客户端被强杀/崩溃时，内嵌 host 会残留（quitApp 的 killTree 没机会跑）。下次启动若再新起一个，
     // 就变成**两个 host 写同一个会话** ⇒ DSH 会话日志损坏（实测事故）。单实例锁只挡"两个客户端"，
     // 挡不住孤儿 host ⇒ 这里：**上一次的 host 还活着就复用它**（复用它永远只有一个 host）。
+    /* ⚠️ 每次启动都同步凭据/设置 —— **必须在复用判定之前**（2026-09-26 热修，本次事故的真因）。
+     *  以前它挂在 `spawnHost()` 里，而 `spawnHost()` 只在"没得复用"时调 ⇒ 一旦复用孤儿 host
+     *  （客户端被强杀/卸载残留；记录里的 cookie 有效期 **30 天**，实测到期日 = 签发 +30d）就整段跳过
+     *  ⇒ 宿主永远拿不到用户后填的 key ⇒ 每轮 AUTH/401，而手工 copy 凭据**立刻就好**。
+     *  宿主读的就是隔离家目录那份、且对它 chokidar 热重载 ⇒ 复用同版本 host 时同步同样生效，
+     *  所以这里**无条件**跑（复用与新起两条路都覆盖）。 */
+    ensureAkdagentDshHome()
     const prevHost = loadHostRecord()
+    const clientVersion = app.getVersion()
     if (prevHost && prevHost.port && await probeHost(prevHost.port)) {
       // 0.1.5-rc.2：宿主有鉴权 ⇒ 复用必须带上上次换到的会话 cookie，并**实测确认还能用**。
       // 不能"因为端口有应答就复用"：新版裸请求一律 401，复用等于让 /api/* 全废。
@@ -3405,8 +3421,16 @@ app.whenReady().then(async () => {
       hostTokenUrl = prevHost.tokenUrl || null
       hostCookie = prevHost.cookie || null
       const alive = await httpGet(hostPort, '/', { cookie: hostCookie })
-      if (alive.status === 200) {
-        console.log(`[akdagent] 复用上一次的内嵌 host（端口 ${hostPort} · pid ${prevHost.pid || '?'}）—— 避免起第二个 host`)
+      /* 复用条件里再加一条**版本一致**（2026-09-26 热修 · 治本）：老客户端起的宿主体内没有
+       *  本次的客户端侧修复，复用它 = "升级了但还在跑旧逻辑"。记录里**没有 `v`**（≤1.0.1 写的，
+       *  版本戳是本次才加的）一律当不一致 ⇒ 杀掉重起一次，之后记录里就有 `v` 了。 */
+      if (alive.status === 200 && prevHost.v === clientVersion) {
+        console.log(`[akdagent] 复用上一次的内嵌 host（端口 ${hostPort} · pid ${prevHost.pid || '?'} · v${prevHost.v}）—— 避免起第二个 host`)
+      } else if (alive.status === 200) {
+        // 版本不一致：**必须**换新宿主，否则升级后的客户端侧逻辑永远不生效
+        console.log(`[akdagent] 上一次的内嵌 host 是 v${prevHost.v || '(无版本记录)'} 起的（当前客户端 v${clientVersion}）⇒ 杀掉重起，避免用旧逻辑跑`)
+        if (prevHost.pid) killTree(prevHost.pid)
+        hostPort = null; hostTokenUrl = null; hostCookie = null
       } else {
         // 复用不了就得**杀掉它再重起**：留着一个没人能调的 host 等于两个 host 写同一会话（会损坏日志）
         console.log(`[akdagent] 上一次的 host 在端口 ${hostPort} 上不可用（HTTP ${alive.status}）⇒ 杀掉孤儿 host，重起一个`)
