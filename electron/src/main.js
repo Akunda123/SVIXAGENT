@@ -376,8 +376,13 @@ function mirrorDshFileToIsolatedHome(name, text) {
   try {
     if (!AKDAGENT_DSH_HOME) return
     fs.mkdirSync(AKDAGENT_DSH_HOME, { recursive: true })
-    fs.writeFileSync(path.join(AKDAGENT_DSH_HOME, name), text, 'utf8')
-  } catch { /* 镜像失败不影响主流程（ensureHome 下次启动还会补） */ }
+    const dst = path.join(AKDAGENT_DSH_HOME, name)
+    fs.writeFileSync(dst, text, 'utf8')
+    // ⚠️ 留痕（2026-09-26 加）：以前这里是**静默**的，一旦镜像失败（权限/杀软）我们什么都看不到。
+    if (name === '.credentials.yaml') console.log('[akdagent] 已把凭据镜像进隔离家目录：' + dst)
+  } catch (e) {
+    console.error('[akdagent] 镜像 ' + name + ' 失败（宿主可能读不到 key）：' + (e && e.message ? e.message : e))
+  }
 }
 
 /** 首次启动 + 运行时换代：初始化/迁移独立 DSH_HOME（实现与测试见 src/dsh-home.js）

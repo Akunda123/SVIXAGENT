@@ -295,9 +295,25 @@ function ensureHome(opts) {
     try {
       writeTextFile(path.join(home, f), readTextFile(s))
       synced.push(f)
-    } catch { /* 忽略 */ }
+    } catch (e) {
+      // ⚠️ 以前这里是静默 catch —— 同步失败时用户照样没 key，而我们一无所知（2026-09-26 改）
+      say(`[akdagent] ⚠ 同步 ${f} 失败（宿主会读不到）：${e && e.message ? e.message : e}`)
+    }
   }
   if (synced.length && !firstTime) say(`[akdagent] 已同步凭据/设置：${synced.join(', ')}`)
+  // 同步后自检：源里有 key、隔离家目录里却没有 ⇒ 明确报出来（修复后这条不该出现）
+  try {
+    const looksHasKey = (p) => {
+      if (!fs.existsSync(p)) return false
+      const t = readTextFile(p)
+      return /sk-[A-Za-z0-9_\-]{8,}/.test(t) || /\nrefs:\s*\n\s+\S/.test(t)
+    }
+    const srcCred = path.join(sourceHome, '.credentials.yaml')
+    const dstCred = path.join(home, '.credentials.yaml')
+    if (looksHasKey(srcCred) && !looksHasKey(dstCred)) {
+      say('[akdagent] ⚠ 自检未通过：源 ~/.dsh 里有凭据，但隔离家目录里没有 ⇒ 宿主必然拿不到 key（把这段日志发回来）')
+    }
+  } catch { /* 忽略 */ }
   // 每次启动都做的两件体检（都幂等且便宜；失败模式是宿主直接起不来，代价太大）：
   //   ① 凭据/设置的 BOM —— 新版凭据层按正则校验 key 名
   //   ② patch 层里指不到的插件 —— 加载器硬失败（实测 beijing-status 就是这样）
