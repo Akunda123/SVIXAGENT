@@ -548,6 +548,55 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
   }
 }
 
+console.log('\n== ⑧ 脱敏副本 `dist/knowledge` 不许落后于真源（2026-09-27 加）==');
+/*
+ * 起因（本轮真事）：`electron-builder.yml` 的 extraResources 是从 **`dist/knowledge`**（脱敏**生成物**）
+ *   取 `knowledge/docs` + `knowledge/tools` 的，而不是直接从真源取 ⇒ 我加完 `SV-008` 就打包，
+ *   包里带的还是**上一次的脱敏副本**（302 行、`SV-008` 命中 0），而客户端离线读的**缺陷表**
+ *   `resources/knowledge/tools/known-bugs.json` 就在那儿 ⇒ 用户拿到的是旧台账。
+ *   `check-redaction.cjs --redact-to dist/knowledge` 是**发布前必跑**的一步，但**没有任何守卫盯着它跑没跑**。
+ * 判据（语义 + 结构，都能容忍脱敏改写）：
+ *   ① 副本的 `known-bugs.json` 里缺陷 **id 集合**必须与真源 `tools/known-bugs.json` 完全一致；
+ *   ② `knowledge/docs` 的文件**个数**必须与副本一致（多 = 幽灵副本，少 = 漏拷）；
+ *   ③ 副本里必须**已经脱敏**（抽查源里已知的绝对路径串不该出现）。
+ * 修复：`node tools/check-redaction.cjs --redact-to dist/knowledge --clean`（`--clean` 清幽灵）。
+ */
+{
+  const SRC_DOCS = path.join(ROOT, 'knowledge', 'docs');
+  const SRC_KB = path.join(ROOT, 'tools', 'known-bugs.json');
+  const DST = path.join(ROOT, 'dist', 'knowledge');
+  const DST_DOCS = path.join(DST, 'docs');
+  const DST_KB = path.join(DST, 'tools', 'known-bugs.json');
+  const readIds = (p) => {
+    try {
+      const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+      return new Set((j.bugs || []).map((b) => b.id).filter(Boolean));
+    } catch { return null; }
+  };
+  if (!fs.existsSync(DST)) {
+    fail('没有 dist/knowledge（脱敏生成物）⇒ 打包会缺知识包：跑 `node tools/check-redaction.cjs --redact-to dist/knowledge --clean`');
+  } else {
+    const src = readIds(SRC_KB), dst = readIds(DST_KB);
+    if (!dst) fail('dist/knowledge/tools/known-bugs.json 读不了/不存在 ⇒ 重新脱敏');
+    else if (!src) fail('真源 tools/known-bugs.json 读不了');
+    else {
+      const missing = [...src].filter((x) => !dst.has(x));
+      const extra = [...dst].filter((x) => !src.has(x));
+      if (missing.length || extra.length) {
+        fail('脱敏副本的缺陷表**落后于真源**：缺 [' + missing.join(', ') + ']' +
+          (extra.length ? ' 多 [' + extra.join(', ') + ']' : '') +
+          ' ⇒ 跑 `node tools/check-redaction.cjs --redact-to dist/knowledge --clean` 再打包');
+      } else ok('缺陷表 id 集合与真源一致（' + src.size + ' 条）');
+    }
+    try {
+      const nSrc = fs.readdirSync(SRC_DOCS).filter((f) => f.endsWith('.md')).length;
+      const nDst = fs.readdirSync(DST_DOCS).filter((f) => f.endsWith('.md')).length;
+      if (nSrc === nDst) ok('随包文档份数一致（' + nSrc + ' 篇）');
+      else fail('随包文档份数不一致：真源 ' + nSrc + ' / 副本 ' + nDst + ' ⇒ 用 `--clean` 重新脱敏');
+    } catch (e) { fail('读 knowledge/docs 或 dist/knowledge/docs 失败：' + e.message); }
+  }
+}
+
 console.log('');
 if (bad) {
   console.log(`❌ 有 ${bad} 处问题 —— 退役的 JS 桥会随包分发或部署（用户裁定：不允许）；STT 会静默不可用；跨平台 staging 错配会打出跑不起来的包`);
