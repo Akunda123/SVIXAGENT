@@ -108,7 +108,16 @@ for (const h of HOSTS) {
   if (fs.existsSync(bridge)) {
     const a = md5(REPO_BRIDGE), b = md5(bridge);
     const ver = (fs.readFileSync(bridge, 'utf8').match(/VERSION\s*=\s*"([\d.]+)"/) || [])[1];
-    console.log('   桥 AKDAgentBridge.lua v' + ver + ' ⇒ ' + (a === b ? '✅ 与仓库一致' : '⚠️ 与仓库不同（可能故意留旧版）'));
+    console.log('   桥 AKDAgentBridge.lua v' + ver + ' ⇒ ' + (a === b ? '✅ 与仓库一致（md5 相同）'
+      : '⛔ 与仓库**不同修订**（md5 不同）'));
+    // 🆕 2026-09-27：**同版本号、不同修订**也要拦。
+    //   起因：把 `toneShift` 夹值补进桥后**没升版本号**（1.0.1 还没发布），于是"部署的那份 / 宿主里跑的那份"
+    //   与仓库**同版本但内容不同** —— 只比版本号的话完全看不出来，而"验收验到旧代码"正是本守卫存在的理由。
+    //   ⇒ 部署文件与仓库 md5 不一致就报硬问题（唯一例外是"故意留旧版"，那时请把版本号也留下，别同版本不同修订）。
+    if (a !== b && ver && REPO_BRIDGE_VER && ver === REPO_BRIDGE_VER) {
+      problems.push(h.label + '：部署的桥与仓库**同版本号 v' + ver + ' 但内容不同**（md5 不一致）' +
+        ' ⇒ 先 `sv\\install.ps1` 重新部署、**再在宿主里重跑桥**（Lua 常驻，不重跑不生效）');
+    }
   }
   // JS 面板残留（会造成"两个面板"）
   if (fs.existsSync(path.join(h.dir, 'AKDAgentSidePanel.js'))) console.log('   ⚠️ 还留着 JS 版面板 AKDAgentSidePanel.js（会出现两个「AKDAgent」面板）');

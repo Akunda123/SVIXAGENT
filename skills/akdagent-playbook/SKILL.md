@@ -1,7 +1,7 @@
 ---
 name: akdagent-playbook
 description: AKDAgent 实战踩坑与交接手册 —— 在 Synthesizer V Studio / Instrument X 上干活时的**开工自检、主动提醒清单、以及踩过的坑**。含：连桥自检与跳过条件 · 多 SV 只留一个桥 · 连上后按工程状态（空工程/无伴奏轨/无音符）与宿主（SV/IX）给提醒 · BPM/音频轨/音符/和声逐条问（含 **和弦分析**、**MusicXML 乐谱导入**）· 加音频与改 .svp/.ixp 的安全三步（先保存→重写→重载）· 产物存放位置（Agent 目录/指定目录/随工程）· 内置库不满意时给更强替代 · 歌词专项（检测/搜索/对齐/作词七项）· ⛔ **语言（语种）纪律（AKDAgent 整体：默认不改、用户更懂声库语种、语种不兼容⇒无音素⇒不渲染）**· 音高参数三层检测与调声交接（全自动 or 重点音符、我们做 or 用户做）· 其他参数**按风格**问 · **声线（vocal mode）交接**与**声库 styles / 声线音色**处置 · **IX 上用和弦自动创建织体**（成套配方见 **`sv-texture`** 技能）· 桥与文件通道故障（版本不生效/轮询死/弹框冻桥/id 匹配/目录不一致）· 文档与工具纪律。触发：接 SV/IX 任务不知道从哪开始、桥连不上或行为诡异、要加音频/改工程/分离伴奏/转录、要**分析和弦**或**用和弦铺织体**、要**导入乐谱（MusicXML）**、要调声但没参数、参数是否该动、vocal mode 读不到、要动**声库 styles / 声线音色**、文档/编码/工具踩坑等
-version: 1.0.0
+version: 1.0.1
 ---
 
 # AKDAgent 作业手册 —— 开工自检 · 交接规范 · 运行
@@ -181,6 +181,11 @@ version: 1.0.0
     读要用 **`getOnset()` / `getDuration()`**（**这组 API 不对称**，别按 setter 反推 getter）；
     🆕 **`SV:create("Note")` 建出来的音符默认是"自动音高"**（`getPitchAutoMode() == true`，2026-09-23 实测：拆音后新音符 `autoPitch=true`、原有音符 `false`）
     ⇒ **一般够用**；**用户要求切分/新建的音符走手动音高时，要显式 `n:setPitchAutoMode(false)`**（否则画了音高参数也可能被自动音高盖住）。
+    > 🆕 **2026-09-27 真机核对（桥 1.0.1 · SV1 1.11.2 · 游离音符）**：给**自动音高**音符写音高参数
+    > （如 `tF0Right = 0.13`）**不报错**（`pcall` ok、`err=nil`），值也**读得回**（`0.12999999523163`，float32 舍入）；
+    > **但写属性不会把音符切出手动**（写完 `getPitchAutoMode()` 仍是 `true`），值跨模式切换存活。
+    > ⇒ **坑不是报错，而是静默不生效**（"看起来写成功、听不出变化"）。
+    > 桥现在会在**SV1 上写了音高参数、却没写 `setPitchAutoMode`** 时给一句 `warnings`（不拦：目标音符可能本来就是手动）。
     这几条都归"**先索引取值 + `type()` 再调用**"那条纪律（§2.3）；**写操作别把统计放进返回语句的同一段风险路径** ——
     先落音符、再算回执，或先 `newUndoRecord()` 保证可撤销。
   - 🎛 **参数自动化（automation）两条真机判据（2026-09-23 实测，写之前必读）**：
@@ -438,7 +443,8 @@ version: 1.0.0
 |---|---|---|
 | **索引基准** | 越界报错、改错音符 | **Lua 绑定 1 起**（含返回值）；**对外协议 0 起**。别混；换算只发生在桥内 |
 | **调用形式** | 弹"attempt to call a nil value" | Lua 一律**冒号**（`SV:getProject()`）；成员是 **userdata** |
-| **Lua API 错误** | 某 op 之后全部超时 | 错误**弹框并穿透 `pcall`** ⇒ 桥冻住；**不试探、只读先验**（详见 2.3） |
+| **Lua API 错误** | 某 op 之后全部超时 | 错误**弹框并穿透 `pcall`** ⇒ 桥冻住；**不试探、只读先验**；肇事 op 看 `akdagent-lastop-<host>.json`（详见 2.3） |
+| **点调用 / 传字面量给属性 API** | 模态框「`setAttributes: 无效的输入类型。`」⇒ 桥冻住 | 一律 `n:setAttributes({…})`（冒号 + 表）；`run_script` 现在**进宿主前预检**并拒绝（详见 2.3 / 2.3b） |
 | **`getNote(i)` 顺序会变** | 逐音写却错位、同一音被两个下标返回 | 写入**会扰动枚举顺序**（和弦里实测重复返回）⇒ **先快照**再操作，按 (onset, pitch) 核 |
 | **`perNote` 不可靠** | 部分音符没写到 | 纯数字键可能被 JSON→Lua 当数组解码 ⇒ 用 **`indices` + `params`** 分次写 |
 | **`write_pit` 的目标** | 只写了 1 个音符 | 优先级 = `indices` → **选中音符** → 全部；UI 选中一个就会只写它 |
@@ -476,9 +482,57 @@ version: 1.0.0
 ### 2.3 桥里的 **Lua API 错误会弹模态框、并穿透 `pcall`** ⇒ 整个桥冻住
 
 - **现象**：某个 op 之后**所有** op 都超时；宿主里可能挂着一个脚本错误框。
-- **原因**：SV 的 Lua 绑定在 API 用错时（如越界、调不存在的方法）**弹框并穿透 `pcall`**，脚本停在那一步，轮询不再走。
-- **怎么查**：宿主里是否有错误框；`pollTicks` 是否停止；崩溃前最后调用的 op。
-- **怎么修**：关掉模态框 → 重跑桥。**纪律：绝不做"试探一下"的调用**（宁可先返回"未验证"），写操作前先确认目标存在且索引合法。
+- **原因**：SV 的 Lua 绑定在 API 用错时（**实参类型不对 / 调用形式不对** / 越界 / 调不存在的方法）**弹框并穿透 `pcall`**，脚本停在那一步，轮询不再走。
+  - 真机样例（2026-09-27，用户机器）：`脚本 'AKDAgent Bridge (Lua)' 出现错误：setAttributes: 无效的输入类型。`
+  - ⚠️ **关键：这是宿主 C 侧弹的框，不是 Lua 异常** ⇒ 快照式的 `pcall(dispatch, …)` 一路包着也没用。**这类错误拦不住，只能预防。**
+- **怎么查**（现在有面包屑了）：桥**每笔请求执行前**都会写 `akdagent-lastop-<host>.json`（`stage="running"`），跑完改 `done/failed`。
+  - 客户端报错里会带一行 `lastOp=… stage=running` + 参数摘要 ⇒ **直接指名肇事 op**（以前只能看着"日志停在某时刻"干瞪眼）。
+  - 若 `stage=done`，说明桥是**干净地**停的（宿主被关掉 / 脚本被停），不要往"某笔请求弄死它"上猜。
+- **怎么修（恢复三步，按顺序）**：① 到宿主里**关掉那个错误框**（框不下，宿主主线程一直停着，重跑脚本也不会生效）→
+  ② **`Ctrl+S` 保存工程**（宿主内存里的改动还没落盘，这一步最要紧）→ ③ 脚本菜单 → Agent → **重跑 AKDAgentBridge**。
+- **纪律**：绝不做"试探一下"的调用（宁可先返回"未验证"）；写操作前先确认目标存在且索引合法。
+- **现在有两道机检**（2026-09-27 加）：
+  - `run_script` **预检**：点调用（JS 写法 `n.setAttributes(…)`）与 `setAttributes` 的**字面量**实参（`"x"` / `1` / `nil` / `true`）会在**进宿主之前**被拒，错误里直接给出冒号写法 —— 因为交给宿主就是弹框。
+  - 属性 API 的**宿主闸门**：`phonemes` 只有 SV2 2.1.1+ 有、`dur` 只有 SV1 有 ⇒ 写错宿主**明确拒绝**（`refused="sv1-no-phonemes"` / `"sv2-no-dur"`），不把"本宿主没有的字段"递给宿主。
+
+### 2.3b 音符属性（音高参数）按**宿主**选 API —— 选错就是上面的模态框
+
+| 宿主 | 读 / 写 | 说明 |
+| --- | --- | --- |
+| **SV1** | `Note#getAttributes()` / `Note#setAttributes({…})` | 那 12 个音高字段（`tF0Offset/tF0Left/tF0Right/dF0Left/dF0Right/tF0VbrStart/tF0VbrLeft/tF0VbrRight/dF0Vbr/pF0Vbr/fF0Vbr/tNoteOffset`）**只有 SV1 有** |
+| **SV2** | `Note#getScriptData(k)` / `setScriptData(k,v)` | 音高在**曲线**上（PitchControlCurve）；直接写那 12 个字段**不报错也不生效**（`SV-007`）⇒ 别拿它判断成功 |
+| **IX** | 技法/力度：`getAttributes()` 只有 `{muted, articulations, articulationsFixed, dynamic}`；写用 `setArticulations()` / `setDynamic()` | dynamics **曲线** API 写不了（`IX-002`）⇒ 走 `.ixp` |
+
+⇒ 写音符属性前先看心跳里的 `isSV2` / `host`；**`setAttributes` 传的必须是表**，且**别用点调用**。
+
+> 🆕 **2026-09-27 起：`setAttributes` 的内容会被按官方文档检测**（用户指定：「读 api 文档，给 setAttributes 的内容加上检测（IX 除外）」）。
+> 事实源 = `skills/sv-scripting/api/Note.md` 的 **`Note#getAttributes`**（文档原话：setAttributes 的 attributes
+> 「For the definition, see Note#getAttributes」）。三组归属：
+> · `rTone` / `rIntonation` / `dF0VbrMod`（since **1.9.0b2**）⇒ SV1 + SV2 都有
+> · `expValueX` / `expValueY` / `phonemes` / `muted` / `evenSyllableDuration` / `languageOverride` / `phonesetOverride`（since **2.1.1**）⇒ 仅 SV2
+> · 12 个音高参数 + `exprGroup` + `dur` + `alt`（**"Properties only available in version 1"**）⇒ 仅 SV1
+> · **NaN 是合法值**（文档：NaN = 用所在组引用的默认值）—— 我们就是靠它把字段恢复成默认。
+>
+> 判据四类：**键不在文档里**（含拼错）· **键不属于本宿主**（静默无效最阴，SV-007）· **值类型不符** · **数组元素不是数**；
+> 逃逸口 = 脚本里写 `-- akdagent:allow-extra-attrs`（未知键降级为警告，类型错仍拦）。
+> ⛔ **IX 整体豁免** —— 它没有官方文档、宿主另有文档外的键（`toneShift`/`pitchDelta`/`articulations`/`dynamic`），
+> 拿 SV 文档去卡它只会误伤（用户口径）。
+
+### 2.3c IX（Instrument X）**没有官方 API 文档** —— 这条缺口怎么防（台账 `IX-004`）
+
+- **事实**：`resource.dreamtonics.com` 的 JSDoc **只描述 Synthesizer V**；IX 的类/方法/取值域**没有文档**
+  （2026-09-21 复核：页脚 `generatedAt` 仍是 *Thu Oct 09 2025*、23 个类无增减 ⇒ 仍未覆盖 IX）。
+- **它已经造成的具体损失**（都是"没文档只能实测"的产物）：`IX-001`（读点族在 1.0.0 上**冻桥**）、
+  `IX-002`（音符级 dynamics 曲线 API 写不了）、`IX-003`（"没有区间读点接口"是误判）、
+  `IX-005`（IX 音高曲线是"暴力移植"，和弦上不可靠）、`IX-006`（`dynamics` 当 automation ⇒ **延时崩宿主**）。
+- **纪律（两条，缺一条就会踩模态框）**：
+  1. **官方镜像 `skills/sv-scripting/api/` 只当"SV 的"用**；IX 上的事实源是 `knowledge/docs/InstrumentX-API枚举.md`（本仓实测枚举，307 行）+ `sv-ix` 技能。**"镜像里没有" ≠ "宿主没有"**（例：`toneShift`/`pitchDelta` UI 隐藏但 API 可写且渲染）。
+  2. **绝不用"试着调一下"代替检查** —— 试错在宿主上就是弹模态框冻桥（`SV-001` / `IX-001` 都是试出来的，
+     机制见 §2.3）。存在性检查 = 「索引取值 + `type()` ∈ {function, userdata, table}」；在 `run_script` 里可以直接用桥注入的助手：
+     `SVH.has(obj, "getName")` · `SVH.members(obj)`（列成员名:类型）· `SVH.svcall`。
+- **已知缺口（坦白）**：桥**自己**发的调用都有 `has()` 先查（安全）；但 **AI 手写的 `run_script` 没有存在性检查**，
+  而 AI 读的是 SV 官方镜像 ⇒ 在 IX 上容易写出**不存在的成员** = 同一个模态框冻桥。
+  现在靠"工具描述里的纪律 + 预检（只管形式/类型，**不管成员是否存在**）"兜着；要不要再加一道服务端静态闸（复用 crash 清单硬拒 + 未知名警告）**待用户定**。
 
 ### 2.4 响应必须按 **`id`** 匹配，不能按 `seq`
 

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>AKDAgent</title>
+<!--
+  通用「HTML 确认框」窗口（2026-09-27 · 用户要求：这类提醒/确认一律用 HTML，不用原生 MessageBox）。
+
+  为什么要有它：原生 `dialog.showMessageBox` 在 Windows 上是系统样式、跟 AKDAgent 的深色界面完全两张皮；
+  而且用户明确要求"提醒/确认走 HTML"。主进程侧的用法见 main.js 的 `askConfirm()`（返回 Promise<boolean>）。
+
+  协议（preload 暴露 `svconfirm`）：
+    · 主进程 did-finish-load 后 `akdagent-confirm-init` 推来 { title, message, detail, okLabel, cancelLabel, danger }
+    · 用户选择后 `svconfirm.answer(true|false)` ⇒ 主进程 resolve
+    · 直接关窗 / Esc / 默认按钮 = **取消**（安全默认；调用方按 false 处理）
+-->
+<style>
+  :root {
+    --bg: #2e2e2e; --panel: #353837; --border: #454b49; --text: #e8e8e8;
+    --muted: #9aa0a0; --accent: #4c8bf5; --danger: #e0614f; --hover: #3d4241;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.6 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  #titlebar {
+    height: 32px; flex: none; display: flex; align-items: center; padding: 0 12px;
+    -webkit-app-region: drag; color: var(--muted); font-size: 12px;
+  }
+  #body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 4px 18px 0; }
+  #icon { flex: none; font-size: 22px; line-height: 1.2; }
+  #text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+  #msg { font-size: 14px; font-weight: 600; }
+  #detail {
+    margin-top: 8px; flex: 1; min-height: 0; overflow: auto; white-space: pre-wrap; word-break: break-all;
+    color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  }
+  #actions { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px 18px; }
+  button {
+    font: inherit; padding: 7px 14px; border-radius: 6px; cursor: pointer;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary.danger { background: var(--danger); border-color: var(--danger); }
+  button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+</head>
+<body>
+  <div id="titlebar"><span class="app" id="win-title">AKDAgent</span></div>
+  <div id="body">
+    <div id="icon">⚠️</div>
+    <div id="text">
+      <div id="msg"></div>
+      <div id="detail"></div>
+    </div>
+  </div>
+  <div id="actions">
+    <button id="btn-cancel"></button>
+    <button id="btn-ok" class="primary danger"></button>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id)
+  let answered = false
+  const finish = (ok) => {
+    if (answered) return
+    answered = true
+    window.svconfirm.answer(ok)
+  }
+  window.svconfirm.onInit((o) => {
+    const opt = o || {}
+    $('win-title').textContent = opt.title || 'AKDAgent'
+    document.title = opt.title || 'AKDAgent'
+    $('msg').textContent = opt.message || ''
+    const d = $('detail')
+    d.textContent = opt.detail || ''
+    d.style.display = opt.detail ? '' : 'none'
+    $('icon').textContent = opt.icon || '⚠️'
+    // 按钮文案由主进程按 i18n 传进来；这里的兜底只为"万一没传"时不至于空白（中性英文，不是界面文案）
+    $('btn-ok').textContent = opt.okLabel || 'OK'
+    $('btn-ok').className = 'primary' + (opt.danger === false ? '' : ' danger')
+    $('btn-cancel').textContent = opt.cancelLabel || 'Cancel'
+    // 默认焦点给**取消**（安全默认：一路回车 = 不做事）
+    $('btn-cancel').focus()
+  })
+  $('btn-cancel').addEventListener('click', () => finish(false))
+  $('btn-ok').addEventListener('click', () => finish(true))
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') finish(false)
+    else if (e.key === 'Enter' && document.activeElement === $('btn-ok')) finish(true)
+  })
+</script>
+</body>
+</html>

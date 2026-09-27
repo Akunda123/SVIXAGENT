@@ -17,6 +17,7 @@
  */
 const fs = require('node:fs')
 const path = require('node:path')
+const yaml = require('js-yaml')
 
 /** profile 目录里由运行时生成、可安全重置的文件/目录（patch 层与 plugins/ 不在其中） */
 const REGENERATED = ['node_modules', '.dsh-module-fallback', 'package.json', 'cordis.yml', 'cordis.yaml',
@@ -80,6 +81,233 @@ function readTextFile(p) {
 /** 写 UTF-8（无 BOM） */
 function writeTextFile(p, s) {
   fs.writeFileSync(p, s, 'utf8')
+}
+
+/**
+ * **原子写**（tmp + rename）—— 用于宿主 chokidar 正在监听的那几个文件。
+ * 为什么（2026-09-27）：`writeFileSync` 是先 truncate 再写；宿主按 `watch: true` 监听
+ * `.credentials.yaml`，有几率在"已清空、还没写完"的瞬间去读 ⇒ 读到空文档（对宿主是合法的"空存储"）
+ * ⇒ 那一轮请求就没有 key。rename 是原子的 ⇒ 宿主只会看到"整份换掉"这一个事件。
+ * rename 失败（Windows 上目标被占用等）时退回普通写，保证不会因为"写不进去"而更糟。
+ */
+function writeFileAtomic(p, s) {
+  const tmp = p + '.akdtmp'
+  try {
+    fs.writeFileSync(tmp, s, 'utf8')
+    fs.renameSync(tmp, p)
+    return true
+  } catch {
+    try { fs.unlinkSync(tmp) } catch { /* 忽略 */ }
+    try { writeTextFile(p, s); return true } catch { return false }
+  }
+}
+
+/**
+ * 同步凭据时的**合并**：`refs` 取源（客户端写的东西）、`records` 取隔离家目录那份（宿主自己写的）。
+ * 为什么不能整份覆盖（2026-09-27）：`records.client-connection/browser-session` 是**本家目录的**
+ * 浏览器会话授权 —— 把源 `~/.dsh` 那份搬进来，等于把**另一个家目录**的授权塞给宿主；反之宿主自己
+ * 每次写的那个 record 又会被我们盖掉。两边各有各的所有权，合并才对。
+ * @returns {string} 可直接落盘的 YAML
+ */
+function mergeCredentialDocs(srcText, dstPath, log) {
+  const say = typeof log === 'function' ? log : () => {}
+  let srcDoc = null
+  try { srcDoc = yaml.load(srcText) } catch { srcDoc = null }
+  let dstDoc = null
+  try { dstDoc = fs.existsSync(dstPath) ? yaml.load(readTextFile(dstPath)) : null } catch { dstDoc = null }
+  const srcRefs = isPlainMap(srcDoc) && isPlainMap(srcDoc.refs) ? srcDoc.refs : {}
+  const dstRecords = isPlainMap(dstDoc) && isPlainMap(dstDoc.records) ? dstDoc.records : null
+  const merged = { version: CRED_VERSION, refs: { ...srcRefs } }
+  if (dstRecords && Object.keys(dstRecords).length) merged.records = dstRecords
+  const srcRecords = isPlainMap(srcDoc) && isPlainMap(srcDoc.records) ? Object.keys(srcDoc.records) : []
+  if (srcRecords.length && !(dstRecords && Object.keys(dstRecords).length)) {
+    say('[akdagent] 源的 records 没有搬进隔离家目录（那是**另一个家目录**的会话授权；宿主会写自己的）：' + srcRecords.join(', '))
+  }
+  return dumpCredentialsDoc(merged)
+}
+
+/* ── 宿主凭据文档（.credentials.yaml）的硬约束 ────────────────────────────────
+ * 规则**不是我们定的**，是从随包运行时里读出来的（用户机日志里那条
+ * `credentials-local: unknown top-level key "DEEPSEEK_API_KEY"` 就是它抛的）：
+ *   · `@deepseek-ai/dsh-credentials-local/lib/index.js`  `parseCredentialsDocument()`
+ *       - 空文档 = 空存储（允许）；非空映射 ⇒ **必须** `version: 1`      （150/151 行）
+ *       - 顶层键**只许** `version` / `refs` / `records` —— 多一个就
+ *         `unknown top-level key` ⇒ **整个宿主 boot 失败**（152 行）
+ *       - `refs`   = 键匹配 `/^[A-Za-z_][A-Za-z0-9_]*$/`、值必须非空字符串（191-199 行）
+ *       - `records` = 键为 `<scope>/<id>`，两半都匹配 `/^[a-z][a-z0-9-]*$/`（202-210 行）
+ *       - 段缺席或为 null 都算空（227-231 行 `asSection`）
+ *   · `@deepseek-ai/dsh-credentials/lib/index.js`  REF_PATTERN / KEY_SEGMENT_PATTERN（13/15 行）
+ *
+ * 为什么必须由我们保证（2026-09-27 事故）：客户端的 `setCred()` 用"有没有 refs"判新旧格式，
+ * 而全新机器上 DSH 先写的是 `version: 1` + `records`（**还没有 refs**）⇒ 被判成"老扁平格式"
+ * ⇒ 用户填的 key 被写成**顶层键**，与 version/records 混在一份文件里 ⇒ 宿主 boot 直接失败
+ * ⇒ 宿主进程退出 ⇒ 客户端 500ms 后跟着退出（用户侧看到的就是"过了一会就闪退"，且在"重装"之后依旧）。
+ * 宿主自带的扁平迁移（`renderFlatLayoutMigration`，171-189 行）**只认纯扁平文档**（见到 version 就放弃），
+ * 混合文档它自己修不了 ⇒ 只能我们修。
+ */
+const CRED_VERSION = 1
+const CRED_TOP_KEYS = ['version', 'refs', 'records']
+const CRED_REF_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const CRED_SEG_RE = /^[a-z][a-z0-9-]*$/
+
+/** YAML 里"普通映射"的判据（数组/null/标量都不算） */
+function isPlainMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v) }
+
+/** 这份文档宿主读得了吗？措辞尽量贴宿主报错，便于和日志对照。
+ * @returns {string[]} 问题清单；空数组 = 宿主能读 */
+function credentialDocProblems(doc) {
+  if (doc === undefined || doc === null) return []            // 空文档 = 空存储（允许）
+  if (!isPlainMap(doc)) return ['不是映射（must be a mapping）']
+  const keys = Object.keys(doc)
+  if (keys.length === 0) return []                            // 空映射（允许）
+  const problems = []
+  if (!('version' in doc)) problems.push('缺 version（宿主认作 pre-release flat layout）')
+  else if (doc.version !== CRED_VERSION) problems.push(`version=${JSON.stringify(doc.version)}（本构建只认 1）`)
+  for (const k of keys) if (!CRED_TOP_KEYS.includes(k)) problems.push(`unknown top-level key "${k}"`)
+  if (doc.refs !== undefined && doc.refs !== null) {
+    if (!isPlainMap(doc.refs)) problems.push('refs 不是映射')
+    else for (const [k, v] of Object.entries(doc.refs)) {
+      if (!CRED_REF_RE.test(k)) problems.push(`refs 名 "${k}" 不合法（须匹配 ${String(CRED_REF_RE)}）`)
+      else if (typeof v !== 'string') problems.push(`refs["${k}"] 不是字符串`)
+      else if (v.length === 0) problems.push(`refs["${k}"] 是空串`)
+    }
+  }
+  if (doc.records !== undefined && doc.records !== null) {
+    if (!isPlainMap(doc.records)) problems.push('records 不是映射')
+    else for (const k of Object.keys(doc.records)) {
+      const parts = k.split('/')
+      if (parts.length !== 2 || !parts.every((s) => CRED_SEG_RE.test(s))) problems.push(`records 键 "${k}" 不是 <scope>/<id>`)
+    }
+  }
+  return problems
+}
+
+/**
+ * **就地**把凭据文档规范化成"宿主一定读得了"的新格式（会改传入对象）。
+ *   · 保证 `version: 1`、`refs` 是映射
+ *   · 顶层杂键（老扁平格式、或被我们写坏的键）⇒ 名字合法且值是非空字符串就**搬进 refs**，否则丢弃
+ *   · `records` 原样保留（不是映射则丢弃）
+ *   · 已经合规 ⇒ `report.changed === false`（不做无谓改动）
+ * @returns {{doc:object, report:{moved:string[], dropped:string[], versionFixed:boolean, changed:boolean}}}
+ */
+function normalizeCredentialsDoc(doc) {
+  const report = { moved: [], dropped: [], versionFixed: false, changed: false }
+  if (!isPlainMap(doc)) {
+    report.changed = true
+    report.dropped.push('(整份不是映射 ⇒ 重建成空凭据文档)')
+    return { doc: { version: CRED_VERSION, refs: {} }, report }
+  }
+  if (Object.keys(doc).length === 0) return { doc, report }     // 空文档本来就合规
+  if (doc.version !== CRED_VERSION) { doc.version = CRED_VERSION; report.versionFixed = true; report.changed = true }
+  if (!isPlainMap(doc.refs)) {
+    if (doc.refs !== undefined) report.dropped.push('refs（不是映射）')
+    doc.refs = {}
+    report.changed = true
+  }
+  for (const k of Object.keys(doc)) {
+    if (CRED_TOP_KEYS.includes(k)) continue
+    const v = doc[k]
+    delete doc[k]
+    report.changed = true
+    if (CRED_REF_RE.test(k) && typeof v === 'string' && v.length > 0) { doc.refs[k] = v; report.moved.push(k) }
+    else report.dropped.push(k)
+  }
+  if (doc.records !== undefined) {
+    if (!isPlainMap(doc.records)) { delete doc.records; report.dropped.push('records（不是映射）'); report.changed = true }
+    else {
+      /* 只清掉**形状就不对**的条目（键不是 <scope>/<id>、或值不是映射）——
+       * 留着它们 = 宿主照样拒读 = 白走一次"整份挪走"。**字段级**校验（record 里有哪些 kind/field）
+       * 交给宿主：那些条目是宿主自己写的，我们不越权解读。 */
+      for (const [k, v] of Object.entries(doc.records)) {
+        const parts = k.split('/')
+        if (parts.length !== 2 || !parts.every((s) => CRED_SEG_RE.test(s)) || !isPlainMap(v)) {
+          delete doc.records[k]
+          report.dropped.push('records.' + k)
+          report.changed = true
+        }
+      }
+    }
+  }
+  return { doc, report }
+}
+
+/** 统一用同一套缩进/无 BOM 落盘格式 */
+function dumpCredentialsDoc(doc) {
+  return yaml.dump(doc, { indent: 2, lineWidth: -1 })
+}
+
+/**
+ * 把凭据**文本**规范化。`version` 是别的数字时**不动它**（那可能是更新版 DSH 的格式，
+ * 我们不认识、也绝不该喂给随包的这个运行时）。
+ * @returns {{ok:boolean, text:string, report?:object, reason?:string}}
+ */
+function normalizeCredentialsText(text, log) {
+  const say = typeof log === 'function' ? log : () => {}
+  // 空文件 = 空存储（宿主允许）⇒ 原样，别无谓改写成 version/refs 让人以为动过手
+  if (String(text).trim() === '') return { ok: true, text, report: { moved: [], dropped: [], versionFixed: false, changed: false } }
+  let doc
+  try { doc = yaml.load(text) } catch (e) { return { ok: false, text, reason: 'YAML 解析失败：' + (e && e.message ? e.message : e) } }
+  if (isPlainMap(doc) && 'version' in doc && doc.version !== CRED_VERSION) {
+    return { ok: false, text, reason: `version=${JSON.stringify(doc.version)}（不是本构建认的 1）` }
+  }
+  const { doc: fixed, report } = normalizeCredentialsDoc(doc)
+  if (report.changed) {
+    say('[akdagent] 凭据文档已规范化（宿主只认 version/refs/records）：'
+      + (report.versionFixed ? ' version→1' : '')
+      + (report.moved.length ? ' 搬进 refs：' + report.moved.join(', ') : '')
+      + (report.dropped.length ? ' 丢弃：' + report.dropped.join(', ') : ''))
+  }
+  return { ok: true, text: dumpCredentialsDoc(fixed), report }
+}
+
+/**
+ * 启动自检 + 自愈：隔离家目录那份凭据读不了就**别让宿主去读**（宿主读不了 ⇒ 整个起不来 ⇒ 用户看到闪退）。
+ * 顺序：能规范化就就地规范化（留 `.bak`）；规范化后仍不合规 ⇒ **挪走**（`…rejected-<ts>`），
+ * 让宿主先能起来（代价是没 key ⇒ 回到"看得见的 401/未配置"，而不是"凭空消失"）。
+ * @param {string} home DSH_HOME
+ * @param {(m:string)=>void} [log]
+ * @param {{allowQuarantine?:boolean}} [opts] 源 `~/.dsh` 那份**只规范化、绝不挪走**（那是用户的文件）
+ */
+function healCredentialsFile(home, log, opts) {
+  const say = typeof log === 'function' ? log : () => {}
+  const allowQuarantine = !(opts && opts.allowQuarantine === false)
+  /* 标签只用于日志：这个函数**源 `~/.dsh` 与隔离家目录都会调**，不写清是哪一份，
+   * 排障时两行一模一样的日志等于没有信息（2026-09-27）。 */
+  const label = (opts && opts.label) || home
+  const p = path.join(home, '.credentials.yaml')
+  if (!fs.existsSync(p)) return { existed: false, action: 'none' }
+  let text
+  try { text = readTextFile(p) } catch (e) { return { existed: true, action: 'unreadable', reason: e && e.message } }
+  let doc = null
+  let parseErr = null
+  try { doc = yaml.load(text) } catch (e) { doc = undefined; parseErr = e }
+  const problems = parseErr ? ['YAML 解析失败：' + (parseErr.message || parseErr)] : credentialDocProblems(doc)
+  if (problems.length === 0) return { existed: true, action: 'ok' }
+  if (isPlainMap(doc) && 'version' in doc && doc.version !== CRED_VERSION) {
+    // 更新版 DSH 的格式：不猜、不改 —— 但也不能让随包运行时去读它
+    if (allowQuarantine) {
+      const to = p + '.rejected-' + Date.now()
+      try { fs.renameSync(p, to) } catch { /* 忽略 */ }
+      say(`[akdagent] ⚠ ${label}的凭据是 version=${JSON.stringify(doc.version)}（不是本构建认的 1）⇒ 已挪走为 ${path.basename(to)}，宿主先能起来`)
+      return { existed: true, action: 'quarantined', problems, to }
+    }
+    return { existed: true, action: 'untouched', problems }
+  }
+  const { doc: fixed, report } = normalizeCredentialsDoc(doc)
+  const still = credentialDocProblems(fixed)
+  if (still.length === 0) {
+    try { fs.copyFileSync(p, p + '.bak') } catch { /* 忽略 */ }
+    writeFileAtomic(p, dumpCredentialsDoc(fixed))
+    say('[akdagent] ⚠ ' + label + '的凭据不合宿主规则（' + problems.join('；') + '）⇒ 已就地规范化'
+      + (report.moved.length ? `（搬进 refs：${report.moved.join(', ')}）` : '')
+      + (report.dropped.length ? `（丢弃：${report.dropped.join(', ')}）` : '') + '；原件留 ' + path.basename(p) + '.bak')
+    return { existed: true, action: 'normalized', problems, moved: report.moved, dropped: report.dropped }
+  }
+  if (!allowQuarantine) return { existed: true, action: 'untouched', problems }
+  const to = p + '.rejected-' + Date.now()
+  try { fs.renameSync(p, to) } catch { /* 忽略 */ }
+  say('[akdagent] ⚠ ' + label + '的凭据修不好（' + still.join('；') + '）⇒ 已挪走为 ' + path.basename(to) + '，宿主先能起来（客户端会让你重填 key）')
+  return { existed: true, action: 'quarantined', problems, to }
 }
 
 /** 该 patch 条目指向的插件在当前运行时里能不能加载 */
@@ -288,30 +516,63 @@ function ensureHome(opts) {
   //         「一发消息就 回合结束（error）」，新建对话也一样，而他在界面上"明明配好了 key"。
   //    只同步凭据 + 设置；**不抄 profiles**（用户 profile 带私有 workspace 依赖会让宿主起不来，实测）。
   //    必须走 writeTextFile（去 BOM/UTF-16）：新版凭据层按正则校验 key 名，BOM 会让它拒启动（实测）。
+  /* 先给**源**做一次只规范化、绝不挪走的自愈：老扁平 / 混合文档在这里被修成新格式
+   * （等价于宿主自带的 renderFlatLayoutMigration，只是那个只认纯扁平文档）。
+   * 这样下面的同步送过去的就是宿主读得了的。 */
+  healCredentialsFile(sourceHome, say, { allowQuarantine: false, label: '源 ~/.dsh' })
   const synced = []
   for (const f of ['.credentials.yaml', 'settings.yaml']) {
     const s = path.join(sourceHome, f)
     if (!fs.existsSync(s)) continue
     try {
-      writeTextFile(path.join(home, f), readTextFile(s))
-      synced.push(f)
+      const text = readTextFile(s)
+      /* ⚠️ 凭据文件**必须先规范化再进隔离家目录**（2026-09-27 事故）：
+       * 以前是**逐字抄一份**过去 —— 可"客户端能读"≠"宿主能读"：源里只要有顶层杂键
+       * （老扁平格式，或被 setCred 写坏的混合文档），宿主 boot 时就 `unknown top-level key`
+       * 直接失败 ⇒ 宿主进程退出 ⇒ 客户端跟着退出（用户看到"闪退"，且重装也没用）。
+       * 规范化不了（读不懂 / version 不是 1）就**不写**，保留隔离家目录里已有那份 —— 宁可没 key，
+       * 也不能给宿主一份它读不了的文件。 */
+      if (f === '.credentials.yaml') {
+        const out = normalizeCredentialsText(text, say)
+        if (!out.ok) {
+          say(`[akdagent] ⚠ ${f} 没有同步进隔离家目录（${out.reason}）—— 避免宿主起不来；隔离家目录里那份保持不动`)
+          continue
+        }
+        // refs 取源、records 取隔离家目录（宿主自己的）—— 见 mergeCredentialDocs 的说明
+        const merged = mergeCredentialDocs(out.text, path.join(home, f), say)
+        writeFileAtomic(path.join(home, f), merged)
+        synced.push(f)
+      } else {
+        writeFileAtomic(path.join(home, f), text)
+        synced.push(f)
+      }
     } catch (e) {
       // ⚠️ 以前这里是静默 catch —— 同步失败时用户照样没 key，而我们一无所知（2026-09-26 改）
       say(`[akdagent] ⚠ 同步 ${f} 失败（宿主会读不到）：${e && e.message ? e.message : e}`)
     }
   }
   if (synced.length && !firstTime) say(`[akdagent] 已同步凭据/设置：${synced.join(', ')}`)
-  // 同步后自检：源里有 key、隔离家目录里却没有 ⇒ 明确报出来（修复后这条不该出现）
+  /* 起宿主**之前**的最后一道闸：隔离家目录那份自己也得是宿主读得了的。
+   * 为什么单列这一步（而不是只靠同步）：源里没有凭据时同步整段跳过 ⇒ 隔离家目录里
+   * 那份**历史遗留**（旧版客户端写坏的混合文档 / 扁平文档）会一直留着 ⇒ 宿主每次启动都失败。
+   * 这份是**我们自己的拷贝**，可以放心规范化、必要时挪走（源那份不动）。 */
+  healCredentialsFile(home, say, { label: '隔离家目录' })
+  /* 同步后自检（2026-09-27 判据换成**规则层**，不再用"sk- 开头的正则"）：
+   *   ① 隔离家目录那份**宿主读得了吗** —— 读不了就是"宿主起不来/闪退"，必须当场喊出来；
+   *   ② 源里有哪些 ref **没进**隔离家目录 —— 旧判据是"值像 sk-xxx"或"refs 段非空"，
+   *      对非 `sk-` 开头的提供方会**漏报**，而"refs 非空"又可能把别的东西当 key。 */
   try {
-    const looksHasKey = (p) => {
-      if (!fs.existsSync(p)) return false
-      const t = readTextFile(p)
-      return /sk-[A-Za-z0-9_\-]{8,}/.test(t) || /\nrefs:\s*\n\s+\S/.test(t)
+    const docAt = (p) => { try { return fs.existsSync(p) ? yaml.load(readTextFile(p)) : undefined } catch { return undefined } }
+    const refNames = (doc) => (isPlainMap(doc) && isPlainMap(doc.refs)
+      ? Object.keys(doc.refs).filter((k) => typeof doc.refs[k] === 'string' && doc.refs[k]) : [])
+    const dstDoc = docAt(path.join(home, '.credentials.yaml'))
+    const dstProblems = credentialDocProblems(dstDoc)
+    if (dstProblems.length) {
+      say('[akdagent] ⚠ 自检未通过：隔离家目录的凭据**宿主读不了**（' + dstProblems.join('；') + '）⇒ 宿主会起不来（把这段日志发回来）')
     }
-    const srcCred = path.join(sourceHome, '.credentials.yaml')
-    const dstCred = path.join(home, '.credentials.yaml')
-    if (looksHasKey(srcCred) && !looksHasKey(dstCred)) {
-      say('[akdagent] ⚠ 自检未通过：源 ~/.dsh 里有凭据，但隔离家目录里没有 ⇒ 宿主必然拿不到 key（把这段日志发回来）')
+    const missing = refNames(docAt(path.join(sourceHome, '.credentials.yaml'))).filter((k) => !refNames(dstDoc).includes(k))
+    if (missing.length) {
+      say('[akdagent] ⚠ 自检未通过：源里有 ' + missing.join(', ') + '，隔离家目录里没有 ⇒ 宿主取不到这几个 key（把这段日志发回来）')
     }
   } catch { /* 忽略 */ }
   // 每次启动都做的两件体检（都幂等且便宜；失败模式是宿主直接起不来，代价太大）：
@@ -331,6 +592,10 @@ function ensureHome(opts) {
   return { ...r, disabled }
 }
 
-module.exports = { rmrf, readTextFile, writeTextFile, runtimeVersionTag, patchNameResolvable,
+module.exports = { rmrf, readTextFile, writeTextFile, writeFileAtomic, runtimeVersionTag, patchNameResolvable,
   sanitizePatchLayer, sanitizeAllPatches, ensureInventoryContributorDisabled, normalizeCredentialFiles,
-  migrateProfileHomeIfNeeded, ensureHome, REGENERATED }
+  migrateProfileHomeIfNeeded, ensureHome, REGENERATED,
+  // 宿主凭据文档的硬约束（2026-09-27）：main.js 的写侧与守卫都用这几个
+  CRED_VERSION, CRED_TOP_KEYS, CRED_REF_RE, CRED_SEG_RE,
+  credentialDocProblems, normalizeCredentialsDoc, normalizeCredentialsText, dumpCredentialsDoc, healCredentialsFile,
+  mergeCredentialDocs }

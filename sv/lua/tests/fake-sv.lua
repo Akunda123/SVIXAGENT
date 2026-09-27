@@ -118,8 +118,12 @@ local function newGroup(o, state)
   function g:getParameter(t)
     if type(t) ~= "string" or t == "" then return nil end
     local k = t:lower()
+    -- 真机 SV1 上这 9 个键都有（`06-track-misc.md` 的 AKD 示例里就是 `group.getParameter("toneShift")`）。
+    -- 🆕 2026-09-27：补 `toneshift`（音区偏移 —— 事实源 param-units.json 记 ±800 音分）
+    --    与 `mouthopening`（未核实范围 ⇒ 桥不夹，用它测"未收录参数"的路径）。
     local known = { loudness = true, tension = true, breathiness = true, voicing = true,
-                    gender = true, vibratoenv = true, pitchdelta = true }
+                    gender = true, vibratoenv = true, pitchdelta = true,
+                    toneshift = true, mouthopening = true }
     if not known[k] and k:sub(1, 10) ~= "vocalmode_" then return nil end
     self._auto = self._auto or {}
     if self._auto[k] == nil then

@@ -91,6 +91,9 @@ contextBridge.exposeInMainWorld('akdagent', {
   /** 连接状态：未就绪显示"正在连接"，就绪显示"连接完成" */
   onAgentReady: (cb) => ipcRenderer.on('akdagent-agent-ready', (_e, ready) => cb(ready)),
   agentReadyQuery: () => ipcRenderer.invoke('akdagent-agent-ready-query'),
+  /** 🆕 2026-09-27：主进程推来的**用户可见提示**（如"这一轮为什么错、去哪儿配"）。
+   *  以前这类原因只写日志，界面上永远只有"回合结束（error）"。{level:'warn'|'info', text} */
+  onNotice: (cb) => ipcRenderer.on('akdagent-notice', (_e, p) => cb(p)),
   /**
    * 侧栏面板推送（SidePanelSection）：只转发，不判断。
    *   {kind:'processing', turnId} —— 本轮开始（同一 turnId 只加一次「正在处理中」）

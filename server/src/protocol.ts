@@ -12,7 +12,7 @@
  * 关于 `run_script`：桥是 **Lua** 桥 ⇒ 脚本必须是 **Lua**（冒号调用、索引 1 起），
  * 不再是 JS/ES5.1（那是已退役的 JS 桥的语义）。
  */
-import { fileIpcSend, isBridgeAlive, readHeartbeat, collectDiagnostics, type Host } from "./fileipc.js";
+import { fileIpcSend, isBridgeAlive, readHeartbeat, readLastOp, collectDiagnostics, type Host } from "./fileipc.js";
 
 export interface ExecuteOptions {
   timeoutMs?: number;
@@ -43,7 +43,16 @@ export function serviceability(op: string, host?: string, maxAgeSec = 15): {
     };
   }
   if (!isBridgeAlive(h, undefined, maxAgeSec)) {
-    return { ok: false, reason: `桥心跳已过期（host=${h}）—— 桥可能已停止，请重新运行 AKDAgentBridge.lua` };
+    // 🆕 2026-09-27：桥现在每笔请求执行前会落一条面包屑（akdagent-lastop-<host>.json）。
+    //   若它停在 stage="running"，就说明**桥是在执行那一笔时停住的** —— 真机上最常见的原因
+    //   是宿主弹了**模态脚本错误框**（框一弹宿主主线程停、桥随之死，pcall 拦不住）。
+    //   ⇒ 这里直接把 op 名和恢复三步给出来，别让用户对着"桥心跳过期"干瞪眼。
+    const crumb = readLastOp(h);
+    const tail = crumb && crumb.stage === "running" && crumb.op
+      ? `；⚠️ 桥是在执行 op \`${crumb.op}\` 时停住的（多半是宿主弹了模态脚本错误框）` +
+        ` ⇒ ① 到宿主里关掉那个错误框 ② Ctrl+S 保存工程 ③ 脚本菜单重跑 AKDAgentBridge`
+      : "";
+    return { ok: false, reason: `桥心跳已过期（host=${h}）—— 桥可能已停止，请重新运行 AKDAgentBridge.lua` + tail };
   }
   const ops = Array.isArray(hb.ops) ? hb.ops : [];
   if (!ops.includes(op)) {

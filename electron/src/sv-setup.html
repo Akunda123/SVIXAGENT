@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>AKDAgent</title>
+<!--
+  SV 集成配置向导（2026-09-27 · 用户定的流程）。
+
+  触发：启动时检测到**一个 scripts 目录都没配**（main.js 的 notifyMissingSvDirs ⇒ openSvSetup）。
+  三步：① 说明为什么要配 → ② 自动检索所有候选目录并列出（勾选；也可「浏览…」手动加）
+        → ③ 一键部署（复用设置页那套部署逻辑，不另写一份）+ 告诉用户回宿主里跑一次桥。
+
+  ⚠️ 只往 scripts 目录复制脚本、并在 SV 根目录建 Agent 工作目录；**不动用户工程**。
+  IPC 全走 preload 暴露的 window.svsetup（见 sv-setup-preload.js），文案走 window.svi18n（命名空间 svSetup）。
+-->
+<style>
+  :root {
+    --bg: #2e2e2e; --panel: #353837; --border: #454b49; --text: #e8e8e8;
+    --muted: #9aa0a0; --accent: #4c8bf5; --danger: #e0614f; --ok: #4caf7d; --hover: #3d4241; --warn: #d9a441;
+    /* 主按钮用**绿**（2026-09-27 用户指定）：向导是"把配置做起来"的正向流程，
+     * 借设置页那套蓝会跟"信息类"（kind 徽标）混在一起 */
+    --go: #3fae6a; --go-hover: #47bd75;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.6 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  #titlebar { height: 32px; flex: none; display: flex; align-items: center; padding: 0 12px; -webkit-app-region: drag; color: var(--muted); font-size: 12px; }
+
+  /* 步骤指示 */
+  #steps { flex: none; display: flex; gap: 8px; padding: 2px 20px 10px; }
+  .step { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+  .step.active { border-color: var(--go); color: var(--text); background: var(--panel); }
+  .step.done { border-color: var(--ok); color: var(--text); }
+  .step .n { width: 20px; height: 20px; flex: none; border-radius: 50%; background: var(--border); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .step.active .n { background: var(--go); color: #fff; }
+  .step.done .n { background: var(--ok); color: #fff; }
+
+  #main { flex: 1; min-height: 0; overflow: auto; padding: 4px 20px 0; }
+  h1 { font-size: 16px; margin: 4px 0 8px; }
+  .hint { color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+  .row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: none; }
+  .row input[type=checkbox] { margin-top: 3px; flex: none; accent-color: var(--go); width: 16px; height: 16px; }
+  .path { word-break: break-all; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+  .badge.kind { border-color: var(--accent); color: var(--accent); }
+  .badge.ok { border-color: var(--ok); color: var(--ok); }
+  .badge.warn { border-color: var(--warn); color: var(--warn); }
+  .badge.miss { border-color: var(--muted); }
+  .result { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .result:last-child { border-bottom: none; }
+  .result .ic { flex: none; }
+  .sep { color: var(--border); }
+  #actions { flex: none; display: flex; align-items: center; gap: 8px; padding: 14px 20px 18px; }
+  #actions .grow { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; }
+  button { font: inherit; padding: 7px 14px; border-radius: 6px; cursor: pointer; background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--go); border-color: var(--go); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--go-hover); border-color: var(--go-hover); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus { outline: 2px solid var(--go); outline-offset: 1px; }
+  code { background: #2a2d2c; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <div id="titlebar"><span id="win-title">SV 集成配置向导</span></div>
+
+  <div id="steps">
+    <div class="step" id="s1"><span class="n">1</span><span data-i18n="svSetup.step1"></span></div>
+    <div class="step" id="s2"><span class="n">2</span><span data-i18n="svSetup.step2"></span></div>
+    <div class="step" id="s3"><span class="n">3</span><span data-i18n="svSetup.step3"></span></div>
+  </div>
+
+  <div id="main">
+    <!-- ① 说明 -->
+    <div id="pane1">
+      <h1 data-i18n="svSetup.heading"></h1>
+      <div class="hint" data-i18n="svSetup.intro"></div>
+      <div class="card">
+        <div data-i18n="svSetup.step1Hint"></div>
+      </div>
+    </div>
+
+    <!-- ② 目录列表 -->
+    <div id="pane2" style="display:none">
+      <h1 data-i18n="svSetup.step2"></h1>
+      <div class="hint" data-i18n="svSetup.step2Hint"></div>
+      <div class="card" id="list"></div>
+      <div class="hint" id="list-empty" style="display:none" data-i18n="svSetup.none"></div>
+    </div>
+
+    <!-- ③ 部署结果 -->
+    <div id="pane3" style="display:none">
+      <h1 id="pane3-title" data-i18n="svSetup.step3"></h1>
+      <div class="card" id="results"></div>
+      <div class="card hint" id="done-hint" style="display:none" data-i18n="svSetup.doneHint"></div>
+    </div>
+  </div>
+
+  <div id="actions">
+    <button id="btn-later" data-i18n="svSetup.later"></button>
+    <span class="grow" id="status"></span>
+    <button id="btn-back" style="display:none" data-i18n="svSetup.back"></button>
+    <button id="btn-browse" style="display:none" data-i18n="svSetup.browse"></button>
+    <button id="btn-scan" class="primary" data-i18n="svSetup.scan"></button>
+    <button id="btn-deploy" class="primary" style="display:none" data-i18n="svSetup.deploy"></button>
+    <button id="btn-finish" class="primary" style="display:none" data-i18n="svSetup.finish"></button>
+  </div>
+
+<script>
+  /* i18n 兜底（2026-09-27）：万一 preload 没把字典送进来，也要让界面**显示键名**（可诊断），
+   * 而不是整页空白 —— 第一版就吃过这个亏（页面脚本在 window.svi18n 上抛错 ⇒ 全空，只能靠截图猜）。 */
+  const I = window.svi18n || {
+    t: (k) => k, apply: () => {}, getLocale: () => 'zh-Hans', onChange: () => {},
+  }
+  if (!window.svi18n) console.error('[sv-setup] window.svi18n 缺失：preload 没注入字典，界面将显示键名')
+  const $ = (id) => document.getElementById(id)
+  const t = (k, ...a) => I.t(k, ...a)
+  I.apply()   // ⚠️ 必须**无参**：contextBridge 会序列化参数，`document` 传不进 preload（会拿到非节点 ⇒ querySelectorAll 不是函数）
+  $('win-title').textContent = t('svSetup.title')
+  document.title = t('svSetup.title')
+
+  /** 状态：entries（扫描结果）、selected（勾选集合）、step（1..3） */
+  let entries = []
+  let selected = new Set()
+  let step = 1
+
+  const KIND_KEY = { sv1: 'svSetup.kind.sv1', sv2: 'svSetup.kind.sv2', ix: 'svSetup.kind.ix', opsv: 'svSetup.kind.opsv' }
+  const kindLabel = (k) => t(KIND_KEY[k] || 'svSetup.kind.unknown')
+
+  function setStep(n) {
+    step = n
+    $('pane1').style.display = n === 1 ? '' : 'none'
+    $('pane2').style.display = n === 2 ? '' : 'none'
+    $('pane3').style.display = n === 3 ? '' : 'none'
+    for (const [i, id] of [[1, 's1'], [2, 's2'], [3, 's3']]) {
+      const el = $(id)
+      el.className = 'step' + (i === n ? ' active' : (i < n ? ' done' : ''))
+    }
+    $('btn-back').style.display = n === 2 ? '' : 'none'
+    $('btn-browse').style.display = n === 2 ? '' : 'none'
+    $('btn-scan').style.display = n === 1 ? '' : 'none'
+    $('btn-deploy').style.display = n === 2 ? '' : 'none'
+    $('btn-finish').style.display = n === 3 ? '' : 'none'
+    $('status').textContent = ''
+    updateSelectedHint()
+  }
+
+  function updateSelectedHint() {
+    if (step === 2) $('status').textContent = t('svSetup.selected', selected.size)
+  }
+
+  /** ② 渲染目录列表：一行 = 复选框 + 路径 + 徽标（宿主类型 / 桥 / 面板） */
+  function renderList() {
+    const box = $('list')
+    box.innerHTML = ''
+    $('list-empty').style.display = entries.length ? 'none' : ''
+    for (const e of entries) {
+      const row = document.createElement('div')
+      row.className = 'row'
+      const cb = document.createElement('input')
+      cb.type = 'checkbox'
+      cb.checked = selected.has(e.scriptsDir)
+      cb.addEventListener('change', () => {
+        if (cb.checked) selected.add(e.scriptsDir)
+        else selected.delete(e.scriptsDir)
+        updateSelectedHint()
+      })
+      row.appendChild(cb)
+      const info = document.createElement('div')
+      info.style.cssText = 'min-width:0'
+      const p = document.createElement('div')
+      p.className = 'path'
+      p.textContent = e.scriptsDir
+      info.appendChild(p)
+      const badges = document.createElement('div')
+      badges.className = 'badges'
+      const add = (text, cls) => {
+        const b = document.createElement('span')
+        b.className = 'badge' + (cls ? ' ' + cls : '')
+        b.textContent = text
+        badges.appendChild(b)
+      }
+      add(kindLabel(e.kind), 'kind')
+      add(e.bridgeInstalled ? t('svSetup.bridgeOn') : t('svSetup.bridgeOff'), e.bridgeInstalled ? 'ok' : 'miss')
+      if (e.panelWanted) add(e.panelInstalled ? t('svSetup.panelOn') : t('svSetup.panelOff'), e.panelInstalled ? 'ok' : 'miss')
+      else add(t('svSetup.panelNo'), 'warn')
+      if (!e.exists) add(t('svSetup.notExist'), 'warn')
+      info.appendChild(badges)
+      row.appendChild(info)
+      box.appendChild(row)
+    }
+  }
+
+  async function doScan() {
+    $('btn-scan').disabled = true
+    $('status').textContent = t('svSetup.scanning')
+    let r = null
+    try { r = await window.svsetup.scan() } catch (e) { r = null }
+    $('btn-scan').disabled = false
+    entries = (r && r.entries) || []
+    selected = new Set(entries.filter((e) => e.exists && e.kind).map((e) => e.scriptsDir))
+    renderList()
+    setStep(2)
+  }
+
+  async function addManual() {
+    let r = null
+    try { r = await window.svsetup.pick() } catch (e) { r = null }
+    const dir = r && (r.path || r.dir)
+    if (!dir) return
+    try { await window.svsetup.addDir(dir) } catch { /* 下面重新扫描就能反映出来 */ }
+    // 重新扫描（会把刚加的目录带出来；已配置的目录在扫描里也会列入）
+    let s = null
+    try { s = await window.svsetup.scan() } catch (e) { s = null }
+    entries = (s && s.entries) || entries
+    selected.add(dir)
+    renderList()
+    setStep(2)
+  }
+
+  /** ③ 一键部署：先把勾选的目录写进配置（幂等），再走与设置页同一个部署入口 */
+  async function doDeploy() {
+    if (!selected.size) { $('status').textContent = t('svSetup.noSelection'); return }
+    $('btn-deploy').disabled = true
+    $('status').textContent = t('svSetup.deploying')
+    for (const dir of selected) {
+      try { await window.svsetup.addDir(dir) } catch { /* 单个失败不阻断其余的 */ }
+    }
+    let r = null
+    try { r = await window.svsetup.deployAll() } catch (e) { r = { ok: false, error: String(e && e.message || e) } }
+    $('btn-deploy').disabled = false
+    renderResults(r)
+    setStep(3)
+  }
+
+  function renderResults(r) {
+    const box = $('results')
+    box.innerHTML = ''
+    const results = ((r && r.results) || []).filter((x) => selected.has(x.scriptsDir))
+    if (r && r.ok === false && r.reason === 'no-dirs') {
+      const d = document.createElement('div')
+      d.className = 'hint'
+      d.textContent = t('svSetup.none')
+      box.appendChild(d)
+    }
+    for (const x of results) {
+      const row = document.createElement('div')
+      row.className = 'result'
+      const ic = document.createElement('span')
+      ic.className = 'ic'
+      ic.textContent = x.ok ? '✅' : '❌'
+      row.appendChild(ic)
+      const info = document.createElement('div')
+      info.style.cssText = 'min-width:0'
+      const p = document.createElement('div')
+      p.className = 'path'
+      p.textContent = x.scriptsDir
+      info.appendChild(p)
+      const d = document.createElement('div')
+      d.className = 'hint'
+      d.textContent = x.ok ? (x.steps || []).join('；') : (x.error || '')
+      info.appendChild(d)
+      row.appendChild(info)
+      box.appendChild(row)
+    }
+    const anyOk = results.some((x) => x.ok)
+    $('pane3-title').textContent = anyOk ? t('svSetup.done') : t('svSetup.step3')
+    $('done-hint').style.display = anyOk ? '' : 'none'
+    $('status').textContent = ''
+  }
+
+  $('btn-scan').addEventListener('click', doScan)
+  $('btn-browse').addEventListener('click', addManual)
+  $('btn-deploy').addEventListener('click', doDeploy)
+  $('btn-back').addEventListener('click', () => setStep(1))
+  $('btn-finish').addEventListener('click', () => window.svsetup.close())
+  $('btn-later').addEventListener('click', () => window.svsetup.close())
+
+  setStep(1)
+</script>
+</body>
+</html>

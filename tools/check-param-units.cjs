@@ -42,6 +42,11 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(__dirname, 'param-units.json');
 const argv = process.argv.slice(2);
 const FLAG = (n) => argv.includes(n);
+/** `--lua <路径>`：拿另一份桥做反向验证（指向修复前的副本，对账段应 FAIL） */
+const LUA_PATH = (() => {
+  const i = argv.indexOf('--lua');
+  return i >= 0 && argv[i + 1] ? path.resolve(argv[i + 1]) : path.join(ROOT, 'sv', 'lua', 'AKDAgentBridge.lua');
+})();
 
 /** 归一化常量（helper）的例外标记：只有明说"这是常量/归一化"才豁免 */
 const EXEMPT_MARKERS = ['归一化', '归一', 'VISIBLE_RANGE', 'helper', '常量'];
@@ -127,6 +132,98 @@ function loadSource() {
 const { params, problems } = loadSource();
 const physical = params.filter((p) => p.kind === 'physical');
 const errors = [], infos = [];
+
+// ============================================================================
+// 【2026-09-27 新增】③ 事实源 ↔ **实现** 对账：`AUTO_RANGE`（桥里真正夹的那张表）
+// ============================================================================
+// 为什么加：用户 2026-09-27 提醒「api 文档好像没写音区偏移属性」。查下去发现 ——
+//   **音区偏移 `toneShift` 属于 Automation**（不是 Note 属性），而事实源 `param-units.json`
+//   早就记了它 **±800 音分**（2026-09-20 用户裁定 + 51 工程实测），**但桥的 `AUTO_RANGE` 里没有它**
+//   ⇒ `set_automation({parameter:"toneShift"})` **一个数都不夹**，工具描述里也没列它。
+//   本守卫之前只查"文档声明"，注释里自己承认「查不了脚本里写死的数字」⇒ 这次的漏项正好从缝里过去。
+// 判据（双向，任一不符即 FAIL）：
+//   · param-units.json 里的每个参数 ⇒ 桥里必须有同名（小写）条目、且**范围一致**
+//   · 桥里的每个条目 ⇒ param-units.json 里必须有（不许凭空夹值）
+// 允许的前缀规则：`vocalMode_*`（桥里按 `key:sub(1,10) == "vocalmode_"` 夹 0~150）—— 单独登记。
+const PREFIX_RULES = [{ inCode: 'vocalmode_', range: [0, 150], name: 'vocalMode_*' }];
+
+function autoRangeInBridge() {
+  const lua = LUA_PATH;
+  if (!fs.existsSync(lua)) return { err: '读不到 ' + lua };
+  const text = fs.readFileSync(lua, 'utf8');
+  const m = /local AUTO_RANGE = \{([\s\S]*?)\n\}/.exec(text);
+  if (!m) return { err: '桥里找不到 local AUTO_RANGE = { … }' };
+  const body = m[1].replace(/--[^\n]*/g, '');            // 去行注释
+  const out = {};
+  let g;
+  const re = /([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\{\s*(-?\d+)\s*,\s*(-?\d+)\s*\}/g;
+  while ((g = re.exec(body)) !== null) out[g[1].toLowerCase()] = [Number(g[2]), Number(g[3])];
+  const pref = [];
+  // 前缀规则形如：`if rng == nil and key:sub(1, 10) == "vocalmode_" then rng = { 0, 150 } end`
+  const rePref = /key:sub\(\s*\d+\s*,\s*\d+\s*\)\s*==\s*"([a-z_]+)"\s*then\s*rng\s*=\s*\{\s*(-?\d+)\s*,\s*(-?\d+)\s*\}/g;
+  while ((g = rePref.exec(text)) !== null) pref.push({ prefix: g[1], range: [Number(g[2]), Number(g[3])] });
+  return { table: out, prefix: pref };
+}
+
+{
+  const impl = autoRangeInBridge();
+  console.log('\n── 事实源 ↔ 实现（桥 AUTO_RANGE）对账 ──');
+  if (impl.err) {
+    problems.push(impl.err);
+  } else {
+    const table = impl.table;
+    let bad = 0;
+    // ① 事实源里的每个参数，桥里都要有、且范围一致
+    for (const p of params) {
+      const key = p.name.toLowerCase();
+      const got = table[key];
+      if (!got) {
+        console.log('   ❌ 【' + p.name + '】事实源已收录（' + JSON.stringify(p.fullRange) + ' ' + p.unit +
+          '），但**桥的 AUTO_RANGE 里没有** ⇒ 写它不夹值' +
+          (p.kind === 'physical' ? '（physical 参数不夹 = 当年"±1 等于没写"的坑原样复发）' : ''));
+        bad++;
+        continue;
+      }
+      if (got[0] !== p.fullRange[0] || got[1] !== p.fullRange[1]) {
+        console.log('   ❌ 【' + p.name + '】范围不一致：桥 ' + JSON.stringify(got) +
+          ' vs 事实源 ' + JSON.stringify(p.fullRange));
+        bad++;
+      }
+    }
+    // ② 桥里夹的每个参数，事实源里都要有（不许凭空夹值）
+    for (const key of Object.keys(table)) {
+      if (!params.some((p) => p.name.toLowerCase() === key)) {
+        console.log('   ❌ 桥里夹了 `' + key + '`（' + JSON.stringify(table[key]) +
+          '），但**事实源 param-units.json 里没有它** ⇒ 数字从哪来的？（照纪律：先入表再实现）');
+        bad++;
+      }
+    }
+    // ③ 前缀规则登记
+    for (const pr of impl.prefix) {
+      const known = PREFIX_RULES.find((x) => x.inCode === pr.prefix);
+      if (!known) {
+        console.log('   ❌ 桥里有未登记的前缀夹值规则：`' + pr.prefix + '` ' + JSON.stringify(pr.range));
+        bad++;
+      } else if (known.range[0] !== pr.range[0] || known.range[1] !== pr.range[1]) {
+        console.log('   ❌ 前缀规则 `' + pr.prefix + '` 范围不一致：桥 ' + JSON.stringify(pr.range) +
+          ' vs 登记 ' + JSON.stringify(known.range));
+        bad++;
+      }
+    }
+    for (const pr of PREFIX_RULES) {
+      if (!impl.prefix.some((x) => x.prefix === pr.inCode)) {
+        console.log('   ❌ 登记了前缀规则 `' + pr.name + '`，但桥里找不到它的实现');
+        bad++;
+      }
+    }
+    if (!bad) {
+      console.log('   ✅ ' + params.length + ' 个事实源参数与桥 AUTO_RANGE 逐项一致' +
+        (impl.prefix.length ? '；前缀规则 ' + impl.prefix.map((x) => x.prefix + '=' + JSON.stringify(x.range)).join(' · ') : ''));
+    } else {
+      problems.push('事实源与桥 AUTO_RANGE 有 ' + bad + ' 处不一致（见上）');
+    }
+  }
+}
 
 for (const { dir, level } of SCAN) {
   const abs = path.join(ROOT, dir);

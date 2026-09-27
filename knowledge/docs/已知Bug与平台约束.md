@@ -1,7 +1,7 @@
 # 已知缺陷与平台约束（人读版）
 
 > **本文件由 `node tools/known-bugs.cjs --doc` 从 `tools/known-bugs.json` 生成 —— 不要手改，改 JSON。**
-> 生成时间：2026-09-25 09:59 · 共 20 条
+> 生成时间：2026-09-27 10:26 · 共 21 条
 
 ## 0. 怎么用（三条纪律）
 
@@ -49,6 +49,7 @@
 | `DSH-001` | 🟡 能力缺口 | dsh | 存在 | 0.1.5-rc.2(0) | 内嵌 DSH 升到 0.1.5-rc.2 后，旧版（0.1.0-rc.5）写的 **v0 会话读不了也续不了** —— 上游 v0→v1 迁移器拒收 |
 | `DSH-002` | 🟡 能力缺口 | dsh | 已修复 | 0.1.5-rc.2(0) | 内嵌 host 上「插件包清单」请求贡献者解析不了我们插入的裸包名 ⇒ **每条消息都在 HTTP 前失败**（`REQUEST_EXTENSION`）—— 已由客户端停用该条目修掉 |
 | `IX-006` | 🔴 崩溃 | ix | 存在 | 1.0.1(65537) | `dynamics` **不是组级 automation**（是音符级力度包络）：`getAutomation("dynamics")` 返回**假对象**，在其上按 automation 读点/写点会**毒坏宿主内存 ⇒ 延时崩宿主** |
+| `SV-008` | ⛔ 设计如此 | sv | 设计如此 | ? | 【不是缺陷】实参类型/调用形式不对 ⇒ 宿主弹**模态**脚本错误框（样例 `setAttributes: 无效的输入类型。`），框一弹桥就冻死 |
 
 ## 🔴 崩溃（3 条）
 
@@ -300,7 +301,7 @@
   - 命令：`node tools/known-bugs.cjs --probe SV-004 --confirm`
 - **记账命令**：`node tools/known-bugs.cjs --verified SV-004 --status fixed|partial|open --note "..."`
 
-## ⛔ 设计如此（6 条）
+## ⛔ 设计如此（7 条）
 
 ### SV-001 · 【不是缺陷】SV1 上调用不支持的成员会弹模态框，且穿透 pcall
 
@@ -384,6 +385,24 @@
 - **复检探针**：无（设计如此 ⇒ 不复检）
 - **记账命令**：`node tools/known-bugs.cjs --verified SV-007 --status fixed|partial|open --note "..."`
 
+### SV-008 · 【不是缺陷】实参类型/调用形式不对 ⇒ 宿主弹**模态**脚本错误框（样例 `setAttributes: 无效的输入类型。`），框一弹桥就冻死
+
+- **宿主**：sv · **状态**：设计如此 · **复检**：否（设计如此）
+- **涉及 API**：`Note#setAttributes(<非表>)` · `点调用（JS 写法）`n.setAttributes({…})` ⇒ 对象自己被当第 1 个实参` · `把本宿主不存在的字段递给 setAttributes（如 SV1 上的 phonemes / SV2 上的 dur）`
+- **现象**：宿主弹出**模态**框「脚本 'AKDAgent Bridge (Lua)' 出现错误：setAttributes: 无效的输入类型。」。该框一出现，宿主主线程即停 ⇒ 桥的轮询链跟着停：心跳不再更新、**之后每一笔请求都超时**，而 Lua 侧**连一行日志都来不及写**（`respond` 从未落盘）⇒ 事后无从判断是哪一笔请求干的。
+- **影响**：桥"静默死亡"+ 用户工程**可能未保存**（改动只在宿主内存里）。pcall 完全无效：报错由宿主 C 侧在参数转换阶段弹框，不是 Lua 异常（同 SV-001 的机制，触发面不同）。
+- **实测版本**：2026-09-27 @ 用户机器（AKDAgent 1.0.1 发布版）
+- **规避 / 正确做法**：
+  - 恢复三步（按顺序）：① 到宿主里**关掉那个错误框**（框不下，宿主一直停着，重跑脚本也不会生效）② **Ctrl+S 保存工程** ③ 脚本菜单 → Agent → 重跑 AKDAgentBridge
+  - 桥侧**预防**（2026-09-27 落地）：`run_script` 预检 —— 点调用（`x.setAttributes(` / `SV.getProject(`）与 `setAttributes` 的字面量实参（`"x"` / `1` / `nil` / `true`）**在进宿主之前**被拒，错误里直接给出冒号写法
+  - 桥侧**宿主闸门**：`set_note_phoneme_attrs`（phonemes，SV2 2.1.1+）与 `set_note_dur`（dur，SV1 专属）写错宿主时**明确拒绝**（`refused="sv1-no-phonemes"` / `"sv2-no-dur"`），不把本宿主没有的字段递给宿主
+  - 桥侧**内容检测**（2026-09-27 用户指定「读 api 文档，给 setAttributes 的内容加上检测（IX 除外）」）：按 `skills/sv-scripting/api/Note.md` 的 `Note#getAttributes` 字段表查 `setAttributes({…})` **字面量表**的**键归属 + 值类型 + 数组元素**；判据四类（键不在文档里 / 键不属于本宿主 / 值类型不符 / 数组元素不是数），NaN 合法（= 恢复默认）；逃逸口 `-- akdagent:allow-extra-attrs`（未知键降级为警告）；⛔ **IX 整体豁免**（无官方文档 + 有文档外的键）
+  - 值清洗：`phonemes[].leftOffset/position/activity/strength` 与 `dur[]` 先 tonumber，非数项剔掉（数组长度不变）并回报 `droppedFields`；`write_chords` 的 `dynamic` 非数不递、超域夹到 0~1，`articulations` 传单个字符串时包成数组
+  - 桥侧**取证**：每笔请求执行前落盘 `akdagent-lastop-<host>.json`（`stage="running"`）、跑完改 `done/failed`；脚本或宿主被冻住时它停在 `running` ⇒ 客户端诊断里直接指名肇事 op + 参数摘要
+  - 写脚本纪律：方法一律**冒号**调用；属性 API 只传表；写属性前先按宿主能力表核对字段归属（见 skills/akdagent-playbook §2.3 / §2.3b）
+- **复检探针**：无（设计如此 ⇒ 不复检）
+- **记账命令**：`node tools/known-bugs.cjs --verified SV-008 --status fixed|partial|open --note "..."`
+
 ## 3. 变更历史
 
 **IX-001**
@@ -457,3 +476,6 @@
 
 **IX-006**
 - `2026-09-25` observed：用户定性「dynamics 不能用 getAllPoints，那个是 note 属性」；同日真机两次崩宿主（17:44:30 fail-fast 0xc0000409 @0x1561bf1 / 17:51:02 AV 0xc0000005 @0xf1d8ef，均 BEX64、均延时、空工程也复现）。桥 **1.0.0** 起（原 0.3.32）：set_automation 硬拒 dynamics + run_script 静态拦；知识文档与 sv-ix 技能同步摘掉"dynamics 是 automation 类型"的说法。
+
+**SV-008**
+- `2026-09-27` by-design：用户反馈「AI 在调用音符属性时使用了错误的 api」+ 错误框截图（来自用户电脑）。定性：宿主弹模态框是平台设计（同 SV-001 机制）；我们能做的是**预防 + 取证 + 恢复指引** ⇒ 桥加 GATE 预检 / 宿主闸门 / lastop 面包屑，服务端诊断与 stale 文案带恢复三步；离线自测补 30+ 断言（test-ops.lua 的 GATE 段）。

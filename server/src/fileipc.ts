@@ -31,6 +31,10 @@ export interface Heartbeat {
   indexBase?: number;
   ops?: string[];
   dir?: string;
+  session?: number;        // 本次桥运行的标识（与 lastop 面包屑互校用，2026-09-27 加）
+  opsRun?: number;
+  reqSeen?: number;
+  pollTicks?: number;
   ts?: number;
   [k: string]: unknown;
 }
@@ -128,6 +132,77 @@ export function canServe(op: string, host: Host = 'sv', dir?: string, maxAgeSec 
   return { ok: true, reason: `心跳新鲜（${age}s）且已声明 '${op}'`, advertisedOps: ops };
 }
 
+export interface LastOpCrumb {
+  op?: string;
+  stage?: string;          // running（= 卡在这一笔）/ done / failed / unknown-op
+  ts?: number;
+  tick?: number;
+  host?: string;
+  bridge?: string;
+  id?: string | number;
+  seq?: number;
+  session?: number;        // 本次桥运行的标识（与心跳 session 比 ⇒ 是不是当前这次运行留下的）
+  reqSeen?: number;        // 落这一笔时桥已见到的请求数
+  opsRun?: number;         // 落这一笔时桥已跑完的 op 数
+  extra?: string;
+  args?: unknown;
+  [k: string]: unknown;
+}
+
+/** 读桥落的"肇事 op 面包屑"（akdagent-lastop-<host>.json；桥每笔请求执行前写、执行完改 stage） */
+export function readLastOp(host: Host = 'sv', dir?: string): LastOpCrumb | null {
+  return readJson<LastOpCrumb>(p(resolveIpcDir(dir), 'lastop', host));
+}
+
+/**
+ * 把面包屑变成一句**人话**（诊断/报错里用）。
+ *
+ * 为什么需要它（2026-09-27 用户真机事故）：宿主弹的脚本错误框是**模态**的 ⇒ 一弹出来
+ * 宿主主线程就停、桥的轮询链跟着停、Lua 侧一行日志都写不出来 ⇒ 事后只知道"桥不在了"，
+ * 完全不知道是哪一笔请求造成的。桥现在会在执行前落盘 `stage="running"`：
+ *   · 停在 running ⇒ 大概率**就是这一笔**（多半是它让宿主弹了脚本错误框）
+ *   · 停在 done/failed ⇒ 桥是"干净地"停的（被关掉 / 宿主退出），不是被某笔请求弄死的
+ *
+ * ⚠️ 还要防"冤枉"：面包屑落盘后**不会自己消失**（宿主冻住时正是靠它取证）⇒ 桥重启后
+ *   旧面包屑还在盘上。所以用桥的 **session + reqSeen/opsRun** 与心跳互校：
+ *   · session 不同 ⇒ 那是**上一次桥运行**留下的，只能说"上次卡在 X"，不认作本次肇事者；
+ *   · session 相同且 `opsRun < reqSeen` ⇒ 这一笔**确实没跑完**（opsRun 在 op **跑完之后**才自增）。
+ */
+export function describeLastOp(host: Host = 'sv', dir?: string): string | null {
+  const d = resolveIpcDir(dir);
+  const c = readLastOp(host, d);
+  if (!c || !c.op) return null;
+  const age = typeof c.ts === 'number' ? Math.max(0, Math.floor(Date.now() / 1000) - c.ts) : null;
+  const head = `lastOp=${c.op} stage=${c.stage ?? '?'}` +
+    (age === null ? '' : ` +${age}s`) +
+    (c.extra ? ` ${c.extra}` : '');
+  const hb = readHeartbeat(host, d);
+  const hbSession = hb && typeof hb.session === 'number' ? hb.session : null;
+  const hbOpsRun = hb && typeof hb.opsRun === 'number' ? hb.opsRun : null;
+
+  // 互校：这条面包屑属于"当前这次桥运行"吗？那一笔真的没跑完吗？
+  const crumbSession = typeof c.session === 'number' ? c.session : null;
+  const sameSession = hbSession !== null && crumbSession !== null && hbSession === crumbSession;
+  const sessionDiffers = hbSession !== null && crumbSession !== null && hbSession !== crumbSession;
+  const finished = sameSession && hbOpsRun !== null && typeof c.reqSeen === 'number' && hbOpsRun >= c.reqSeen;
+
+  const argsLine = c.args ? `\n   该请求参数摘要：${JSON.stringify(c.args).slice(0, 600)}` : '';
+  const steps = '\n   恢复三步：① 到 Synthesizer V / Instrument X 里**关掉那个错误框**' +
+    '（框不下，宿主主线程一直停着，重跑脚本也不会生效）' +
+    ' ② **Ctrl+S 保存工程**（内存里的改动还没落盘，这一步最要紧）' +
+    ' ③ 脚本菜单 → Agent → 重跑 AKDAgentBridge';
+
+  if (sessionDiffers) {
+    return head + `\n   （这是**上一次桥运行**留下的面包屑，不是本次的肇事者；` +
+      `本次心跳 session=${hbSession ?? '?'}）` + argsLine;
+  }
+  if (c.stage === 'running' && !finished) {
+    return head + '\n⚠️ 这一笔**没有跑完** —— 最可能是宿主弹了**模态脚本错误框**（框一弹宿主主线程就停）。' +
+      steps + argsLine;
+  }
+  return head;
+}
+
 /** 失败时把能拿到的东西都带上，便于排障（Lua 桥只写文件，这些是最直接的线索） */
 export function collectDiagnostics(host: Host = 'sv', dir?: string): string {
   const d = resolveIpcDir(dir);
@@ -136,6 +211,8 @@ export function collectDiagnostics(host: Host = 'sv', dir?: string): string {
   out.push(`heartbeatAge=${age === null ? '无心跳文件' : age + 's'}`);
   const boot = readJson<Record<string, unknown>>(p(d, 'boot', host));
   if (boot) out.push(`boot=${JSON.stringify(boot).slice(0, 300)}`);
+  const crumb = describeLastOp(host, d);
+  if (crumb) out.push(crumb);
   try {
     const log = fs.readFileSync(path.join(d, `akdagent-log-${host}.txt`), 'utf8');
     out.push('log尾部=' + log.split('\n').slice(-6).join(' / '));

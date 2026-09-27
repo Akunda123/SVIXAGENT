@@ -28,7 +28,7 @@ const LOCALE_LABELS = {
   ja: '日本語',
 }
 /** 字典文件（去掉 .json）→ 供哪个窗口用 */
-const NAMESPACES = ['common', 'settings', 'orb', 'keyPrompt']
+const NAMESPACES = ['common', 'settings', 'orb', 'keyPrompt', 'svSetup']
 
 let prefsPath = null
 let locale = DEFAULT_LOCALE

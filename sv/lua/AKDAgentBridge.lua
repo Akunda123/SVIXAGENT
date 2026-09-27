@@ -131,7 +131,21 @@ local CFG = {
   --    再点一次"运行"**不会**替换掉旧实例（实测 2026-09-12：旧实例 09:07 起一直活着，
   --    09:19 的"运行"没有产生新 boot）—— 于是"明明改了却没生效"。
   --    有了版本号，`ping`/心跳里就能一眼看出跑的是哪一版。
-  VERSION        = "1.0.0",   -- 1.0.0 = **版本轴与产品版本对齐**（用户 2026-09-25 定：「直接把桥变 1.0.0，面板也是」）：
+  VERSION        = "1.0.1",   -- 1.0.1 = **宿主模态框事故的三道防线**（2026-09-27，用户真机反馈
+                              --          「AI 在调用音符属性时使用了错误的 api」+ 错误框
+                              --          `setAttributes: 无效的输入类型。`；改版本号经用户 2026-09-27 批准）：
+                              --          ① 预防 —— `run_script` 进宿主**之前**预检：点调用（JS 写法
+                              --             `n.setAttributes(…)` / `SV.getProject(…)`）+ 属性 API 的字面量实参
+                              --             （`"x"`/`1`/`nil`/`true`）一律拒绝（错误里给出冒号写法）；点调用判据用
+                              --             查表 `GATE.DOT_VERBS`（**Lua 模式没有 `|` 交替**，别照 JS 正则写）；
+                              --             属性 op 按**宿主**加闸（`phonemes`=SV2 2.1.1+ / `dur`=SV1 专属）+
+                              --             值清洗（非数不递、数组长度不变、被剔的回报 `droppedFields`）。
+                              --          ② 取证 —— 每笔请求**执行前**落盘 `akdagent-lastop-<host>.json`
+                              --             （`stage="running"`、带 `session/reqSeen/opsRun` 与心跳互校），
+                              --             跑完改 `done/failed`：被模态框冻住时它停在 running ⇒ 指名肇事 op。
+                              --          ③ 恢复指引 —— 诊断/报错/工具描述带「关掉错误框 → **Ctrl+S 保存工程** →
+                              --             重跑桥」；台账 **SV-008**；守卫 `check-bridge-modal-guards.cjs`。
+                              -- 1.0.0 = **版本轴与产品版本对齐**（用户 2026-09-25 定：「直接把桥变 1.0.0，面板也是」）：
                               --          内容 = 原 0.3.32（`dynamics` 不许走组级 automation）+ 此前的 0.3.31 等。
                               --          ⚠️ 从这版起**不再沿用 0.3.x 序号**；历史沿革仍按 0.3.x 记在下面（那些是"某能力自哪版起"）。
                               --          面板脚本同步为 `1.0.0-js`（`sv/panel/AKDAgentPanel.js` 的 `PANELUI.VERSION`）。
@@ -610,6 +624,515 @@ local function call(obj, name, ...)
   return nil, tostring(res)
 end
 
+-- ============================================================================
+-- 3.5 GATE —— 防御闸门 + 肇事 op 面包屑（2026-09-27 真机事故后加）
+-- ============================================================================
+-- 事故：用户的 SV 弹了一个**模态**脚本错误框 ——「脚本 'AKDAgent Bridge (Lua)' 出现错误：
+--   setAttributes: 无效的输入类型。」框一弹出来，宿主主线程就停住 ⇒ 桥的轮询链跟着停
+--   （心跳不再更新、之后每一笔请求都超时），而 Lua 侧**连一行日志都来不及写** ——
+--   于是事后完全看不出是哪一笔请求干的（本机日志里只剩"日志停在某个时刻"，无从下手）。
+--
+-- ⚠️ 关键事实（本文件 601 行那条注释早就记过，这次是它的代价）：**pcall 拦不住它**。
+--   报错是宿主 C 侧在**实参类型不对 / 调用形式不对**时自己弹的框，不是 Lua 异常 ⇒
+--   `pcall(dispatch, ...)` 一路包着也照样弹框、照样冻住。
+--   ⇒ 结论：这类错误**没法捕获，只能预防**（把参数在交给宿主之前自己校验干净）。
+--   ⇒ 外加一层取证：GATE.markLastOp 在**执行前**把 op + 参数摘要落盘；被冻住时
+--      该文件会停在 stage="running" ⇒ 下次不必再靠猜。
+local GATE = {}
+
+-- 参数摘要（落盘用）：只留骨架 + 截断，别把 write_chords 的几百个音符原样写进小文件
+function GATE.digest(v, depth, seen)
+  depth = depth or 0
+  if depth > 3 then return "<deep>" end
+  local t = type(v)
+  if t == "number" or t == "boolean" or t == "nil" then return v end
+  if t == "string" then
+    if #v > 1200 then return string.sub(v, 1, 1200) .. ("<+%d chars>"):format(#v - 1200) end
+    return v
+  end
+  if t ~= "table" then return "<" .. t .. ">" end
+  seen = seen or {}
+  if seen[v] then return "<cycle>" end
+  seen[v] = true
+  local out, n, keys = {}, 0, {}
+  for k, val in pairs(v) do
+    n = n + 1
+    if n <= 24 then
+      local kk = (type(k) == "string" and #k <= 40) and k or tostring(k)
+      keys[#keys + 1] = kk
+      out[kk] = GATE.digest(val, depth + 1, seen)
+    end
+  end
+  if n > 24 then out["<more>"] = ("+%d keys"):format(n - 24) end
+  out.__keys = table.concat(keys, ",")
+  return out
+end
+
+-- 肇事 op 面包屑：执行**前**落盘（stage="running"），执行完改 stage/extra。
+--   ⚠️ 必须用 pcall 包住写文件：取证是"锦上添花"，绝不能因为它把正常请求搞挂。
+function GATE.markLastOp(op, meta, args, stage, extra)
+  if PATH.lastop == nil or PATH.lastop == "" then return end
+  -- 摘要本身也包一层：取证是"锦上添花"，绝不能因为参数里有怪东西把正常请求搞挂
+  local okDig, dig = pcall(GATE.digest, args)
+  local payload = {
+    op = tostring(op), stage = stage or "running", ts = os.time(),
+    tick = ST.pollTicks, host = ST.host, bridge = CFG.VERSION,
+    -- 与心跳互校用（2026-09-27）：session = 本次桥运行的标识；reqSeen = 本笔是第几笔请求。
+    --   客户端据此判断"这条面包屑是不是**当前**这次桥运行留下的"（见 fileipc.describeLastOp）
+    --   —— 否则桥重启后，上一次留下的旧面包屑会把新事故冤枉到无关的 op 上。
+    session = ST.session, reqSeen = ST.reqSeen, opsRun = ST.opsRun,
+    args = okDig and dig or "<digest-failed>",
+  }
+  if meta ~= nil then payload.id = meta.id; payload.seq = meta.seq end
+  if extra ~= nil then payload.extra = tostring(extra) end
+  pcall(function() writeFileAtomic(PATH.lastop, jenc(payload)) end)
+end
+
+-- 允许"点调用"的接收者：标准库 + 我们自己的辅助表（**不是**宿主对象）
+GATE.DOT_OK = {
+  math = true, string = true, table = true, os = true, io = true, utf8 = true,
+  coroutine = true, debug = true, package = true, SVH = true,
+}
+
+-- JS 写法预检。返回 nil（通过）或**给人看的**错误说明。
+--   为什么要预检而不是 pcall：点调用 = 把对象自己当第 1 个实参 ⇒ 宿主弹模态框，
+--   而模态框我们拦不住（见本节头）。所以只能**在跑之前**拒绝它。
+--   ⚠️ 实现注意：**Lua 模式没有 `|` 交替**（`(a|b)` 是捕获字面量 "a|b"）——
+--      第一版就踩了这个坑（`create|add|…` 永远匹配不上）⇒ 这里一律用「前缀 + 查表」。
+GATE.DOT_VERBS = { create = true, add = true, remove = true, insert = true, delete = true }
+
+function GATE.checkCallForm(code)
+  local ln = 0
+  for line in string.gmatch(code .. "\n", "([^\n]*)\n") do
+    ln = ln + 1
+    local body = string.gsub(line, "%-%-.*$", "")       -- 去行注释（注释里写 JS 不该拦）
+    for recv, name in string.gmatch(body, "([%a_][%w_]*)%s*%.%s*([%a_][%w_]*)%s*%(") do
+      local head = string.match(name, "^(%l+)") or ""
+      local okName = string.match(name, "^[gs]et%u") ~= nil
+        or (GATE.DOT_VERBS[head] == true and (head == name or string.match(name, "^%l+%u") ~= nil))
+      if okName and GATE.DOT_OK[recv] == nil then
+        return ("第 " .. ln .. " 行：`" .. recv .. "." .. name .. "(` 是 **JS 写法（点调用）**。" ..
+          "宿主 Lua 绑定里方法只能用**冒号**：`" .. recv .. ":" .. name .. "(...)`。" ..
+          "点调用会把 `" .. recv .. "` 自己当成第 1 个实参 ⇒ 宿主**直接弹模态脚本错误框**" ..
+          "（真机样例：`" .. name .. ": 无效的输入类型。`），框一弹宿主就冻住、桥随之死掉。" ..
+          "（本桥无法用 pcall 拦住宿主弹的框 ⇒ 只能在这里先拒绝；请改成冒号写法）")
+      end
+    end
+  end
+  return nil
+end
+
+-- 属性类 API 的**实参字面量**预检：`setAttributes("x")` / `setAttributes(1)` /
+--   `setAttributes(nil)` 这类写法同样会让宿主弹「无效的输入类型」。
+--   注意：**只拦字面量** —— `setAttributes(attrs)`（变量）是合法且常见的写法，
+--   我们没法静态判断变量里是不是表，就不拦它（交给宿主，但至少变量来自我们自己的代码）。
+function GATE.checkAttrArgs(code)
+  for _, fname in ipairs({ "setAttributes", "setArticulations" }) do
+    local lit = string.match(code, "[:%.]" .. fname .. "%s*%(%s*([\"'%d%-])")
+    if lit ~= nil then
+      return ("`" .. fname .. "(` 的第 1 个实参是**字面量**（`" .. lit .. "…`），" ..
+        "而宿主期望一个**属性表**（`{ … }`）⇒ 会弹模态框「" .. fname .. ": 无效的输入类型。」。" ..
+        "请传表，例如 `n:setAttributes({ tF0Left = 0.07 })`；`setArticulations` 传技法名数组。")
+    end
+    -- 关键字字面量（注意：Lua 模式无 `|` 交替 ⇒ 逐个试）
+    for _, kw in ipairs({ "nil", "true", "false" }) do
+      if string.match(code, "[:%.]" .. fname .. "%s*%(%s*" .. kw .. "%f[%W]") ~= nil then
+        return ("`" .. fname .. "(" .. kw .. ")` 传的不是属性表 ⇒ 会弹模态框「" .. fname ..
+          ": 无效的输入类型。」。请传 `{ … }` 属性表。")
+      end
+    end
+  end
+  return nil
+end
+
+-- 12 个"仅 SV1"的音高属性（Note.md: Properties only available in version 1）
+GATE.SV1_ONLY_ATTRS = {
+  tF0Offset = true, tF0Left = true, tF0Right = true, dF0Left = true, dF0Right = true,
+  tF0VbrStart = true, tF0VbrLeft = true, tF0VbrRight = true, dF0Vbr = true,
+  pF0Vbr = true, fF0Vbr = true, tNoteOffset = true,
+}
+
+-- 宿主分流提示（**只警告、不拒绝**）：SV2/IX 的 setAttributes 收下这 12 个键也**不生效**
+--   （API 不校验字段，静默忽略 —— known-bugs SV-007）⇒ 不说的话调用方会以为写上了。
+--   正路：SV1 走 getAttributes/setAttributes；SV2/IX 的音高走 PitchControlCurve（写曲线）。
+function GATE.attrHostWarning(code)
+  if not ST.isSV2 then return nil end
+  local hit = nil
+  for k in pairs(GATE.SV1_ONLY_ATTRS) do
+    if string.find(code, k, 1, true) ~= nil then hit = k; break end
+  end
+  if hit == nil then return nil end
+  return "这段脚本里出现了 **仅 SV1 存在**的音高属性（例如 `" .. hit .. "`）：在 " ..
+    (ST.host == "ix" and "Instrument X" or "SV2") ..
+    " 上 `setAttributes` **不报错但不生效**（getAttributes 也读不回）⇒ 别用它判断成功；" ..
+    "SV2/IX 的音高请走音高曲线（PitchControlCurve）"
+end
+
+-- phonemes 数组清洗：字段类型不对（例如把 "-0.02" 当字符串传）会让宿主弹
+--   「setAttributes: 无效的输入类型」⇒ 先把值 tonumber 过一遍、非数的键剔掉并如实回报。
+--   ⚠️ **数组长度不变**：phonemes 是"逐音素"的整数组替换，少一项就整体错位 ⇒
+--      非表项补 `{}`（引擎会丢掉它），而不是直接删。
+GATE.PHON_KEYS = { "leftOffset", "position", "activity", "strength" }
+function GATE.cleanPhonemes(ph)
+  local out, dropped = {}, {}
+  for i = 1, #ph do
+    local e = ph[i]
+    if type(e) == "table" then
+      local cleaned = {}
+      for _, k in ipairs(GATE.PHON_KEYS) do
+        local v = e[k]
+        if v ~= nil then
+          local num = tonumber(v)
+          if num == nil then dropped[#dropped + 1] = i .. "." .. k .. "=" .. tostring(v)
+          else cleaned[k] = num end
+        end
+      end
+      out[#out + 1] = cleaned
+    else
+      dropped[#dropped + 1] = i .. "(非表)"
+      out[#out + 1] = {}
+    end
+  end
+  return out, dropped
+end
+
+-- ============================================================================
+-- setAttributes 的**内容**预检（2026-09-27 · 用户指定：「读 api 文档，给 setAttributes 的内容
+-- 加上检测（IX 除外）」）
+-- ============================================================================
+-- 事实源 = 官方镜像 `skills/sv-scripting/api/Note.md` 的 **Note#getAttributes**：
+--   文档原话「setAttributes(object)：For the definition, see Note#getAttributes」⇒ 同一张字段表。
+--   三组：
+--     · since 1.9.0b2  ⇒ **SV1(≥1.9) 与 SV2 都有**：rTone / rIntonation / dF0VbrMod
+--     · since 2.1.1    ⇒ **仅 SV2**：expValueX / expValueY / phonemes / muted /
+--                        evenSyllableDuration / languageOverride / phonesetOverride
+--     · "Properties only available in version 1" ⇒ **仅 SV1**：12 个音高参数 +
+--                        exprGroup(string) + dur(number[]) + alt(number[])
+--   另有「For numeric properties, the value is NaN if the note uses the default value」
+--     ⇒ **NaN 是合法值**（我们就是靠它把字段恢复成"用所在组引用的默认值"）。
+-- ⚠️ 为什么值得查：`setAttributes` **不校验字段**（SV-007）—— 键不存在 / 宿主不对时
+--    **不报错也不生效**，调用方会以为写上了。比弹框更阴，因为它不留任何痕迹。
+-- ⛔ **IX 整体豁免**（用户口径）：IX 没有官方文档，宿主另有文档外的键
+--    （`toneShift`/`pitchDelta`/`articulations`/`dynamic` …）⇒ 拿 SV 文档去卡 IX 只会误伤。
+GATE.ATTR_TYPE = {
+  -- 文档：since 1.9.0b2 ⇒ 两个版本都有
+  rTone = "number", rIntonation = "number", dF0VbrMod = "number",
+  -- 文档：since 2.1.1 ⇒ 仅 SV2
+  expValueX = "number", expValueY = "number", muted = "boolean",
+  evenSyllableDuration = "boolean", languageOverride = "string", phonesetOverride = "string",
+  phonemes = "phonemeArray",
+  -- 文档：Properties only available in version 1 ⇒ 仅 SV1
+  tF0Offset = "number", tF0Left = "number", tF0Right = "number",
+  dF0Left = "number", dF0Right = "number", tF0VbrStart = "number",
+  tF0VbrLeft = "number", tF0VbrRight = "number", dF0Vbr = "number",
+  pF0Vbr = "number", fF0Vbr = "number", tNoteOffset = "number",
+  exprGroup = "string", dur = "numberArray", alt = "numberArray",
+}
+GATE.ATTR_BOTH = { rTone = true, rIntonation = true, dF0VbrMod = true }
+GATE.ATTR_SV2_ONLY = {
+  expValueX = true, expValueY = true, phonemes = true, muted = true,
+  evenSyllableDuration = true, languageOverride = true, phonesetOverride = true,
+}
+GATE.ATTR_SV1_ONLY = {
+  tF0Offset = true, tF0Left = true, tF0Right = true, dF0Left = true, dF0Right = true,
+  tF0VbrStart = true, tF0VbrLeft = true, tF0VbrRight = true, dF0Vbr = true,
+  pF0Vbr = true, fF0Vbr = true, tNoteOffset = true,
+  exprGroup = true, dur = true, alt = true,
+}
+-- 不在官方 getAttributes 文档里、但**我们自己**在用（`write_chords` 的降级写法 / IX 向）：
+--   ⇒ **放行 + 警告**（SV-007：宿主不支持时会被静默忽略，写完必须回读）
+GATE.ATTR_EXTRA = { articulations = "stringArray", articulationsFixed = "boolean", dynamic = "number" }
+GATE.ATTR_PHON_KEYS = { leftOffset = true, position = true, activity = true, strength = true }
+
+-- 键在本宿主上存不存在（文档口径）
+function GATE.attrHostHas(key, sv2)
+  if GATE.ATTR_BOTH[key] then return true end
+  if sv2 then return GATE.ATTR_SV2_ONLY[key] == true end
+  return GATE.ATTR_SV1_ONLY[key] == true
+end
+
+-- 给人看的"本宿主可用键"摘要（错误信息里用）
+function GATE.attrKeyHelp(sv2)
+  if sv2 then
+    return "SV2 可用键：rTone/rIntonation/dF0VbrMod（1.9.0b2 起）+ expValueX/expValueY/phonemes/" ..
+           "muted/evenSyllableDuration/languageOverride/phonesetOverride（2.1.1 起）；" ..
+           "音高参数（tF0Left 等 12 个）与 dur/alt **仅 SV1**"
+  end
+  return "SV1 可用键：rTone/rIntonation/dF0VbrMod（1.9.0b2 起）+ 12 个音高参数（tF0Offset/tF0Left/" ..
+         "tF0Right/dF0Left/dF0Right/tF0VbrStart/tF0VbrLeft/tF0VbrRight/dF0Vbr/pF0Vbr/fF0Vbr/tNoteOffset）" ..
+         "+ exprGroup/dur/alt；phonemes/muted/languageOverride 等是 **SV2 2.1.1 起**才有的"
+end
+
+-- 换到正确用法的指引（"版本不对"时给）
+function GATE.attrAltHelp(key, sv2)
+  if sv2 then
+    if GATE.ATTR_SV1_ONLY[key] and (key == "dur" or key == "alt") then
+      return "SV2 的对应能力在**音素级**`phonemes[]`（leftOffset/strength 按比例压），或直接拆音/改时值"
+    end
+    if GATE.ATTR_SV1_ONLY[key] then
+      return "SV2 的音高在**曲线**上（PitchControlCurve；本桥 `write_pit` 走 curve 模式），" ..
+             "或用 `setScriptData(k, v)` 自存（注意那只是脚本私有数据、宿主不当参数用）"
+    end
+    return "请改用文档里本宿主存在的键"
+  end
+  if key == "phonemes" then
+    return "SV1 没有音素级属性 ⇒ 辅音时长用 `dur`（比例数组，第 1 项 = 辅音；任意正数都合法）"
+  end
+  if key == "languageOverride" or key == "phonesetOverride" then
+    return "改用专用方法 `setLanguageOverride(lang)`（本宿主是否支持看 `selftest` 的能力表）"
+  end
+  return "该键是 SV2 2.1.1 起才有的 ⇒ SV1 上请用 SV1 的等价做法（或升级 SV）"
+end
+
+-- 去掉 Lua 注释（**字符串内的 `--` 不算注释**）——否则注释里写一句 setAttributes 也会被当代码查
+function GATE.stripLuaComments(code)
+  local out, i, n, q = {}, 1, #code, nil
+  while i <= n do
+    local c = string.sub(code, i, i)
+    if q ~= nil then
+      out[#out + 1] = c
+      if c == "\\" then out[#out + 1] = string.sub(code, i + 1, i + 1); i = i + 2
+      elseif c == q then q = nil; i = i + 1
+      else i = i + 1 end
+    elseif c == '"' or c == "'" then
+      q = c; out[#out + 1] = c; i = i + 1
+    elseif c == "-" and string.sub(code, i + 1, i + 1) == "-" then
+      local eqs = string.match(code, "^%-%-%[(=*)%[", i)
+      if eqs ~= nil then
+        local close = "]" .. eqs .. "]"
+        local e = string.find(code, close, i, true)
+        if e == nil then break end
+        i = e + #close
+      else
+        local nl = string.find(code, "\n", i, true)
+        if nl == nil then break end
+        out[#out + 1] = "\n"; i = nl + 1
+      end
+    else
+      out[#out + 1] = c; i = i + 1
+    end
+  end
+  return table.concat(out)
+end
+
+-- 按**顶层**逗号切分表体（跳过嵌套 {} [] () 与字符串）
+function GATE.splitTopLevel(s)
+  local out, buf, depth, i, n, q = {}, {}, 0, 1, #s, nil
+  while i <= n do
+    local c = string.sub(s, i, i)
+    if q ~= nil then
+      buf[#buf + 1] = c
+      if c == "\\" then buf[#buf + 1] = string.sub(s, i + 1, i + 1); i = i + 2
+      elseif c == q then q = nil; i = i + 1
+      else i = i + 1 end
+    elseif c == '"' or c == "'" then
+      q = c; buf[#buf + 1] = c; i = i + 1
+    elseif c == "{" or c == "(" or c == "[" then
+      depth = depth + 1; buf[#buf + 1] = c; i = i + 1
+    elseif c == "}" or c == ")" or c == "]" then
+      depth = depth - 1; buf[#buf + 1] = c; i = i + 1
+    elseif c == "," and depth == 0 then
+      out[#out + 1] = table.concat(buf); buf = {}; i = i + 1
+    else
+      buf[#buf + 1] = c; i = i + 1
+    end
+  end
+  if #buf > 0 then out[#out + 1] = table.concat(buf) end
+  return out
+end
+
+-- 值文本 → 种类（"skip" = 变量/表达式，判不了，交给宿主）
+--   ⚠️ 先**去空白**：切出来的元素天生带空格（`{ 0.5, "x" }` 的第二项是 ` "x"`）——
+--      第一版没去，于是字符串元素被判成 skip、元素级检查整个失效（离线自测抓到的）。
+function GATE.valueKind(v)
+  if v == nil then return "skip" end
+  v = string.match(v, "^%s*(.-)%s*$") or v
+  if v == "" then return "skip" end
+  if v == "nil" then return "nil" end
+  if v == "true" or v == "false" then return "boolean" end
+  if string.match(v, "^[\"']") then return "string" end
+  if string.match(v, "^%b{}") then return "table" end
+  local bare = string.gsub(v, "^%s*%((.-)%)%s*$", "%1")       -- (0/0) 这类
+  if string.match(bare, "^%d+%s*/%s*%d+$") then
+    -- 0/0 = NaN（合法：恢复成"用组引用的默认值"）；n/0 我们不判
+    if string.match(bare, "^0%s*/%s*0$") then return "nan" end
+    return "skip"
+  end
+  if string.match(v, "^[-+]?%d") or string.match(v, "^%.%d") then return "number" end
+  return "skip"
+end
+
+function GATE.typeAccepts(expect, kind)
+  if kind == "skip" or kind == "nil" then return true end   -- 判不了/等价于不写 ⇒ 放行
+  if expect == "number" then return kind == "number" or kind == "nan" end
+  if expect == "boolean" then return kind == "boolean" end
+  if expect == "string" then return kind == "string" end
+  return kind == "table"                                     -- numberArray / stringArray / phonemeArray
+end
+
+function GATE.typeName(expect)
+  if expect == "number" then return "number（或 NaN = 恢复默认）" end
+  if expect == "boolean" then return "boolean" end
+  if expect == "string" then return "string" end
+  if expect == "numberArray" then return "number 数组（如 dur = { 0.5, 1 }）" end
+  if expect == "stringArray" then return "string 数组（如 { \"Pizz.\", \"Staccato\" }）" end
+  if expect == "phonemeArray" then return "音素对象数组（{ { leftOffset = …, strength = … }, … }）" end
+  return tostring(expect)
+end
+
+-- 抓出所有 `setAttributes(<字面量表>)` 的顶层键值对（变量实参跳过）
+function GATE.attrEntriesIn(text)
+  local entries, pos, guard = {}, 1, 0
+  while true do
+    guard = guard + 1
+    if guard > 200 then break end
+    local _, e = string.find(text, "setAttributes%s*%(", pos)
+    if e == nil then break end
+    local argText = string.match(text, "^%b()", e) or ""
+    pos = e + #argText
+    local inner = string.match(argText, "^%((.*)%)$")
+    local body = inner and string.match(inner, "^%s*(%b{})") or nil
+    if body ~= nil then
+      local kv = {}
+      for _, entry in ipairs(GATE.splitTopLevel(string.sub(body, 2, -2))) do
+        local k, v = string.match(entry, "^%s*([%a_][%w_]*)%s*=%s*(.-)%s*$")
+        if k ~= nil then kv[#kv + 1] = { key = k, value = v } end
+      end
+      if #kv > 0 then entries[#entries + 1] = kv end
+    end
+  end
+  return entries
+end
+
+-- 主入口：返回 err（必须拒）、warn（放行但提醒）
+--   ⛔ isIx ⇒ 直接放行（用户 2026-09-27 口径：IX 除外）
+--   逃逸口：脚本里写 `-- akdagent:allow-extra-attrs` ⇒ 未知键降级为警告（类型错仍拦）
+function GATE.checkAttrTables(code, sv2, isIx)
+  if isIx then return nil, nil end
+  local clean = GATE.stripLuaComments(code)
+  local allowExtra = string.find(code, "akdagent:allow-extra-attrs", 1, true) ~= nil
+  local errs, warns = {}, {}
+  local needKeyHelp = false            -- "本宿主可用键"只提示一次（多个坏键时不重复刷屏）
+  for _, kv in ipairs(GATE.attrEntriesIn(clean)) do
+    for i = 1, #kv do
+      local k, v = kv[i].key, kv[i].value
+      local kind = GATE.valueKind(v)
+      local expect, isExtra = GATE.ATTR_TYPE[k], GATE.ATTR_EXTRA[k]
+      if expect == nil and isExtra == nil then
+        local msg = "键 `" .. k .. "` **不在官方 `Note#setAttributes` 文档里**（`skills/sv-scripting/api/Note.md`）" ..
+          "⇒ 宿主会**静默忽略**（SV-007）：你以为写上了，其实没写。"
+        if allowExtra then warns[#warns + 1] = msg .. "（已按 `akdagent:allow-extra-attrs` 放行）"
+        else errs[#errs + 1] = msg; needKeyHelp = true end
+      elseif expect ~= nil and not GATE.attrHostHas(k, sv2) then
+        errs[#errs + 1] = "键 `" .. k .. "` **不属于本宿主**（" .. (sv2 and "SV2" or "SV1") ..
+          "）：文档里它标在「" .. (sv2 and "Properties only available in version 1" or "since 2.1.1") ..
+          "」下 ⇒ 在这里**静默无效**。" .. GATE.attrAltHelp(k, sv2)
+      else
+        local exp = expect or isExtra
+        if not GATE.typeAccepts(exp, kind) then
+          errs[#errs + 1] = "`" .. k .. "` 的**值类型不对**：文档要求 " .. GATE.typeName(exp) ..
+            "，你给的是 " .. kind .. "（" .. tostring(v) .. "）"
+        elseif isExtra ~= nil then
+          warns[#warns + 1] = "键 `" .. k .. "` 不在官方 getAttributes 文档里（本桥自用/IX 向）" ..
+            "⇒ 宿主不支持时**静默忽略**（SV-007），写完请回读确认"
+        end
+        -- phonemes / dur / alt 的**元素**再浅查一层（非数项是最常见的写错）
+        if kind == "table" and (exp == "numberArray" or exp == "phonemeArray") then
+          local items = GATE.splitTopLevel(string.sub(v, 2, -2))
+          for j = 1, #items do
+            -- ⚠️ 元素也要**去空白**再 `sub(2,-2)` 剥括号：否则剥掉的是空格、里面的键一个都查不到
+            local it = string.match(string.sub(items[j], 1, 200), "^%s*(.-)%s*$") or ""
+            local jk = GATE.valueKind(it)
+            if exp == "numberArray" and (jk == "string" or jk == "boolean" or jk == "table") then
+              errs[#errs + 1] = "`" .. k .. "[" .. j .. "]` 不是数（" .. tostring(it):gsub("%s+", "") .. "）" ..
+                "⇒ 文档要求 number 数组"
+            elseif exp == "phonemeArray" and jk == "table" then
+              for _, sub2 in ipairs(GATE.splitTopLevel(string.sub(it, 2, -2))) do
+                local sk, sv = string.match(sub2, "^%s*([%a_][%w_]*)%s*=%s*(.-)%s*$")
+                if sk ~= nil and GATE.ATTR_PHON_KEYS[sk] == nil then
+                  errs[#errs + 1] = "`" .. k .. "` 里出现未知字段 `" .. sk ..
+                    "`（文档只允许 leftOffset/position/activity/strength）"
+                elseif sk ~= nil and not GATE.typeAccepts("number", GATE.valueKind(sv)) then
+                  errs[#errs + 1] = "`" .. k .. "." .. sk .. "` 不是数（" .. tostring(sv) .. "）⇒ 文档要求 number"
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  if #errs > 0 then
+    if needKeyHelp then errs[#errs + 1] = GATE.attrKeyHelp(sv2) end
+    return table.concat(errs, "；"), (#warns > 0) and table.concat(warns, "；") or nil
+  end
+  return nil, (#warns > 0) and table.concat(warns, "；") or nil
+end
+
+-- ⚠️ **自动音高提醒**（2026-09-27 真机核对后加）
+--   真机事实（SV1 1.11.2，桥 1.0.1，游离音符）：给**自动音高**音符写 `tF0Right` 等音高参数
+--     · **不报错**（pcall ok=true、err=nil），值也**读得回**（0.12999999523163，float32 舍入）；
+--     · **写属性不会把音符切出手动**（写完 `getPitchAutoMode()` 仍 true）；
+--     · 值跨模式切换存活（切手动、再切回自动，都读得到）；
+--     · `SV:create("Note")` 建出来的音符**默认就是自动**（`getPitchAutoMode() == true`）。
+--   ⇒ 真正的坑不是报错，而是**静默不生效**：自动模式下音高由引擎生成，手动过渡参数可能被盖住
+--      （用户 2026-09-23 已确认）——"看起来写成功、听不出变化"。
+--   ⇒ 所以只在 **SV1 且脚本写了音高参数、却没写 `setPitchAutoMode`** 时给一句**警告**（不拦：
+--      目标音符可能本来就是手动；桥的 `write_pit` 就是先显式 `setPitchAutoMode(false)` 再写的）。
+GATE.PITCH_12 = {
+  tF0Offset = true, tF0Left = true, tF0Right = true, dF0Left = true, dF0Right = true,
+  tF0VbrStart = true, tF0VbrLeft = true, tF0VbrRight = true, dF0Vbr = true,
+  pF0Vbr = true, fF0Vbr = true, tNoteOffset = true,
+}
+
+function GATE.autoModeWarning(code, sv2, isIx)
+  if sv2 or isIx then return nil end          -- SV2/IX 的音高在曲线上，不走音符属性
+  if string.find(code, "setPitchAutoMode", 1, true) ~= nil then return nil end
+  local hit = nil
+  for _, kv in ipairs(GATE.attrEntriesIn(GATE.stripLuaComments(code))) do
+    for i = 1, #kv do
+      if GATE.PITCH_12[kv[i].key] then hit = kv[i].key; break end
+    end
+    if hit ~= nil then break end
+  end
+  if hit == nil then return nil end
+  return "脚本用 `setAttributes` 写了 SV1 音高参数（如 `" .. hit .. "`），但**没有** `setPitchAutoMode`：" ..
+    "若目标音符还在**自动音高**模式（`SV:create(\"Note\")` 建出来的默认如此），这些参数**不报错也不生效**" ..
+    "（真机 SV1 1.11.2：写入 ok、读得回、写完仍 auto）⇒ 需要生效就先 `n:setPitchAutoMode(false)`" ..
+    "（桥的 `write_pit` 就是这么做的；本来就手动的音符可忽略本提示）"
+end
+
+-- ⛔ **crash 清单的运行时闸**（2026-09-27 加 · 用户选"①"）
+--   背景：`Automation#getPoints/getAllPoints/getLinear/getDefinition/remove(单参)` 在 **IX 1.0.0 上调用即弹
+--   模态框冻桥**（台账 `IX-001`），别处也从未验证过；而 `run_script` 是**任意脚本通道**，
+--   以前**没有任何运行时闸** —— 仓内的 `tools/check-no-crash-api.cjs` 只管我们自己的源码。
+--   ⚠️ `PitchControlCurve#getPoints()` 是**合法官方 API**（我们的探针就用它），但静态判不出接收者类型
+--      ⇒ 一并拒；确实要跑**真机探针**（用户在场、工程已保存）就显式传 `allowCrashApi = true`。
+GATE.CRASH_PATTERNS = {
+  { pat = "getPoints%s*%(", name = "getPoints",
+    why = "Automation#getPoints —— IX 1.0.0 上会弹框冻桥（IX-001）；读点请用 `Automation#get(b)` 单点采样" },
+  { pat = "getAllPoints%s*%(", name = "getAllPoints",
+    why = "Automation#getAllPoints —— 同上（且 PitchControlCurve 没有这个方法）" },
+  { pat = "getLinear%s*%(", name = "getLinear",
+    why = "Automation#getLinear —— 同上（要插值自己算，或改用 get(b) 多采几个点）" },
+  { pat = "getDefinition%s*%(", name = "getDefinition",
+    why = "Automation#getDefinition —— 同上；取值域已硬编码在 AUTO_RANGE（见 tools/param-units.json）" },
+  { pat = ":remove%s*%(%s*[^,()]+%s*%)", name = "remove(单参)",
+    why = "走的是 `remove(index)` 重载（IX-001）；删点只用**区间重载** `remove(begin, end)`" },
+}
+
+-- 返回 nil（通过）或一句说明。**先剥注释**：注释里提到这些名字不该拦。
+function GATE.checkCrashApi(code)
+  local clean = GATE.stripLuaComments(code)
+  for i = 1, #GATE.CRASH_PATTERNS do
+    local p = GATE.CRASH_PATTERNS[i]
+    if string.find(clean, p.pat) ~= nil then
+      return "脚本里出现了 **crash 清单**成员 `" .. p.name .. "` —— " .. p.why
+    end
+  end
+  return nil
+end
+
 -- ===== SV 命名空间调用 =====
 -- 实测结论（2026-09-11，SV1 1.11.2）：绑定是**冒号方法**，C 侧签名形如 (self, ...)。
 --   证据 1：SV.showMessageBox(title, msg) → "2 argument(s) expected, got 1"
@@ -811,6 +1334,11 @@ local function setupPaths()
   PATH.panelOutState = ST.dir .. "\\akdagent-panel-out-" .. ST.host .. ".state"
   -- 客户端在线心跳（Electron 侧每 ~5s 写一次）：桥/面板据此判断"悬浮球有没有连上"
   PATH.clientHb = ST.dir .. "\\akdagent-client-" .. ST.host .. ".json"
+  -- 🆕 肇事 op 面包屑（2026-09-27）：每笔请求**执行前**落盘、执行完改 stage。
+  --   宿主的脚本错误框是**模态**的 ⇒ 框一弹，宿主主线程停、轮询链跟着停、
+  --   日志一行都写不出来 ⇒ 事后无从知道是哪一笔请求把桥弄死的。有了这个文件，
+  --   被冻住时它会停在 stage="running" ⇒ 直接指名肇事 op + 参数摘要。
+  PATH.lastop = ST.dir .. "\\akdagent-lastop-" .. ST.host .. ".json"
 end
 
 -- 响应缓存：**以 id（字符串）为键**
@@ -857,6 +1385,9 @@ local function sendHeartbeat()
     pollTicks = ST.pollTicks or 0, pollErrors = ST.pollErrors or 0,
     -- 面板中继能力（客户端据此决定要不要起面板这条链）
     panel = PANEL.enabled and true or false, panelVersion = PANEL.version,
+    -- 本次桥运行的标识：与 lastop 面包屑互校，区分"**当前这次**运行卡住了"与
+    -- "上一次运行留下的旧面包屑"（否则重启后会把新事故冤枉到无关的 op 上）
+    session = ST.session,
     ts = os.time()
   }
   writeFileAtomic(PATH.hb, jenc(hb))
@@ -1946,6 +2477,15 @@ function OPS.set_note_phoneme_attrs(args)
   args = args or {}
   local items = args.items
   if type(items) ~= "table" or #items == 0 then error("args.items required") end
+  -- ⛔ 宿主闸门（2026-09-27 真机事故后加）：`phonemes` 是 **SV2 2.1.1+** 才有的字段。
+  --    SV1 上这个键不存在 —— 这类"键/类型不对"的实参会由宿主**直接弹模态脚本错误框**
+  --    （真机样例：`setAttributes: 无效的输入类型。`），框一弹宿主主线程停、桥随之死。
+  --    ⇒ 在把参数交给宿主**之前**先拒。SV1 修辅音的用品是 `set_note_dur`（压 dur 数组第 1 项）。
+  if not ST.isSV2 then
+    return { changed = 0, applied = {}, failed = {}, refused = "sv1-no-phonemes",
+             hint = "本宿主是 **SV1**，没有 `phonemes` 字段（它是 SV2 2.1.1+ 的）⇒ 已**拒绝**，" ..
+                    "一个字都没写。SV1 修辅音请用 `set_note_dur`（把 dur 比例数组的**第 1 项**压小）。" }
+  end
   local scope = call(SC("getMainEditor"), "getCurrentGroup")
   if scope == nil then error("no current group") end
   local grp = call(scope, "getTarget")
@@ -1966,12 +2506,17 @@ function OPS.set_note_phoneme_attrs(args)
         failed[#failed + 1] = { index = idx, reason = "getNote 返回 nil" }
       else
         local before = call(nt, "getAttributes")
-        local ok, err = pcall(function() nt:setAttributes({ phonemes = ph }) end)
+        -- 值清洗（2026-09-27）：字段值不是数（例如字符串 "-0.02"）同样会弹「无效的输入类型」
+        --   ⇒ 先 tonumber 过一遍、剔掉非数键（**数组长度不变**），并把剔掉的如实回报。
+        local phClean, dropped = GATE.cleanPhonemes(ph)
+        local ok, err = pcall(function() nt:setAttributes({ phonemes = phClean }) end)
         local after = call(nt, "getAttributes")
         local bp = (type(before) == "table" and type(before.phonemes) == "table") and #before.phonemes or -1
         local ap = (type(after) == "table" and type(after.phonemes) == "table") and #after.phonemes or -1
         if ok and ap >= 0 then
-          applied[#applied + 1] = { index = idx, beforeCount = bp, afterCount = ap, lyrics = call(nt, "getLyrics") }
+          applied[#applied + 1] = { index = idx, beforeCount = bp, afterCount = ap,
+                                    droppedFields = (#dropped > 0) and table.concat(dropped, ",") or nil,
+                                    lyrics = call(nt, "getLyrics") }
         else
           failed[#failed + 1] = { index = idx, reason = ok and "写入后读不到 phonemes" or tostring(err) }
         end
@@ -1989,6 +2534,14 @@ function OPS.set_note_dur(args)
   args = args or {}
   local items = args.items
   if type(items) ~= "table" or #items == 0 then error("args.items required") end
+  -- ⛔ 宿主闸门（2026-09-27，与 set_note_phoneme_attrs 同一条纪律）：`dur` 是 **SV1 专属**
+  --    的比例数组。在 SV2/IX 上写它属于"字段不适用" —— 宁可**明确拒绝**，
+  --    也不要把一个宿主可能弹模态框的实参递过去。SV2 的辅音时长走 phonemes[].leftOffset。
+  if ST.isSV2 then
+    return { changed = 0, applied = {}, failed = {}, refused = "sv2-no-dur",
+             hint = "本宿主是 **SV2/IX**，`dur` 比例数组**只存在于 SV1** ⇒ 已**拒绝**，一个字都没写。" ..
+                    "SV2 修辅音请用 `set_note_phoneme_attrs`（phonemes[].leftOffset 往 0 方向收）。" }
+  end
   local scope = call(SC("getMainEditor"), "getCurrentGroup")
   if scope == nil then error("no current group") end
   local grp = call(scope, "getTarget")
@@ -2008,13 +2561,29 @@ function OPS.set_note_dur(args)
       if nt == nil then
         failed[#failed + 1] = { index = idx, reason = "getNote 返回 nil" }
       else
-        local ok, err = pcall(function() nt:setAttributes({ dur = dur }) end)
+        -- 值清洗：`dur` 是比例数组（每项一个数，nil = 用默认）⇒ **只有非数才剔**，
+        --   ⚠️ **绝不做值域 clamp**：SV1 的 `dur` 是**比例**，**任意正数都合法**
+        --      （用户 2026-09-27 明确提醒：>1 = 拉长，不是"必须在 0~1 之间"）
+        --   ⇒ 我们只保证"递给宿主的是数"，不替用户判多少算合理。
+        local durClean, dropped = {}, {}
+        for j = 1, #dur do
+          local v = dur[j]
+          if v == nil then durClean[j] = nil
+          else
+            local num = tonumber(v)
+            if num == nil then dropped[#dropped + 1] = j .. "=" .. tostring(v)
+            else durClean[j] = num end
+          end
+        end
+        local ok, err = pcall(function() nt:setAttributes({ dur = durClean }) end)
         local at = call(nt, "getAttributes")
         local back = (type(at) == "table" and type(at.dur) == "table") and at.dur or nil
         if ok and back ~= nil then
           local s = {}
           for j = 1, #back do s[#s + 1] = tostring(back[j]) end
-          applied[#applied + 1] = { index = idx, dur = table.concat(s, ","), lyrics = call(nt, "getLyrics") }
+          applied[#applied + 1] = { index = idx, dur = table.concat(s, ","),
+                                    droppedFields = (#dropped > 0) and table.concat(dropped, ",") or nil,
+                                    lyrics = call(nt, "getLyrics") }
         else
           failed[#failed + 1] = { index = idx, reason = ok and "写入后读不到 dur（SV2 不支持；SV1 才有）" or tostring(err) }
         end
@@ -2022,7 +2591,8 @@ function OPS.set_note_dur(args)
     end
   end
   return { changed = #applied, applied = applied, failed = failed,
-           note = "dur 是 SV1 专属的比例数组（第 1 项 = 辅音）；SV2 写了读不回" }
+           note = "dur 是 SV1 专属的**比例**数组（第 1 项 = 辅音）；**任意正数都合法**（>1 = 拉长，" ..
+                  "桥**不做值域 clamp**，只剔非数）；SV2 写了读不回" }
 end
 
 -- ===== 和弦展开算法（纯函数，可离线单测；移植自 JS 的 svhParseChord 系列）=====
@@ -2271,6 +2841,8 @@ function OPS.write_chords(args)
   end
   local quarter = tonumber(SV and SV.QUARTER) or 705600000
   local minP, maxP = nil, nil
+  -- 逐音载荷里"被剔掉的属性"（如实回报；见下面 IX 演奏属性那段）
+  local payloadDropped, payloadApplied = {}, {}
   for i = 1, #notesIn do
     local src = notesIn[i]
     local pitch, onsetB, durB, lyr = nil, nil, nil, nil
@@ -2298,20 +2870,43 @@ function OPS.write_chords(args)
       call(note, "setTimeRange", onsetB, durB)
       if lyr ~= nil and lyr ~= "" then call(note, "setLyrics", lyr) end
       -- IX 演奏属性（可选，失败不影响写入）
+      -- ⚠️ 2026-09-27 加固：这里原先直接 `tonumber(src.dynamic)` / 原样递 `src.articulations`：
+      --    · dynamic 非数 ⇒ tonumber 得 nil ⇒ `setDynamic(nil)` / `setAttributes({dynamic=nil})`
+      --      ——把**错误类型**递给宿主 = 弹「无效的输入类型」模态框 = 冻死桥（本次事故的形态）；
+      --    · articulations 传单个字符串会被 `type(...)=="table"` 静默忽略（AI 常这么给）。
+      --    现在：非数一律不递、单个技法名包成数组、非字符串项剔掉**并如实回报**。
       if not isArr and type(src) == "table" then
-        if src.dynamic ~= nil then
+        local dynN = tonumber(src.dynamic)
+        if src.dynamic ~= nil and dynN == nil then
+          payloadDropped[#payloadDropped + 1] = "dynamic=" .. tostring(src.dynamic) .. "(非数⇒不递)"
+        elseif dynN ~= nil then
+          if dynN < 0 then dynN = 0 elseif dynN > 1 then dynN = 1 end   -- 取值域 0~1（超域夹住）
           if has(note, "setDynamic") then
-            call(note, "setDynamic", tonumber(src.dynamic))
+            call(note, "setDynamic", dynN)
           elseif has(note, "setAttributes") then
-            call(note, "setAttributes", { dynamic = tonumber(src.dynamic) })
+            call(note, "setAttributes", { dynamic = dynN })
           end
+          payloadApplied.dynamic = (payloadApplied.dynamic or 0) + 1
         end
-        if type(src.articulations) == "table" and #src.articulations > 0 then
-          if has(note, "setArticulations") then
-            call(note, "setArticulations", src.articulations)
-          elseif has(note, "setAttributes") then
-            call(note, "setAttributes", { articulations = src.articulations, articulationsFixed = true })
+        local arts = nil
+        if type(src.articulations) == "string" and src.articulations ~= "" then
+          arts = { src.articulations }                                   -- 单个技法名 ⇒ 包成数组
+        elseif type(src.articulations) == "table" then
+          arts = {}
+          for _, x in ipairs(src.articulations) do
+            if type(x) == "string" and x ~= "" then arts[#arts + 1] = x
+            else payloadDropped[#payloadDropped + 1] = "articulations 项 " .. tostring(x) .. "(非字符串)" end
           end
+        elseif src.articulations ~= nil then
+          payloadDropped[#payloadDropped + 1] = "articulations=" .. tostring(src.articulations) .. "(非表/非串⇒不递)"
+        end
+        if arts ~= nil and #arts > 0 then
+          if has(note, "setArticulations") then
+            call(note, "setArticulations", arts)
+          elseif has(note, "setAttributes") then
+            call(note, "setAttributes", { articulations = arts, articulationsFixed = true })
+          end
+          payloadApplied.articulations = (payloadApplied.articulations or 0) + 1
         end
       end
       call(group, "addNote", note)
@@ -2347,6 +2942,10 @@ function OPS.write_chords(args)
     existingNoteCountBefore = (mode == "main") and existingMain or nil,
     minPitch = minP, maxPitch = maxP,
     layout = LAYOUT.scan(group),     -- 🆕 P7 ③：重叠=违规（必须报）· 缝隙=允许但告知（消缝需用户同意）
+    -- 演奏属性（IX）实际写了几笔 / 哪些载荷被剔掉了（2026-09-27 加固后如实回报）
+    attrPayloadApplied = ((payloadApplied.dynamic or 0) + (payloadApplied.articulations or 0)) > 0
+      and payloadApplied or nil,
+    attrPayloadDropped = (#payloadDropped > 0) and table.concat(payloadDropped, "; ") or nil,
   }
 end
 
@@ -3842,6 +4441,37 @@ function OPS.run_script(args)
     error("⛔ " .. DYN_NOT_AUTOMATION)
   end
 
+  -- ⛔ 属性类 API 预检（2026-09-27 真机事故后加）：JS 写法（点调用）/ 传字面量给
+  --    setAttributes 都会让宿主**直接弹模态脚本错误框**（`setAttributes: 无效的输入类型。`），
+  --    框一弹宿主就冻住、桥随之死 —— 而 pcall **拦不住**宿主弹的框（见 GATE 节头）。
+  --    ⇒ 只能在交给宿主之前拒绝，并把正确写法写在错误里（AI 看得见）。
+  local formErr = GATE.checkCallForm(code)
+  if formErr ~= nil then error("⛔ 调用形式预检未通过：" .. formErr) end
+  local argErr = GATE.checkAttrArgs(code)
+  if argErr ~= nil then error("⛔ 实参预检未通过：" .. argErr) end
+  -- ⛔ setAttributes 的**内容**检测（2026-09-27 · 用户指定「读 api 文档，给 setAttributes 的内容
+  --    加上检测（IX 除外）」）：按 Note#getAttributes 的字段表查**键归属 + 值类型**。
+  --    理由：`setAttributes` 不校验字段（SV-007）—— 键写错/宿主不对时**不报错也不生效**，
+  --    比弹框更阴（不留痕迹）。IX 豁免（无官方文档 + 宿主另有文档外的键）。
+  local tblErr, tblWarn = GATE.checkAttrTables(code, ST.isSV2, ST.host == "ix")
+  if tblErr ~= nil then error("⛔ setAttributes 内容预检未通过：" .. tblErr) end
+  local autoWarn = GATE.autoModeWarning(code, ST.isSV2, ST.host == "ix")
+  local hostWarn = GATE.attrHostWarning(code)
+
+  -- ⛔ **crash 清单运行时硬拒**（2026-09-27 · 用户选"①"）：以前 run_script 里调
+  --    `Automation#getPoints` 族 / `remove(单参)` **一路畅通**（桥只静态拦 dynamics，仓内守卫只管自己源码）。
+  --    要跑真机探针（用户在场 + 工程已保存）就显式 `allowCrashApi = true`。
+  local crashHit = GATE.checkCrashApi(code)
+  if crashHit ~= nil and args.allowCrashApi ~= true then
+    error("⛔ crash 清单预检未通过：" .. crashHit ..
+          "。若这确实是**真机探针**（用户在场、工程已 Ctrl+S 保存），显式传 `allowCrashApi = true` 再跑。")
+  end
+  local crashWarn = nil
+  if crashHit ~= nil and args.allowCrashApi == true then
+    crashWarn = "本次带 `allowCrashApi = true` 跑过 crash 清单成员：" .. crashHit ..
+      "。后果自负（IX 1.0.0 上会冻桥）；跑完请确认桥还在、工程已保存"
+  end
+
   -- ⚠️ Lua 5.2+ 的 load(chunk, name, "t", env) 会把 _ENV **整个换成 env** ⇒
   --    标准库（tostring / pairs / ipairs / string / table / math / os / io）全部消失，
   --    脚本一用就报 "attempt to call a nil value (global 'tostring')"（实测踩到）。
@@ -3866,10 +4496,36 @@ function OPS.run_script(args)
   if not fn then error("compile error: " .. tostring(cerr)) end
 
   local ok, res = pcall(fn)
-  if not ok then error("runtime error: " .. tostring(res)) end
+  if not ok then
+    local msg = tostring(res)
+    -- 🆕 反应式提示（零误报）：脚本死在"调了一个不存在的成员"上 —— IX 没有官方 API 文档（IX-004）时
+    --    最容易发生；而"调用宿主没有的成员"正是 SV-001 / IX-001 那类**模态框冻桥**的入口。
+    --    ⇒ 不猜、不拦（静态判不出接收者到底有没有这个成员），只在**真出错时**补一句可操作的话。
+    if string.find(msg, "attempt to call a nil value", 1, true) ~= nil then
+      -- ⚠️ 文案要**按宿主**：IX 是"没有官方文档"，SV1/SV2 是"你写错了成员名"（2026-09-27 真机：
+      --    `Track#getMainReference` 是 SV1 专属，在 SV2 上调就会走到这里 —— 那时提 IX 文档不对靶）
+      local tail = "⇒ 调用前先确认存在：`SVH.has(obj, \"成员名\")` / `SVH.members(obj)`（列成员名:类型）"
+      if ST.host == "ix" then
+        tail = tail .. "。**Instrument X 没有官方 API 文档**，别照 SV 镜像硬写；IX 的事实源 = " ..
+          "本仓 `knowledge/docs/InstrumentX-API枚举.md` + `sv-ix` 技能"
+      else
+        tail = tail .. "。成员名可查官方镜像 `skills/sv-scripting/api/`；**注意版本差异**" ..
+          "（例如 `Track#getMainReference` 只有 SV1 有），别把两个版本的 API 混用"
+      end
+      msg = msg .. "\n⚠️ 宿主上**没有这个成员**" .. tail
+    end
+    error("runtime error: " .. msg)
+  end
 
   -- 返回值包装：脚本 return 的可能是 table / number / string / nil
-  return { result = res, resultType = type(res) }
+  local out = { result = res, resultType = type(res) }
+  local warns = {}
+  if hostWarn ~= nil then warns[#warns + 1] = hostWarn end
+  if tblWarn ~= nil then warns[#warns + 1] = tblWarn end
+  if autoWarn ~= nil then warns[#warns + 1] = autoWarn end
+  if crashWarn ~= nil then warns[#warns + 1] = crashWarn end
+  if #warns > 0 then out.warnings = warns end
+  return out
 end
 
 -- ============================================================================
@@ -3891,8 +4547,20 @@ end
 local AUTO_RANGE = {
   pitchdelta = { -1200, 1200 }, vibratoenv = { 0, 2 }, loudness = { -48, 12 },
   tension = { -1, 1 }, breathiness = { -1, 1 }, voicing = { 0, 1 }, gender = { -1, 1 },
+  -- 🆕 2026-09-27 补：**音区偏移 `toneShift`**（SV 侧它属于 **Automation**，不是 Note 属性；
+  --    所以它不在 `Note#getAttributes` 的键表里，AI 从 API 文档里也查不到 —— 用户点名提醒的就是这条）。
+  --    取值域 = **±800 音分**，依据 `tools/param-units.json`（单一事实源）：
+  --    **单位是 cent**，用户 2026-09-20 裁定「上限写到 800」，51 个工程磁盘实测到 ±800
+  --    （`9.28.svp` / `一棵稗子的春天_词定稿无参.svp` 都到 800）。
+  --    ⚠️ 别按 **±1** 写（那是 AKD 示例 helper 的**归一化常量** `visibleRange`，当年就是它造成
+  --       "写了等于没写"）；也别按上游 clone 文档里的 **±400** 或「±12 半音」写。
+  --    守卫：`tools/check-param-units.cjs` 现在会拿本表与 param-units.json **逐项对账**。
+  toneshift = { -800, 800 },
   -- ⛔ **永远不要**往这张表里加 `dynamics`：它不是 automation（是音符级力度包络）⇒ 见 DYN_NOT_AUTOMATION。
   --    加了就等于给"在假对象上读点/写点"开门，会延时崩宿主（2026-09-25 实测两次）。
+  -- 说明：`vocalMode_*` 不在这张表里，走的是下面 `set_automation` 里的**前缀规则**（0~150）。
+  -- 未收录的参数（如 `mouthOpening`）⇒ **不夹**，返回里会带 `range=nil` 与"自行确认量纲"的提示：
+  --   照 param-units.json 的纪律「只收录已核实的，宁缺不编」。
 }
 
 local ORN = {}
@@ -4359,7 +5027,8 @@ function OPS.set_automation(args)
   args = args or {}
   local param = tostring(args.parameter or "")
   if param == "" then
-    error("args.parameter required（loudness / tension / breathiness / voicing / gender / vibratoEnv / pitchDelta / vocalMode_*）")
+    error("args.parameter required（loudness / tension / breathiness / voicing / gender / " ..
+          "vibratoEnv / pitchDelta / toneShift（音区偏移 ±800 音分）/ vocalMode_*）")
   end
   local key = param:lower()
   -- ⛔ 连 `getParameter` 都**不许调**：见文件头 DYN_NOT_AUTOMATION 那段（在假对象上碰一下就毒内存 ⇒ 延时崩宿主）
@@ -4449,10 +5118,13 @@ end
 for name, fn in pairs(OPS) do OP_NAMES[#OP_NAMES + 1] = name end
 table.sort(OP_NAMES)
 
-local function dispatch(op, args)
+local function dispatch(op, args, meta)
   if type(op) ~= "string" or op == "" then error("op required") end
   local fn = OPS[op]
-  if fn == nil then error("unknown op: " .. tostring(op) .. " (known: " .. table.concat(OP_NAMES, ",") .. ")") end
+  if fn == nil then
+    GATE.markLastOp(op, meta, args, "unknown-op")
+    error("unknown op: " .. tostring(op) .. " (known: " .. table.concat(OP_NAMES, ",") .. ")")
+  end
   -- ⛔ **写操作守卫（P7 ②，2026-09-18）**：写"当前组"的 op，在 **SV2 上若当前组是主组 ⇒ 直接拒绝**。
   --   理由：SV2 主组宿主自身不可编辑（天然闸门），但我们给出**明确错误**，避免"看起来成功实则没写"。
   --   ⚠️ **只对 SV2 生效，绝不做全局拒绝** —— **SV1 的真实音符本来就在主组**，全局拒绝会毁掉 SV1 正常用法。
@@ -4477,6 +5149,20 @@ local function dispatch(op, args)
     end
   end
   return fn(args or {})
+end
+
+-- 带取证的分发（2026-09-27）：**执行前**先落盘一条面包屑，执行完改 stage。
+--   被模态框冻住时，akdagent-lastop-<host>.json 会停在 stage="running" ⇒ 直接指名肇事 op + 参数。
+--   ⚠️ 这里再包一层 pcall 不是为了"拦住宿主的框"（拦不住），而是为了**记下 failed 的耗时**，
+--      然后把错误原样抛回给 pollOnce（保持原有行为：写一条 failed 日志 + 回 ok=false 响应）。
+local function dispatchTraced(op, args, meta)
+  GATE.markLastOp(op, meta, args, "running")
+  local t0 = os.time()
+  local ok, res = pcall(dispatch, op, args, meta)
+  local dur = os.time() - t0
+  GATE.markLastOp(op, meta, args, ok and "done" or "failed", ("耗时 %ds"):format(dur))
+  if not ok then error(res, 0) end
+  return res
 end
 
 -- 消费请求文件（应答后必须清）：否则同一份请求会被每拍重复读到 ⇒ 命中缓存 ⇒ 无限重发响应
@@ -4531,7 +5217,7 @@ local function pollOnce()
   if seq > ST.lastSeq then ST.lastSeq = seq end     -- lastSeq 仅作统计/观测
   ST.reqSeen = ST.reqSeen + 1
 
-  local okh, result = pcall(dispatch, req.op, req.args)
+  local okh, result = pcall(dispatchTraced, req.op, req.args, { id = req.id, seq = seq })
   ST.opsRun = ST.opsRun + 1
   if okh then
     sendResponse(req.id, seq, true, result)
@@ -4901,6 +5587,9 @@ end
 
 function main()
   trace("main 进入")
+  -- 本次桥运行的标识：写进心跳与 lastop 面包屑，供客户端判断"面包屑是不是**当前这次**运行留下的"
+  --   （桥重启后旧面包屑会留在盘上 —— 没有这个标识就会把新事故冤枉到无关的 op 上）
+  ST.session = os.time()
   -- 先探测 SV 调用约定（冒号 vs 点）——只探无参只读函数，绝不碰 finish / 信息框
   pcall(detectSvStyle)
   trace("svStyle=" .. tostring(ST.svStyle))
@@ -5010,6 +5699,8 @@ if rawget(_G, "__AKDAGENT_TEST__") then
     VERSION = CFG.VERSION, OPS = OPS, OP_NAMES = OP_NAMES, LAYOUT = LAYOUT,
     ST = ST, CFG = CFG, PATH = PATH, NULL = NULL, SVH = SVH,
     jenc = jenc, jdec = jdec, idx = idx, call = call, has = has, SC = SC,
+    -- 防御闸门 + 取证分发（离线单测直接驱动）
+    GATE = GATE, dispatchTraced = dispatchTraced,
     members = members, dispatch = dispatch, readFile = readFile,
     -- 纯算法层（离线单测直接驱动；生产代码通过 OPS 间接使用）
     ALG = ALG, ACC = ACC, PIT = PIT, ORN = ORN,

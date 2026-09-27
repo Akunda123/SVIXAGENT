@@ -1226,6 +1226,49 @@
           }
         ]
       }
+    },
+    {
+      "id": "SV-008",
+      "class": "by-design",
+      "recheck": false,
+      "host": "sv",
+      "title": "【不是缺陷】实参类型/调用形式不对 ⇒ 宿主弹**模态**脚本错误框（样例 `setAttributes: 无效的输入类型。`），框一弹桥就冻死",
+      "apis": [
+        "Note#setAttributes(<非表>)",
+        "点调用（JS 写法）`n.setAttributes({…})` ⇒ 对象自己被当第 1 个实参",
+        "把本宿主不存在的字段递给 setAttributes（如 SV1 上的 phonemes / SV2 上的 dur）"
+      ],
+      "symptom": "宿主弹出**模态**框「脚本 'AKDAgent Bridge (Lua)' 出现错误：setAttributes: 无效的输入类型。」。该框一出现，宿主主线程即停 ⇒ 桥的轮询链跟着停：心跳不再更新、**之后每一笔请求都超时**，而 Lua 侧**连一行日志都来不及写**（`respond` 从未落盘）⇒ 事后无从判断是哪一笔请求干的。",
+      "impact": "桥\"静默死亡\"+ 用户工程**可能未保存**（改动只在宿主内存里）。pcall 完全无效：报错由宿主 C 侧在参数转换阶段弹框，不是 Lua 异常（同 SV-001 的机制，触发面不同）。",
+      "workaround": [
+        "恢复三步（按顺序）：① 到宿主里**关掉那个错误框**（框不下，宿主一直停着，重跑脚本也不会生效）② **Ctrl+S 保存工程** ③ 脚本菜单 → Agent → 重跑 AKDAgentBridge",
+        "桥侧**预防**（2026-09-27 落地）：`run_script` 预检 —— 点调用（`x.setAttributes(` / `SV.getProject(`）与 `setAttributes` 的字面量实参（`\"x\"` / `1` / `nil` / `true`）**在进宿主之前**被拒，错误里直接给出冒号写法",
+        "桥侧**宿主闸门**：`set_note_phoneme_attrs`（phonemes，SV2 2.1.1+）与 `set_note_dur`（dur，SV1 专属）写错宿主时**明确拒绝**（`refused=\"sv1-no-phonemes\"` / `\"sv2-no-dur\"`），不把本宿主没有的字段递给宿主",
+        "桥侧**内容检测**（2026-09-27 用户指定「读 api 文档，给 setAttributes 的内容加上检测（IX 除外）」）：按 `skills/sv-scripting/api/Note.md` 的 `Note#getAttributes` 字段表查 `setAttributes({…})` **字面量表**的**键归属 + 值类型 + 数组元素**；判据四类（键不在文档里 / 键不属于本宿主 / 值类型不符 / 数组元素不是数），NaN 合法（= 恢复默认）；逃逸口 `-- akdagent:allow-extra-attrs`（未知键降级为警告）；⛔ **IX 整体豁免**（无官方文档 + 有文档外的键）",
+        "值清洗：`phonemes[].leftOffset/position/activity/strength` 与 `dur[]` 先 tonumber，非数项剔掉（数组长度不变）并回报 `droppedFields`；`write_chords` 的 `dynamic` 非数不递、超域夹到 0~1，`articulations` 传单个字符串时包成数组",
+        "桥侧**取证**：每笔请求执行前落盘 `akdagent-lastop-<host>.json`（`stage=\"running\"`）、跑完改 `done/failed`；脚本或宿主被冻住时它停在 `running` ⇒ 客户端诊断里直接指名肇事 op + 参数摘要",
+        "写脚本纪律：方法一律**冒号**调用；属性 API 只传表；写属性前先按宿主能力表核对字段归属（见 skills/akdagent-playbook §2.3 / §2.3b）"
+      ],
+      "seenOn": [
+        {
+          "date": "2026-09-27",
+          "hostVersion": "用户机器（AKDAgent 1.0.1 发布版）"
+        }
+      ],
+      "probe": null,
+      "state": {
+        "status": "by-design",
+        "checkedAt": "2026-09-27",
+        "checkedHost": "sv",
+        "checkedHostName": "Synthesizer V Studio",
+        "history": [
+          {
+            "at": "2026-09-27",
+            "event": "by-design",
+            "note": "用户反馈「AI 在调用音符属性时使用了错误的 api」+ 错误框截图（来自用户电脑）。定性：宿主弹模态框是平台设计（同 SV-001 机制）；我们能做的是**预防 + 取证 + 恢复指引** ⇒ 桥加 GATE 预检 / 宿主闸门 / lastop 面包屑，服务端诊断与 stale 文案带恢复三步；离线自测补 30+ 断言（test-ops.lua 的 GATE 段）。"
+          }
+        ]
+      }
     }
   ]
 }

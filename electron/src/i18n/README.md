@@ -54,7 +54,7 @@ preload 向页面暴露 `window.svi18n`：
 |---|---|
 | `svi18n.locale` | 当前语种（`'zh-Hans'` …） |
 | `svi18n.t(key, ...args)` | 取文案，`{0}` 占位符按参数替换；**取不到时返回 key 本身**（便于测试发现漏翻） |
-| `svi18n.apply(root?)` | 把 `[data-i18n]` / `[data-i18n-ph]` / `[data-i18n-title]` 刷成当前语种文案 |
+| `svi18n.apply()` | 把 `[data-i18n]` / `[data-i18n-ph]` / `[data-i18n-title]` 刷成当前语种文案。⚠️ **页面必须无参调用** —— 参数要跨 contextBridge，**DOM 节点序列化不过去**（传了会拿到非节点 ⇒ `scope.querySelectorAll is not a function` ⇒ 页面文案全空；2026-09-27 向导第一版就栽在这，`apply(document)` 整页空白） |
 | `svi18n.onChange(cb)` | 语种切换时回调（页面在这里重排动态文案，**不重载窗口**） |
 
 ### HTML 侧约定

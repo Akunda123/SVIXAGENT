@@ -54,6 +54,17 @@ const ALLOW_GETPOINTS = [
   /sv[\\/]lua[\\/]draw-pit-art\.cjs$/,   // 音高线作图：画完读回逐段核对（读的是曲线，不是 automation）
 ];
 
+// 🆕 2026-09-27 两条豁免（起因：**桥里新加的 crash 闸自己撞上了这个守卫** —— 它在 `GATE.CRASH_PATTERNS`
+//   里"点名"了这些成员，测试里也要断言"命中/放行"，工具描述里更要写给 AI 看）：
+//   ① **测试目录整体豁免**：`sv/lua/tests/**` 的存在意义就是**故意构造**这些调用（假宿主还特意不实现它们）。
+const ALLOW_DIRS = [
+  /sv[\\/]lua[\\/]tests[\\/]/,
+];
+//   ② **"文档式引用"豁免**：行内以 `类名#成员` 形式出现（`Automation#getPoints`、`PitchControlCurve#getPoints`）
+//      ⇒ 那是在**讲文档/写在工具描述里**，不是在调用（真调用写的是 `obj:getPoints()`，没有 `#`）。
+//      ⚠️ 代价：同一行里既写文档又真调用的写法会漏 —— 罕见，且注释行本来就不参与判定。
+const DOCREF = /[A-Za-z_]+#(getPoints|getAllPoints|getLinear|getDefinition|remove)\b/;
+
 function walk(d, out) {
   if (!fs.existsSync(d)) return out;
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -68,10 +79,12 @@ const files = ARG_FILE ? [path.resolve(ARG_FILE)] : ROOTS.flatMap((r) => walk(pa
 const hits = [];
 for (const f of files) {
   if (ALLOW.some((re) => re.test(f))) continue;
+  if (ALLOW_DIRS.some((re) => re.test(f))) continue;      // 测试目录整体豁免（见上）
   const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
   lines.forEach((ln, i) => {
     const t = ln.trim();
     if (t.startsWith('--') || t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return;  // 纯注释不算
+    if (DOCREF.test(ln)) return;                          // 文档式引用（`类名#成员`）不算调用（见上）
     for (const [re, why, tag] of BANNED) {
       if (tag === 'getPoints' && ALLOW_GETPOINTS.some((x) => x.test(f))) continue;
       if (re.test(ln)) hits.push({ file: path.relative(ROOT, f).replace(/\\/g, '/'), line: i + 1, why, text: t.slice(0, 110) });

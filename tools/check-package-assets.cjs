@@ -288,8 +288,14 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
       if (/process\.platform === 'win32'[\s\S]{0,240}?tasklist/.test(main)) ok('flat 版探测先判平台（win 才查 tasklist）');
       else fail("main.js 的 detectFlatSv() 没有先判 win32 ⇒ mac 上靠异常兜底（用异常当控制流）");
       // ④ HOME_DIR 不能无条件信 USERPROFILE（mac 上通常没有这个变量）
+      //    2026-09-27 补：允许在最前面加一层**测试/仿真用**的环境变量覆盖（AKDAGENT_HOME_DIR），
+      //    但**必须**保留 "win32 才认 USERPROFILE + os.homedir() 兜底" 这条链，且不得写死路径。
       if (/const HOME_DIR = process\.env\.USERPROFILE \|\|/.test(main)) {
         fail("main.js 的 HOME_DIR 无条件读 USERPROFILE 了 ⇒ mac 上被注入时会指到不存在的地方");
+      } else if (/const HOME_DIR = process\.env\.AKDAGENT_HOME_DIR[\s\S]{0,200}?process\.platform === 'win32'[\s\S]{0,160}?os\.homedir\(\)/.test(main)) {
+        ok('HOME_DIR：AKDAGENT_HOME_DIR（测试用覆盖）→ win32 才认 USERPROFILE → os.homedir() 兜底');
+        if (/AKDAGENT_HOME_DIR[\s\S]{0,400}?只给测试\/仿真用/.test(main)) ok('AKDAGENT_HOME_DIR 在代码里标注了"只给测试/仿真用"');
+        else fail('AKDAGENT_HOME_DIR 覆盖没标注用途 ⇒ 容易被当成正式配置项');
       } else if (/const HOME_DIR = \(process\.platform === 'win32'/.test(main)) {
         ok('HOME_DIR：USERPROFILE 只在 Windows 上生效，其余用 os.homedir()');
       } else {

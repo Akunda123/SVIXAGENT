@@ -380,7 +380,7 @@ export function registerTools(server: McpServer): void {
 
   server.tool(
     "sv_fix_consonant_intrusion",
-    "**修「短音符的辅音吃掉前一个音符」**（唱歌 / rap 都会出）：扫当前组找**短音符**（默认 ≤ 0.25 四分音符 = 16 分音符；也可用 `indices` 点名）→ 取**它后面那个音符**的起首辅音 → 出「收多少」的方案。**SV2**：读 `attributes.phonemes[0].leftOffset`（**负值 = 辅音往左延伸 = 抢前一个音符**）⇒ 建议**往 0 方向收**（`leftRatio` 默认 0.3；**绝不设 0 —— `0` = 辅音消失**）。**SV1**：读 `attributes.dur[0]`（比例数组第 1 项 = 辅音）⇒ 建议**压到 `durFactor`**（默认 0.65）。⚠️ **默认 dry-run**；⚠️ 引擎会消费写入但**SV2 不回显到 computed** ⇒ **效果只能听感验收**；⚠️ 只动音素属性，**不改歌词 / 语言 / 时值**。可 host 指定目标宿主（sv/ix）",
+    "**修「短音符的辅音吃掉前一个音符」**（唱歌 / rap 都会出）：扫当前组找**短音符**（默认 ≤ 0.25 四分音符 = 16 分音符；也可用 `indices` 点名）→ 取**它后面那个音符**的起首辅音 → 出「收多少」的方案。**SV2**：读 `attributes.phonemes[0].leftOffset`（**负值 = 辅音往左延伸 = 抢前一个音符**）⇒ 建议**往 0 方向收**（`leftRatio` 默认 0.3；**绝不设 0 —— `0` = 辅音消失**）。**SV1**：读 `attributes.dur[0]`（比例数组第 1 项 = 辅音）⇒ 建议**压到 `durFactor`**（默认 0.65）。⚠️ `dur` 是**比例**、**任意正数都合法**（>1 = 拉长，用户 2026-09-27 提醒）；桥只剔非数、**不做值域 clamp**。⚠️ **默认 dry-run**；⚠️ 引擎会消费写入但**SV2 不回显到 computed** ⇒ **效果只能听感验收**；⚠️ 只动音素属性，**不改歌词 / 语言 / 时值**。可 host 指定目标宿主（sv/ix）",
     {
       apply: z.boolean().optional().describe("true = 真正写入并回读；默认 false = 只出方案"),
       shortQuarter: z.number().min(0.0625).max(4).optional().describe("短音符阈值（四分音符为单位；默认 0.25 = 16 分音符）"),
@@ -969,17 +969,41 @@ const writeRes = await executeOp("create_harmony_group", {
   // 通用 SV 脚本执行（agent  sv-scripting skill 文档现场写脚本）
   server.tool(
     "sv_run_script",
-    "在 Synthesizer V / Instrument X 内执行一段 **Lua** 脚本（桥是 Lua 桥，run_script op 用 load 执行）。脚本应为函数体（支持 return 返回值），可使用宿主全局对象（SV:getProject / SV:getMainEditor 等）与注入的 scope 变量。⚠️ Lua 绑定与 JS 不同：① 方法用**冒号**调用（SV:getProject()）；② 索引**从 1 起**（getNote(1) 是第一个音符，getIndexInParent() 同样 1 起）。安全要求：写操作必须调用 SV:getProject():newUndoRecord()（先建撤销点）；只读查询传 readonly:true。技能文档（sv-scripting 等）里的示例多为 **JS** 写法（SV.getProject()、索引 0 起），抄用前请按上面两条改写。示例：'local p = SV:getProject(); p:newUndoRecord(); local g = SV:getMainEditor():getCurrentGroup():getTarget(); g:getNote(1):setPitch(72); return { ok = true }'",
+    "在 Synthesizer V / Instrument X 内执行一段 **Lua** 脚本（桥是 Lua 桥，run_script op 用 load 执行）。脚本应为函数体（支持 return 返回值），可使用宿主全局对象（SV:getProject / SV:getMainEditor 等）与注入的 scope 变量。⚠️ Lua 绑定与 JS 不同：① 方法用**冒号**调用（SV:getProject()）；② 索引**从 1 起**（getNote(1) 是第一个音符，getIndexInParent() 同样 1 起）。安全要求：写操作必须调用 SV:getProject():newUndoRecord()（先建撤销点）；只读查询传 readonly:true。技能文档（sv-scripting 等）里的示例多为 **JS** 写法（SV.getProject()、索引 0 起），抄用前请按上面两条改写。示例：'local p = SV:getProject(); p:newUndoRecord(); local g = SV:getMainEditor():getCurrentGroup():getTarget(); g:getNote(1):setPitch(72); return { ok = true }'" +
+    " ⛔ **两条硬纪律（违反 = 宿主弹模态脚本错误框 = 桥冻死，pcall 拦不住，只能关框+重跑）**：" +
+    "① **绝不写点调用**（`n.setAttributes(…)` / `SV.getProject()` 这类 JS 写法）—— 点调用会把对象自己当第 1 个实参，宿主直接弹「xxx: 无效的输入类型。」；" +
+    "② **别把字面量递给属性 API**（`setAttributes(\"x\")` / `(1)` / `(nil)`），它要的是**表**。这两条桥已**在进宿主之前预检并拒绝**（错误里给出冒号写法），别绕着写。" +
+    " ⚠️ **音符属性（音高参数）按宿主选 API（选错不报错但不生效）**：**SV1** 用 `n:getAttributes()` / `n:setAttributes({ tF0Left = 0.07, … })`（那 12 个音高字段**只有 SV1 有**）；" +
+    "**SV2/IX** 用 `n:getScriptData(k)` / `n:setScriptData(k, v)`，音高在**曲线**上（PitchControlCurve）；IX 的技法/力度用 `n:setArticulations({…})` / `n:setDynamic(v)`。" +
+    "`phonemes`（SV2 2.1.1+）与 `dur`（SV1）也各只属于一个宿主 —— 写错宿主桥会**明确拒绝**。" +
+    " ⚠️ `setAttributes` 的**键与值**还会按官方文档（`Note#getAttributes`，见 `skills/sv-scripting/api/Note.md`）**逐条检测**：" +
+    "键不在该宿主 / 拼错、值类型不符（如 `muted = 1`）、数组元素不是数，都会被拒 —— 因为 `setAttributes` **不校验字段**（SV-007），" +
+    "写错既不报错也不生效（比弹框更阴）。**IX 豁免**（它没有官方文档、另有文档外的键如 toneShift/pitchDelta/articulations）；" +
+    "确有未文档化的键要写，加一行 `-- akdagent:allow-extra-attrs` 降级为警告（类型错仍拦）。" +
+    " ⚠️ **自动音高**：`SV:create(\"Note\")` 建出来的音符默认是**自动**（`getPitchAutoMode()==true`，SV1 上）——给自动音符写那 12 个音高参数" +
+    "**不报错、也读得回，但不会把它切出手动**（真机 SV1 1.11.2 核对）⇒ 想要生效先 `n:setPitchAutoMode(false)`" +
+    "（桥的 `write_pit` 就是这么做的）；桥会在你没写 `setPitchAutoMode` 时给一句 `warnings` 提醒。" +
+    " ⚠️ **Instrument X 没有官方 API 文档**（台账 IX-004：官方镜像只描述 Synthesizer V）⇒ 在 IX 上**凡是不确定的成员，先查再调**：" +
+    "`SVH.has(obj, \"getName\")` / `SVH.members(obj)`（列成员名:类型）—— **绝不用\"试着调一下\"代替检查**，" +
+    "试错就是弹模态框冻死宿主（SV-001 / IX-001 都是试出来的）。IX 的事实源是 `knowledge/docs/InstrumentX-API枚举.md` + `sv-ix` 技能；" +
+    "\"镜像里没有\" ≠ \"宿主没有\"（例：toneShift/pitchDelta UI 隐藏但 API 可写）。" +
+    " ⚠️ 若桥在某一笔之后全部超时：看 `%TEMP%\\akdagent-lastop-<host>.json`（桥每笔执行前落盘、跑完改 stage）——停在 `stage=\"running\"` 的那笔就是肇事者；" +
+    "恢复 = 关掉宿主的错误框 → **Ctrl+S 保存工程** → 脚本菜单重跑 AKDAgentBridge。" +
+    " ⛔ **crash 清单现在有运行时硬拒**（2026-09-27）：脚本里出现 `getPoints` / `getAllPoints` / `getLinear` / `getDefinition` / `remove(单参)` 一律**拒**" +
+    "（前四个：`Automation#getPoints` 族在 IX 1.0.0 上**调用即弹框冻桥**，IX-001；读点请用 `Automation#get(b)` 单点采样；`PitchControlCurve#getPoints()` 虽合法但静态分不清接收者 ⇒ 一并拒）；" +
+    "删点只用**区间重载** `remove(begin, end)`。**确实要跑真机探针**（用户在场、工程已 Ctrl+S）才显式传 `allowCrashApi:true`（回包会带「后果自负」警告）。" +
+    " 另：脚本若死在 `attempt to call a nil value`，桥会补一句提示（宿主没这个成员 ⇒ 先用 `SVH.has` 确认；IX 没有官方文档，别照 SV 镜像硬写）。",
     {
       code: z.string().describe("Lua 脚本函数体（冒号调用、索引 1 起；支持 return）"),
       readonly: z.boolean().optional().describe("只读查询 true（跳 newUndoRecord 要求）；写操作必须省略并 code 里含 newUndoRecord()"),
       scope: z.record(z.string(), z.unknown()).optional().describe("注入到脚本作用域的变量（ {selectedNotes: [...]}）"),
+      allowCrashApi: z.boolean().optional().describe("真机探针口子（默认 false=拒）：脚本要用 crash 清单成员（Automation#getPoints 族 / remove(单参)）时必须显式 true —— IX 1.0.0 上它们会弹框冻桥；回包会带「后果自负」警告"),
       host: z.enum(["sv", "ix"]).optional().describe("目标宿主：sv=Synthesizer V Studio（默认，自动探测），ix=Instrument X"),
     },
-    async ({ code, readonly, scope, host }) => {
+    async ({ code, readonly, scope, host, allowCrashApi }) => {
       const start = Date.now();
       try {
-        const res = await executeOp("run_script", { code, scope, readonly, host }, { timeoutMs: 10000, intervalMs: 150 });
+        const res = await executeOp("run_script", { code, scope, readonly, host, allowCrashApi }, { timeoutMs: 10000, intervalMs: 150 });
         return textResult({ ok: true, result: res, elapsedMs: Date.now() - start });
       } catch (e) {
         return textResult({ ok: false, error: e instanceof Error ? e.message : String(e), elapsedMs: Date.now() - start });
@@ -1678,12 +1702,15 @@ const payloadLen = JSON.stringify(opArgs).length;
   // 参数自动化（张力 / 响度 / 气声 / 发声 / 性别 / 颤音包络 / 音高偏移 / 声线）
   server.tool(
     "sv_write_automation",
-    "写当前音符组的**参数自动化点**（`NoteGroup#getParameter` + `Automation#add`）。参数名（大小写不敏感）：`tension` 张力 · `loudness` 响度 · `breathiness` 气声 · `voicing` 发声 · `gender` 性别 · `vibratoEnv` 颤音包络 · `pitchDelta` 音高偏移 · `vocalMode_*` 声线。" +
-    "**写前按取值域硬编码 clamp**（`loudness −48~12 dB` / `tension −1~1` / `breathiness −1~1` / `voicing 0~1` / `gender −1~1` / `vibratoEnv 0~2` / `pitchDelta ±1200 cents` / `vocalMode_* 0~150`），超出即夹到边界并在回包里标 `clamped`。" +
+    "写当前音符组的**参数自动化点**（`NoteGroup#getParameter` + `Automation#add`）。参数名（大小写不敏感）：`tension` 张力 · `loudness` 响度 · `breathiness` 气声 · `voicing` 发声 · `gender` 性别 · `vibratoEnv` 颤音包络 · `pitchDelta` 音高偏移 · `toneShift` **音区偏移** · `vocalMode_*` 声线。" +
+    "**写前按取值域硬编码 clamp**（`loudness −48~12 dB` / `tension −1~1` / `breathiness −1~1` / `voicing 0~1` / `gender −1~1` / `vibratoEnv 0~2` / `pitchDelta ±1200 cents` / `toneShift ±800 cents` / `vocalMode_* 0~150`），超出即夹到边界并在回包里标 `clamped`。" +
+    "⚠️ **`toneShift`（音区偏移）的单位是音分、范围 ±800**（用户 2026-09-20 裁定；单一事实源 `tools/param-units.json`）—— **别按 ±1 写**（`±1` 是官方示例脚本 helper 的归一化常量，按它写等于没写）；也别按上游文档里的 ±400 / ±12 半音写。" +
+    "`toneShift` 在 SV 侧属于 **Automation**（不是音符属性）⇒ `Note#getAttributes` 的文档里查不到它，这是正常的。" +
+    "未收录的参数（如 `mouthOpening`）**不夹**（照「只收录已核实的」纪律）⇒ 回包里 `range=null` + 提示自行确认量纲。" +
     "**回读只用单点采样**（`Automation#get(b)`）—— `getPoints`/`getAllPoints`/`getLinear`/`getDefinition`/`remove(index)` 在**已知缺陷清单（IX-001，调用即冻桥）**上，一律不调。" +
     "**默认 `dryRun`**（只出计划）；真写要显式 `dryRun:false`（写前 `newUndoRecord()`，可 Ctrl+Z）。",
     {
-      parameter: z.string().describe("参数名（大小写不敏感）：tension / loudness / breathiness / voicing / gender / vibratoEnv / pitchDelta / vocalMode_*"),
+      parameter: z.string().describe("参数名（大小写不敏感）：tension / loudness / breathiness / voicing / gender / vibratoEnv / pitchDelta / toneShift（音区偏移，±800 音分）/ vocalMode_*"),
       points: z.array(z.object({
         onsetQuarter: z.number().describe("位置（**拍**，四分音符 = 1；组内相对位置）"),
         value: z.number().describe("参数值（量纲见工具说明；超域会被 clamp）"),

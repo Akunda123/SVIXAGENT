@@ -43,6 +43,34 @@ function readHeartbeat(host = 'sv', dir) {
   return readJson(fileFor(resolveIpcDir(dir), 'hb', host))
 }
 
+/**
+ * 读桥落的「肇事 op 面包屑」（`akdagent-lastop-<host>.json`）。
+ * 🆕 2026-09-27：桥**每笔请求执行前**落盘 `stage="running"`、跑完改 `done/failed`。
+ *   为什么需要：宿主弹的脚本错误框是**模态**的 ⇒ 框一弹宿主主线程停、桥的轮询链停、
+ *   Lua 侧一行日志都写不出来 ⇒ 事后只知道"桥不在了"，不知道是哪一笔造成的。
+ *   有这个文件，就能**指名肇事 op**，并把"关框 → Ctrl+S → 重跑桥"三步摆到用户面前。
+ */
+function readLastOp(host = 'sv', dir) {
+  return readJson(fileFor(resolveIpcDir(dir), 'lastop', host))
+}
+
+/**
+ * 这条面包屑是不是「**当前这次桥运行**、且那一笔**没跑完**」？（⇒ 多半是被模态框冻住了）
+ *
+ * 两个必须的互校（否则会冤枉）：
+ *   · `hb.session !== crumb.session` ⇒ 那是**上一次桥运行**留下的旧面包屑（桥重启后文件还在盘上）；
+ *   · `hb.opsRun >= crumb.reqSeen` ⇒ 那一笔**已经跑完了**（opsRun 在 op 跑完后才自增）。
+ * 返回 `null` 或 `{ op, ts, session, args }`。
+ */
+function frozenCrumb(host = 'sv', dir) {
+  const c = readLastOp(host, dir)
+  if (!c || !c.op || c.stage !== 'running') return null
+  const hb = readHeartbeat(host, dir)
+  if (hb && typeof hb.session === 'number' && typeof c.session === 'number' && hb.session !== c.session) return null
+  if (hb && typeof hb.opsRun === 'number' && typeof c.reqSeen === 'number' && hb.opsRun >= c.reqSeen) return null
+  return { op: String(c.op), ts: c.ts, session: c.session, args: c.args }
+}
+
 function heartbeatAgeSec(host = 'sv', dir) {
   const hb = readHeartbeat(host, dir)
   if (!hb || typeof hb.ts !== 'number') return null
@@ -113,4 +141,6 @@ module.exports = {
   isBridgeAlive,
   canServe,
   fileIpcSend,
+  readLastOp,
+  frozenCrumb,
 }

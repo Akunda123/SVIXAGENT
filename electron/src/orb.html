@@ -1097,6 +1097,9 @@
     })
   }
   window.akdagent.onAgentReady(setConnState)
+  /* 🆕 2026-09-27：主进程推来的**用户可见提示**（"这一轮为什么错、去哪儿配"）——
+   * 以前这类原因只写进 akdagent.log，用户界面上永远只有一句"回合结束（error）"。 */
+  window.akdagent.onNotice((p) => { if (p && p.text) appendErr('orb.notice.warn', p.text) })
   // 初始查询一次连接状态（防止加载时错过推送）
   window.akdagent.agentReadyQuery().then(setConnState)
 

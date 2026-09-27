@@ -32,6 +32,11 @@ const TARGETS = [
   'settings-preload.js',
   'key-prompt.html',
   'key-prompt-preload.js',
+  // 2026-09-27 新增的两个窗口（SV 配置向导 / 通用 HTML 确认框）—— 新页面必须一起纳入残留检查
+  'sv-setup.html',
+  'sv-setup-preload.js',
+  'confirm.html',
+  'confirm-preload.js',
 ]
 
 /** 逐行剥注释：够用即可（不追求完美解析，宁可有少量误报也别漏） */

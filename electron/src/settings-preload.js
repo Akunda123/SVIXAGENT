@@ -101,6 +101,8 @@ contextBridge.exposeInMainWorld('svsettings', {
   deploySvFile: (dir, what) => ipcRenderer.invoke('akdagent-deploy-sv-file', dir, what),
   /** 系统目录选择器（目录输入框留空时用；返回 {ok,path} 或 {ok:false,cancelled:true}） */
   pickDirectory: (opts) => ipcRenderer.invoke('akdagent-pick-directory', opts),
+  /** 🆕 2026-09-27：打开「SV 配置向导」窗口（三步：检索目录 → 勾选 → 一键部署） */
+  openSvSetup: () => ipcRenderer.send('akdagent-open-sv-setup'),
 
   /* SV Flat 版检测 + nofs JSON 编辑 */
   svFlatStatus: () => ipcRenderer.invoke('akdagent-sv-flat-status'),

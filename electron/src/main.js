@@ -29,7 +29,8 @@ const sttModel = require('./stt-model.js')
 const { createPanelBridge } = require('./panel-bridge.js')
 const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge, probeBridgeHeartbeat } = require('./sv-bridge-client.js')
 const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf } = require('./host-pick.js')
-const { ensureHome } = require('./dsh-home.js')
+const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
+const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
 
 /* ── 日志安全网（2026-09-19 修「打包版静默退出」）──────────────────────
@@ -125,8 +126,15 @@ const isPackaged = app.isPackaged
  * 的 app 代码（进 asar、不走脱敏）⇒ 真实用户名会直接进发布包。2026-09-19 事故后改正，
  * 守卫见 `tools/check-abs-paths.cjs`。Windows 上 `USERPROFILE` 正常都有，`os.homedir()` 兜底。
  * 2026-09-25：把 `USERPROFILE` 限定在 win32 —— mac 上它**通常不存在**（靠兜底才对），
- * 但万一被外部环境变量注入了就会指向一个不存在的地方，那才是真麻烦。 */
-const HOME_DIR = (process.platform === 'win32' ? process.env.USERPROFILE : null) || os.homedir()
+ * 但万一被外部环境变量注入了就会指向一个不存在的地方，那才是真麻烦。
+ * 🆕 2026-09-27：`AKDAGENT_HOME_DIR` 可覆盖（**只给测试/仿真用**，与 `AKDAGENT_DSH_HOME_DIR` 同族）：
+ *   于是 `.dsh`（源）+ `.dsh-akdagent`（隔离家目录）一起挪到临时目录 ⇒ 能**不碰真实数据**地
+ *   模拟"干净机器"（没凭据 / 没配 SV 目录 / 首次启动）。
+ *   ⚠️ **别用覆盖 `USERPROFILE` 的办法**：Electron 会解析不出 `userData`（实测 `Failed to get 'userData' path`），
+ *   连单实例锁都会误判成"已有实例在运行"。 */
+const HOME_DIR = process.env.AKDAGENT_HOME_DIR
+  || (process.platform === 'win32' ? process.env.USERPROFILE : null)
+  || os.homedir()
 
 // ── DSH 设置读写（~/.dsh/settings.yaml） ───────────────────────────
 const SETTINGS_PATH = path.join(HOME_DIR, '.dsh', 'settings.yaml')
@@ -150,7 +158,8 @@ function writeSettings(obj) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   // 保持紧凑但可读的 YAML（2 空格缩进）
   const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
-  fs.writeFileSync(SETTINGS_PATH, out, 'utf8')
+  // 原子写（2026-09-27）：宿主 chokidar 守着这份文件，别让它在"已清空还没写完"的瞬间读到半截
+  if (!writeFileAtomic(SETTINGS_PATH, out)) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + SETTINGS_PATH)
   mirrorDshFileToIsolatedHome('settings.yaml', out)
 }
 
@@ -342,6 +351,11 @@ function waitForWeb(port, timeoutMs = 90000) {
   const deadline = Date.now() + timeoutMs
   return new Promise((resolve, reject) => {
     const tick = async () => {
+      /* 宿主已经死了就别等了（2026-09-27）：以前要干等到 90 秒上限才报"没起来"，
+       * 而真正的原因（boot 报错）早就写进 stderr 了 ⇒ 现在立刻失败，让启动重试马上接手。 */
+      if (hostExited) {
+        return reject(new Error('宿主进程在就绪前退出（' + (hostExitInfo ? 'code=' + hostExitInfo.code : '未知') + '）'))
+      }
       if (Date.now() > deadline) {
         return reject(new Error(hostTokenUrl
           ? 'embedded dsh host is up but refused our session (token/cookie handshake failed)'
@@ -380,7 +394,8 @@ function mirrorDshFileToIsolatedHome(name, text) {
     if (!AKDAGENT_DSH_HOME) return
     fs.mkdirSync(AKDAGENT_DSH_HOME, { recursive: true })
     const dst = path.join(AKDAGENT_DSH_HOME, name)
-    fs.writeFileSync(dst, text, 'utf8')
+    // 原子写：宿主对这两个文件都是 chokidar 监听（truncate+write 会让它有机会读到半截/空文档）
+    if (!writeFileAtomic(dst, text)) throw new Error('写不进去（权限 / 杀软？）')
     // ⚠️ 留痕（2026-09-26 加）：以前这里是**静默**的，一旦镜像失败（权限/杀软）我们什么都看不到。
     if (name === '.credentials.yaml') console.log('[akdagent] 已把凭据镜像进隔离家目录：' + dst)
   } catch (e) {
@@ -498,8 +513,64 @@ function turnErrorHint(e) {
   if (status === 403) return '提供方拒绝访问（403）：key 权限不足，或该模型未对这把 key 开放'
   if (code === 'TRANSPORT' || /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|getaddrinfo|socket hang up/i.test(msg)) return '网络到提供方不通（TRANSPORT）：本机网络 / 代理 / DNS 的问题（可在浏览器里试试打不打得到提供方接口域名）'
   if (code === 'REQUEST_EXTENSION') return 'DSH 在发请求前的「扩展准备」阶段失败（REQUEST_EXTENSION）：通常是 profile 里某条插件条目解析不了（看 akdagent.log 里 dsh-home 的体检日志）'
+  /* 🆕 2026-09-27（用户现场实测）：宿主里没有可解析的默认模型时，每一轮都以这句结束 ——
+   * 用户界面上只看到"回合结束（error）"，不可能知道要去配模型。这条映射就是给那一刻用的。 */
+  if (/has no provider\/model|no provider\/model/i.test(msg)) {
+    return '这个会话**没有可用的模型**（provider/model 没配、或模型已被从列表里删掉）：'
+      + '去「设置 → 模型设置」给当前提供方**添加并选中一个模型**；列表删空了就会出现这个错'
+  }
   if (status >= 500) return '提供方服务端错误（5xx）：过一会儿再试'
   return ''
+}
+
+/** 往悬浮球/面板推一条**用户可见**的提示（2026-09-27）。
+ *  为什么需要：诊断信息以前只写日志 —— 界面上永远只有一句"回合结束（error）"，
+ *  而用户不可能去看 akdagent.log。有了它，"为什么错、去哪儿配"能直接摆在用户面前。 */
+function notifyOrb(level, text) {
+  try {
+    if (!text) return
+    if (orbWin && !orbWin.isDestroyed()) {
+      orbWin.webContents.send('akdagent-notice', { level: level || 'warn', text: String(text) })
+    }
+  } catch { /* 推送失败不影响主流程 */ }
+}
+
+/**
+ * 开机自检：**聊天要能用，必须有一个"可解析"的默认模型**（provider + model，且该 model 在列表里）。
+ *
+ * 为什么（2026-09-27 用户现场）：设置里把模型删空（或从没选过）之后，宿主每一轮都以
+ * `agent "…" has no provider/model` 失败；而界面上只有「回合结束（error）」，
+ * 用户不可能知道要去配模型 —— 只能报"又 error 了"。这里开机就说清楚。
+ * @returns {boolean} 配置是否可用（读不到设置时返回 true，不打扰）
+ */
+function checkAgentModelConfigured() {
+  try {
+    const s = readSettings()
+    const adm = s['agent-default-model'] || {}
+    const provider = String(adm.provider || '')
+    const model = String(adm.model || '')
+    const dsModels = ((s['llm-deepseek'] || {}).models) || []
+    const piProviders = ((s['llm-pi-ai'] || {}).providers) || {}
+    let ok = false
+    let why = ''
+    if (!provider || !model) {
+      why = i18n.t('main.model.notSet')
+    } else if (provider === 'deepseek-official') {
+      ok = Array.isArray(dsModels) && dsModels.some((m) => m && m.id === model)
+      if (!ok) why = i18n.t('main.model.notInList', model)
+    } else {
+      const p = piProviders[provider]
+      ok = !!(p && Array.isArray(p.models) && p.models.some((m) => m && m.id === model))
+      if (!ok) why = i18n.t('main.model.notInList', model)
+    }
+    if (ok) return true
+    console.log('[akdagent] ⚠ 默认模型不可用：' + why + '（聊天会每轮以 no provider/model 失败）')
+    notifyOrb('warn', why)
+    return false
+  } catch (e) {
+    console.log('[akdagent] 模型自检出错（忽略）：' + (e && e.message ? e.message : e))
+    return true
+  }
 }
 
 async function ensureMcpRegistration() {
@@ -682,6 +753,10 @@ function spawnHost(port) {
   }
   console.log(`[akdagent] spawning embedded host: ${nodeBin} ${args.join(' ')} (cwd=${dshRoot}, DSH_HOME=${AKDAGENT_DSH_HOME})`)
   const child = spawn(nodeBin, args, { cwd: dshRoot, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+  hostSpawnedAt = Date.now()          // 现场取证：宿主能活多久（"起来 20 秒就退"与"跑了两小时才退"是两类问题）
+  hostStderrTail.length = 0
+  hostExited = false                  // 新一轮：清掉上一轮的生死标记（waitForWeb 就靠它快速失败）
+  hostExitInfo = null
   // host 的输出**同时**进日志文件（console.* 已被上面的安全网接管）——打包版没终端时，
   // 这里是排查「host 为什么没起来」的唯一证据来源。
   child.stdout.on('data', (d) => {
@@ -696,18 +771,61 @@ function spawnHost(port) {
     }
     console.log('[dsh] ' + text.replace(/\s+$/, ''))
   })
-  child.stderr.on('data', (d) => console.error('[dsh:err] ' + String(d).replace(/\s+$/, '')))
+  child.stderr.on('data', (d) => {
+    noteHostStderr(d)                       // 留一份现场（宿主异常退出时落 host-crash.json）
+    console.error('[dsh:err] ' + String(d).replace(/\s+$/, ''))
+  })
   child.on('error', (e) => {
     // spawn 本身失败（node.exe 路径不对 / 权限）：不处理会变成未捕获的 'error' 事件
     console.error(`[akdagent] 内嵌 host spawn 失败：${e.message}（nodeBin=${nodeBin}）`)
   })
   child.on('exit', (code, signal) => {
     console.log(`[akdagent] embedded host exited: code=${code} signal=${signal}`)
-    if (!quitting) {
-      // 别立刻退：子进程 stderr 是**异步管道**，退出瞬间最后一坨（往往正是崩溃堆栈）
-      // 可能在 'exit' 之后才到 —— 2026-09-21 排查宿主死因时就因为立刻 quitApp 丢了证据。
-      setTimeout(() => { if (!quitting) quitApp() }, 500)
-    }
+    /* 标记"这一轮的宿主已经没了"（2026-09-27）：`waitForWeb` 靠它**立刻中止**，
+     * 而不是傻等 90 秒才报"没起来" —— 启动重试才能在 1 秒内接上。 */
+    hostExited = true
+    hostExitInfo = { code, signal, at: new Date().toISOString() }
+    if (quitting) return
+    // 别立刻退：子进程 stderr 是**异步管道**，退出瞬间最后一坨（往往正是崩溃堆栈）
+    // 可能在 'exit' 之后才到 —— 2026-09-21 排查宿主死因时就因为立刻 quitApp 丢了证据。
+    setTimeout(() => {
+      if (quitting) return
+      /* 宿主退出分两种（2026-09-27 起分开处理）：
+       *   ① **就绪前**退出（`hostReady === false`）：典型是 boot 失败（凭据读不了就是这一类）。
+       *      这里**只落现场、不弹框、不退客户端** —— 决定权交给启动流程（`bringUpHost` 的重试循环），
+       *      它会先自愈（规范化/挪走读不了的凭据）再重来一次。以前在这直接退 = 用户看到的"闪退"。
+       *   ② **就绪后**死亡：客户端与宿主是一体的 ⇒ 弹框 + 退出，但**必须留现场**（以前是静默消失）。 */
+      const ranMs = hostSpawnedAt ? Date.now() - hostSpawnedAt : null
+      let crashPath = ''
+      try {
+        crashPath = path.join(app.getPath('userData'), 'host-crash.json')
+        fs.writeFileSync(crashPath, JSON.stringify({
+          at: new Date().toISOString(), code, signal, ranMs, readyBeforeExit: hostReady,
+          logPath: safeLogPath || '', stderrTail: hostStderrTail.slice(-40),
+        }, null, 2), 'utf8')
+      } catch { crashPath = '' }
+      const firstErr = hostStderrTail.slice().reverse().find((l) => /error|failed|FATAL|unknown|refus/i.test(l)) || hostStderrTail.slice(-1)[0] || ''
+      const head = `⚠ 内嵌宿主退出（code=${code} signal=${signal}`
+        + (ranMs === null ? '' : ` · 存活 ${Math.round(ranMs / 1000)}s`) + '）'
+      if (!hostReady) {
+        console.error(`[akdagent] ${head} —— 在**就绪前**退出 ⇒ 交给启动重试逻辑（自愈后重来一次）；现场：${crashPath || '(写不了)'}`)
+        if (firstErr) console.error('[akdagent]   宿主最后一条像样的错误：' + firstErr)
+        return
+      }
+      console.error(`[akdagent] ${head} —— 已经就绪过 ⇒ 客户端跟着退出；现场：${crashPath || '(写不了)'}`)
+      if (firstErr) console.error('[akdagent]   宿主最后一条像样的错误：' + firstErr)
+      if (process.env.AKDAGENT_NO_DIALOG !== '1') {
+        try {
+          dialog.showErrorBox('AKDAgent 内嵌宿主异常退出',
+            '内嵌 DSH 宿主进程在运行中退出，客户端无法继续工作。\n\n'
+            + `退出码：${code}（signal=${signal}）\n`
+            + `存活：${ranMs === null ? '未知' : Math.round(ranMs / 1000) + ' 秒'}\n`
+            + (firstErr ? `最后一条错误：\n${firstErr}\n\n` : '\n')
+            + `日志：${safeLogPath || '(不可用)'}\n现场（可直接发给我们）：${crashPath || '(不可用)'}`)
+        } catch { /* 弹框失败就只留日志 */ }
+      }
+      quitApp('内嵌宿主运行中退出')
+    }, 500)
   })
   return child
 }
@@ -720,6 +838,59 @@ function killTree(pid) {
   }
 }
 
+/**
+ * 起一次内嵌宿主：能复用孤儿就复用，否则新起，然后等它就绪（**失败就抛**）。
+ *
+ * 为什么抽成函数（2026-09-27）：要让"宿主起不来"变成"**自愈后重试一次**"，而不是客户端跟着退。
+ * 宿主 boot 失败最常见的原因是凭据/设置读不了，而那种情况自愈一次就能好
+ *（`ensureAkdagentDshHome()` 会把读不了的凭据规范化或挪走）。
+ *
+ * @param {number} attempt 第几次（0 = 首次；>0 = 重试 ⇒ **不复用**旧宿主，要一个全新的）
+ */
+async function bringUpHost(attempt) {
+  /* 每次都要跑：同步凭据/设置 + 规范化 + 起宿主前的自检自愈。
+   * （2026-09-26 的教训：这段以前挂在 spawnHost 里 ⇒ 复用孤儿宿主时整段被跳过。） */
+  ensureAkdagentDshHome()
+  const prevHost = loadHostRecord()
+  const clientVersion = app.getVersion()
+  if (attempt === 0 && prevHost && prevHost.port && await probeHost(prevHost.port)) {
+    // 0.1.5-rc.2：宿主有鉴权 ⇒ 复用必须带上上次换到的会话 cookie，并**实测确认还能用**。
+    // 不能"因为端口有应答就复用"：新版裸请求一律 401，复用等于让 /api/* 全废。
+    hostPort = prevHost.port
+    hostTokenUrl = prevHost.tokenUrl || null
+    hostCookie = prevHost.cookie || null
+    const alive = await httpGet(hostPort, '/', { cookie: hostCookie })
+    /* 复用条件里再加一条**版本一致**（2026-09-26 热修 · 治本）：老客户端起的宿主体内没有
+     *  本次的客户端侧修复，复用它 = "升级了但还在跑旧逻辑"。记录里**没有 `v`**（≤1.0.1 写的，
+     *  版本戳是本次才加的）一律当不一致 ⇒ 杀掉重起一次，之后记录里就有 `v` 了。 */
+    if (alive.status === 200 && prevHost.v === clientVersion) {
+      console.log(`[akdagent] 复用上一次的内嵌 host（端口 ${hostPort} · pid ${prevHost.pid || '?'} · v${prevHost.v}）—— 避免起第二个 host`)
+    } else if (alive.status === 200) {
+      // 版本不一致：**必须**换新宿主，否则升级后的客户端侧逻辑永远不生效
+      console.log(`[akdagent] 上一次的内嵌 host 是 v${prevHost.v || '(无版本记录)'} 起的（当前客户端 v${clientVersion}）⇒ 杀掉重起，避免用旧逻辑跑`)
+      if (prevHost.pid) killTree(prevHost.pid)
+      hostPort = null; hostTokenUrl = null; hostCookie = null
+    } else {
+      // 复用不了就得**杀掉它再重起**：留着一个没人能调的 host 等于两个 host 写同一会话（会损坏日志）
+      console.log(`[akdagent] 上一次的 host 在端口 ${hostPort} 上不可用（HTTP ${alive.status}）⇒ 杀掉孤儿 host，重起一个`)
+      if (prevHost.pid) killTree(prevHost.pid)
+      hostPort = null; hostTokenUrl = null; hostCookie = null
+    }
+  }
+  if (!hostPort) {
+    hostPort = await findFreePort()
+    hostChild = spawnHost(hostPort)
+    saveHostRecord(hostPort, hostChild && hostChild.pid)
+  }
+  await waitForWeb(hostPort)
+  // 会话建好后再落一次盘：复用孤儿 host 时要靠这里的 token/cookie
+  saveHostRecord(hostPort, (hostChild && hostChild.pid) || (prevHost && prevHost.pid) || null,
+    { tokenUrl: hostTokenUrl, cookie: hostCookie })
+  setOrbStatus(true)
+  connectAgentMux()
+  return { prevHost }
+}
+
 // ── 窗口状态 ───────────────────────────────────────────────────────
 let orbWin = null
 let settingsWin = null
@@ -729,6 +900,32 @@ let tray = null
 let hostChild = null
 let hostReady = false
 let quitting = false
+/* 宿主现场取证（2026-09-27 加）：宿主 stderr 的最后若干行 + 它是什么时候起来的。
+ * 为什么：宿主一退客户端就跟着退（用户看到"过了一会就闪退"），而**退之前那几行 stderr
+ * 往往正是真因**（例如 `credentials-local: unknown top-level key "…"`）。以前只有日志文件，
+ * 用户报障时给不出、我们也问不到 ⇒ 现在落成一份 `userData/host-crash.json` 直接回传即可。 */
+let hostSpawnedAt = 0
+/* 本轮宿主的生死（2026-09-27）：`hostExited` 让 `waitForWeb` 立刻放弃等待；
+ * `hostExitInfo` 把退出码带给"启动失败"的报错文案（用户回传时一眼能看到原因）。 */
+let hostExited = false
+let hostExitInfo = null
+/** 宿主最多起几次（1 次失败 + 1 次自愈重试）；再失败就是真起不来，交给外层弹框 + 退出 */
+const HOST_MAX_ATTEMPTS = 2
+const hostStderrTail = []
+const HOST_STDERR_TAIL_MAX = 60
+/** 落盘前把可能夹带的密钥抹掉（stderr 理论上不该有，但不能赌） */
+function redactForCrash(s) {
+  return String(s)
+    .replace(/(sk-[A-Za-z0-9_\-]{6,})/g, 'sk-***')
+    .replace(/(secret\s*:\s*)\S+/gi, '$1***')
+}
+function noteHostStderr(text) {
+  for (const raw of String(text).replace(/\s+$/, '').split('\n')) {
+    if (!raw) continue
+    hostStderrTail.push(redactForCrash(raw).slice(0, 500))
+    while (hostStderrTail.length > HOST_STDERR_TAIL_MAX) hostStderrTail.shift()
+  }
+}
 let dragOffset = null
 
 // ── DSH Agent 代理状态（orb 对话面板的真实对话通道） ────────────────
@@ -789,12 +986,39 @@ function computeBridgePill(ready, sv, ix) {
   return { level: 'warn', code: 'orb.bridge.none', args: [] }
 }
 
+/* 🆕 2026-09-27 · **桥被宿主模态脚本错误框冻住** ⇒ 在球上给"关框 → Ctrl+S → 重跑桥"三步。
+ *  事故背景（用户真机）：宿主弹 `setAttributes: 无效的输入类型。` 这种**模态**框，框一弹宿主主线程停，
+ *  桥的轮询链跟着停（心跳不再更新、之后每笔请求都超时），而 Lua 侧一行日志都写不出来 ——
+ *  用户只看到"球变黄了 / 工具突然都不动了"，不知道该干什么。
+ *
+ *  判据全在面包屑里（`akdagent-lastop-<host>.json`，桥每笔请求执行前落盘）：
+ *    ① 桥**不新鲜**（还在动就不是冻住）；② `stage="running"`；
+ *    ③ 属于**当前这次**桥运行（session 一致）；④ 那一笔**没跑完**（心跳 opsRun < 面包屑 reqSeen）。
+ *  ⚠️ 同一 `(host, session, op)` 只提示一次（别每 5s 刷屏）；文案走 i18n（四语）。 */
+const frozenNotified = new Set()
+function notifyFrozenBridges(probes) {
+  for (const p of probes) {
+    if (!p || p.fresh || typeof p.ageSec !== 'number') continue   // 桥还在动 / 从没跑过 ⇒ 不提示
+    let c = null
+    try { c = fileIpc.frozenCrumb(p.host) } catch { /* 读不到就当没这回事 */ }
+    if (!c) continue
+    const key = p.host + '|' + c.session + '|' + c.op
+    if (frozenNotified.has(key)) continue
+    frozenNotified.add(key)
+    const tag = p.host === 'ix' ? 'Instrument X' : 'Synthesizer V'
+    notifyOrb('warn', i18n.t('orb.bridge.frozen', tag, c.op))
+    console.log('[bridge] ⛔ 判定为「被脚本错误框冻住」：host=' + p.host + ' op=' + c.op +
+      ' session=' + c.session + ' ageSec=' + p.ageSec)
+  }
+}
+
 /** 采样一次两座桥的心跳并（在状态变化时）推给 orb */
 function refreshBridgePill() {
   let sv = null
   let ix = null
   try { sv = probeBridgeHeartbeat('sv') } catch { /* 探针本身不抛，这里只兜底 */ }
   try { ix = probeBridgeHeartbeat('ix') } catch { /* 同上 */ }
+  try { notifyFrozenBridges([sv, ix]) } catch { /* 提示失败不影响状态灯 */ }
   const next = computeBridgePill(hostReady, sv, ix)
   const key = next.level + '|' + next.code + '|' + next.args.join(',')
   const stateKey = next.level + '|' + next.code
@@ -982,10 +1206,19 @@ function getCred(creds, name) {
   const refs = credRefs(creds)
   return (refs && refs[name]) || creds[name]
 }
+/* ⚠️ 只写 `refs`（2026-09-27 修 —— "过了一会就闪退"的真因）：
+ *  以前这里按"有没有 `refs` 段"判新旧格式，文件不存在 / 没有 `refs` 就**写到顶层** ⇒ 产出
+ *  `version: 1` + `records` + **顶层键**的混合文档 ⇒ 宿主凭据层见顶层未知键直接抛
+ *  （`unknown top-level key "DEEPSEEK_API_KEY"`）⇒ **宿主 boot 失败** ⇒ 进程退出 ⇒ 客户端 500ms 后
+ *  跟着退出 = 用户看到的"闪退"，且**重装也没用**（每次启动都同步过去那份）。
+ *  可那正是**全新机器**的必然形态：DSH 先写 `version: 1` + `records`（会话授权），**还没有 refs**
+ *  ⇒ 用户一填 key 就把自己弄得起不来。宿主只认 `version`/`refs`/`records`（规则详见 dsh-home.js 顶部）。 */
 function setCred(creds, name, value) {
-  const refs = credRefs(creds)
-  if (refs) refs[name] = value
-  else creds[name] = value
+  if (!creds || typeof creds !== 'object') return
+  if (!creds.refs || typeof creds.refs !== 'object') creds.refs = {}
+  if (creds.version === undefined) creds.version = 1
+  creds.refs[name] = value
+  delete creds[name]            // 顶层同名键必须清掉：它就是宿主拒读的那个键
 }
 function delCred(creds, name) {
   const refs = credRefs(creds)
@@ -993,10 +1226,52 @@ function delCred(creds, name) {
   if (creds[name] !== undefined) delete creds[name]
 }
 
-/** 检查 DeepSeek API key 是否已配置 */
+/** 解析某一份凭据文件；**null 表示读不了**（宿主也读不了 ⇒ 界面不该说"已配置"）。 */
+function readCredentialsFrom(p) {
+  try { return yaml.load(fs.readFileSync(p, 'utf8')) || {} } catch { return null }
+}
+
+/** 宿主**真正会读**的那份凭据：隔离家目录优先，没有才退回源 `~/.dsh`。
+ *  为什么（2026-09-27 改）：界面与"要不要弹密钥窗"以前只看**源**那份 ⇒ 会出现
+ *  「界面上明明配好了、宿主其实没 key」这种错觉 —— §10 的每轮 AUTH/401 和 §11 的闪退，
+ *  用户侧看到的第一个假象都是它。判断必须和宿主一致。 */
+function effectiveCredentials() {
+  try {
+    const p = path.join(AKDAGENT_DSH_HOME, '.credentials.yaml')
+    if (fs.existsSync(p)) return { doc: readCredentialsFrom(p), from: 'isolated', path: p }
+  } catch { /* 忽略，退回源 */ }
+  return { doc: readCredentials(), from: 'source', path: CREDENTIALS_PATH }
+}
+
+/** 文档里有没有某个 api-key：`refs.<name>`，或某条 record 的 `env.<name>`（后者是 DSH 自己的写法）。 */
+function docHasApiKey(doc, name) {
+  if (!doc || typeof doc !== 'object') return false
+  if (getCred(doc, name)) return true
+  const recs = doc.records && typeof doc.records === 'object' ? doc.records : null
+  if (recs) {
+    for (const v of Object.values(recs)) {
+      if (!v || typeof v !== 'object') continue
+      const env = v.env && typeof v.env === 'object' ? v.env : null
+      if (env && typeof env[name] === 'string' && env[name]) return true
+    }
+  }
+  return false
+}
+
+/** 检查 DeepSeek API key 是否已配置（**按宿主实际读的那份**判，见 effectiveCredentials） */
 function hasDeepSeekKey() {
-  const creds = readCredentials()
-  return !!getCred(creds, 'DEEPSEEK_API_KEY')
+  return docHasApiKey(effectiveCredentials().doc, 'DEEPSEEK_API_KEY')
+}
+
+/** 宿主是**继承客户端环境**拉起来的（`{...process.env}`）⇒ 环境里若有同名的 key，宿主可能优先用它。
+ *  与凭据文件里的不一致时极难查（"文件里明明是新的"）。只在确实存在时打一行警示（2026-09-27）。 */
+function warnCredentialEnvShadowing() {
+  const names = ['DEEPSEEK_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'MOONSHOT_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY']
+  const hit = names.filter((n) => process.env[n])
+  if (hit.length) {
+    console.log('[akdagent] ⚠ 进程环境里有 ' + hit.join(', ') + '：宿主会继承它（我们是按 {...process.env} 拉起宿主的）'
+      + ' ⇒ 若与凭据文件里的 key 不一致，会出现"文件里是对的、实际用的却是环境变量"的难查现象')
+  }
 }
 
 function createKeyPromptWindow() {
@@ -1045,23 +1320,108 @@ function createKeyPromptWindow() {
   })
 }
 
-/** 首次启动：无 key 则弹窗（仅当窗口都就绪后） */
+/* ── 通用「HTML 确认框」窗口（2026-09-27 · 用户要求：提醒/确认一律 HTML，不用原生 MessageBox）
+ * 为什么不用原生：`dialog.showMessageBox` 在 Windows 上是系统样式，跟 AKDAgent 的深色界面完全两张皮；
+ *   而且原生框在无人值守场景下会把主进程冻在模态循环里（只能靠 AKDAGENT_NO_DIALOG 整体关掉）。
+ *
+ * 用法：`const ok = await askConfirm({ title, message, detail, okLabel, cancelLabel, icon })`
+ *   · **关窗 / Esc / 直接回车 = 取消**（resolve(false)）—— 安全默认，调用方不必再兜底
+ *   · 同一时刻只允许一个：并发时后到的直接按"取消"收尾，避免叠窗
+ *   · **非模态**：不用 `parent` / `modal`（那会把父窗整个禁用 —— 见 createKeyPromptWindow 的教训）
+ *   · `AKDAGENT_NO_DIALOG=1` ⇒ 不开窗、直接 false（无人值守测试不会被挂住）
+ */
+let confirmWin = null
+let pendingConfirm = null
+
+function askConfirm(opts) {
+  return new Promise((resolve) => {
+    if (process.env.AKDAGENT_NO_DIALOG === '1') {
+      console.log('[akdagent] AKDAGENT_NO_DIALOG=1 ⇒ 跳过确认框（按"取消"处理）：' + ((opts && opts.title) || ''))
+      resolve(false)
+      return
+    }
+    if (pendingConfirm) { resolve(false); return }
+    if (confirmWin && !confirmWin.isDestroyed()) { resolve(false); return }
+    pendingConfirm = { resolve }
+    try {
+      confirmWin = new BrowserWindow({
+        width: 620, height: 430, minWidth: 520, minHeight: 320,
+        show: false, alwaysOnTop: true,
+        title: (opts && opts.title) || 'AKDAgent',
+        icon: assetPath('icon.ico'),
+        backgroundColor: '#2e2e2e',
+        titleBarStyle: 'hidden',
+        titleBarOverlay: { color: '#2e2e2e', symbolColor: 'rgb(179,179,179)', height: 32 },
+        webPreferences: {
+          preload: path.join(__dirname, 'confirm-preload.js'),
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      })
+      confirmWin.loadFile(path.join(__dirname, 'confirm.html'))
+      confirmWin.once('ready-to-show', () => {
+        if (confirmWin && !confirmWin.isDestroyed()) {
+          confirmWin.show()
+          ensureWindowKeyboardFocus(confirmWin, 'confirm')
+        }
+      })
+      confirmWin.webContents.once('did-finish-load', () => {
+        if (confirmWin && !confirmWin.isDestroyed()) {
+          confirmWin.webContents.send('akdagent-confirm-init', opts || {})
+        }
+      })
+      confirmWin.on('closed', () => {
+        if (pendingConfirm) { const p = pendingConfirm; pendingConfirm = null; p.resolve(false) }
+        confirmWin = null
+      })
+    } catch (e) {
+      pendingConfirm = null
+      console.log('[akdagent] 确认框打不开 ⇒ 按"取消"处理：' + (e && e.message ? e.message : e))
+      resolve(false)
+    }
+  })
+}
+
+ipcMain.on('akdagent-confirm-answer', (_e, ok) => {
+  if (!pendingConfirm) return
+  const p = pendingConfirm
+  pendingConfirm = null
+  if (confirmWin && !confirmWin.isDestroyed()) confirmWin.close()
+  p.resolve(!!ok)
+})
+
+/** 首次启动：无 key 则弹窗（仅当窗口都就绪后）—— 判据是**宿主实际会读的那份**（2026-09-27 改） */
 function maybeShowKeyPrompt() {
   const has = hasDeepSeekKey()
-  console.log('[akdagent] DeepSeek key: ' + (has ? 'configured（不再弹窗）' : 'MISSING ⇒ 弹密钥窗'))
+  const eff = effectiveCredentials()      // 只为把"判据是哪一份"写进日志（两次读文件，可忽略）
+  console.log('[akdagent] DeepSeek key: ' + (has ? 'configured（不再弹窗）' : 'MISSING ⇒ 弹密钥窗')
+    + '（判据 = ' + (eff.from === 'isolated' ? '宿主读的隔离家目录那份' : '源 ~/.dsh 那份')
+    + (eff.doc === null ? ' · ⚠ 那份**读不了**' : '') + '）')
   if (has) return
   // 等 orb 和 settings 都创建后再弹（作为 settings 的模态）
   setTimeout(() => createKeyPromptWindow(), 500)
 }
 
 ipcMain.on('akdagent-key-save', (_e, key) => {
-  const creds = readCredentials()
-  if (key && String(key).trim()) {
-    setCred(creds, 'DEEPSEEK_API_KEY', String(key).trim())   // 新格式写进 refs，老格式写顶层
-    writeCredentials(creds)
-    console.log('[akdagent] DeepSeek API key saved（写到 ' + (credRefs(creds) ? 'refs' : '顶层') + '）')
+  try {
+    const creds = readCredentials()
+    if (key && String(key).trim()) {
+      setCred(creds, 'DEEPSEEK_API_KEY', String(key).trim())   // 只写 refs（顶层键会被宿主拒读，见 setCred 注释）
+      writeCredentials(creds)
+      console.log('[akdagent] DeepSeek API key saved（写到 refs: DEEPSEEK_API_KEY）')
+    }
+    if (keyPromptWin) keyPromptWin.close()
+  } catch (e) {
+    /* 以前这里失败是**哑的**：窗口照关、用户以为存好了（§11 那类"界面上明明配好了"的来历之一）。
+     * 现在当场说清楚：不关窗 + 弹一次原生框（含日志路径）。 */
+    console.error('[akdagent] 保存 API key 失败：' + (e && e.message ? e.message : e))
+    if (process.env.AKDAGENT_NO_DIALOG !== '1') {
+      try {
+        dialog.showErrorBox('AKDAgent 保存 API Key 失败',
+          String((e && e.message) || e) + '\n\n日志：' + (safeLogPath || '(不可用)'))
+      } catch { /* 忽略 */ }
+    }
   }
-  if (keyPromptWin) keyPromptWin.close()
 })
 
 ipcMain.on('akdagent-key-cancel', () => {
@@ -1117,7 +1477,7 @@ function buildTrayMenu() {
     { label: i18n.t('orb.menu.settings'), click: () => openSettings() },
     { label: i18n.t('orb.menu.help'), click: () => openHelp() },
     { type: 'separator' },
-    { label: i18n.t('orb.menu.quit'), click: () => quitApp() },
+    { label: i18n.t('orb.menu.quit'), click: () => quitApp('托盘菜单') },
   ])
 }
 
@@ -1136,6 +1496,7 @@ function i18nNamespaceOf(sender) {
     [orbWin, 'orb'],
     [settingsWin, 'settings'],
     [keyPromptWin, 'keyPrompt'],
+    [svSetupWin, 'svSetup'],
   ]
   for (const [win, ns] of pairs) {
     if (win && !win.isDestroyed() && win.webContents === sender) return ns
@@ -1272,7 +1633,7 @@ function showOrbContextMenu() {
     { label: i18n.t('orb.menu.help'), click: () => openHelp() },
     { label: i18n.t('orb.menu.hideToTray'), click: () => hideOrbToTray() },
     { type: 'separator' },
-    { label: i18n.t('orb.menu.quit'), click: () => quitApp() },
+    { label: i18n.t('orb.menu.quit'), click: () => quitApp('托盘菜单') },
   ])
   // 不传 window / x / y：popup 默认在当前光标屏幕位置弹出（Electron 文档行为）。
   // 传坐标或 window 时存在窗口相对/屏幕坐标语义歧义，会导致菜单错位。
@@ -1330,8 +1691,12 @@ function toggleOrbPanel() {
   orbWin.webContents.send('akdagent-toggle-orb-panel')
 }
 
-function quitApp() {
+/** 退出客户端。`reason` 只用于**留痕**（2026-09-27 加）：
+ *  以前日志里"用户自己退的"和"宿主死了带着退的"长得一模一样（都是 `embedded host exited: code=1`），
+ *  21 次退出一次都分不出来 —— 用户报"闪退"时我们只能猜。现在每次退出都写明来源。 */
+function quitApp(reason) {
   quitting = true
+  console.log('[akdagent] 退出请求（' + (reason || '未标注来源') + '）')
   stopBridgePoll()               // 桥状态轮询（5s）停掉，别在退出路上还读心跳
   if (hostChild) killTree(hostChild.pid)
   app.quit()
@@ -1339,7 +1704,7 @@ function quitApp() {
 
 // ── IPC ────────────────────────────────────────────────────────────
 ipcMain.on('akdagent-toggle-chat', () => toggleOrbPanel())
-ipcMain.on('akdagent-quit', () => quitApp())
+ipcMain.on('akdagent-quit', () => quitApp('界面按钮'))
 ipcMain.on('akdagent-context-menu', () => showOrbContextMenu())
 
 // ── 设置窗口 IPC ──────────────────────────────────────────────────
@@ -1542,6 +1907,134 @@ function setSvConfig(cfg) {
   writeSettings(s)
 }
 
+/** 有没有配过任何 SV scripts 目录（读不到配置时返回 true —— 宁可少提醒，也别在异常时烦用户） */
+function hasSvScriptsDir() {
+  try { return getSvConfig().scriptsDirs.filter(Boolean).length > 0 } catch { return true }
+}
+
+/**
+ * 🆕 2026-09-27（用户要求）：**一个 scripts 目录都没指定** ⇒ 提醒一次。
+ *
+ * 为什么值得提醒：没配目录 = 桥脚本没地方可部署 = SV/IX 侧所有工具都用不了，
+ * 而界面上**看不出任何异常**（球是绿的、聊天也能用）—— 用户只会觉得"工具怎么都不管用"。
+ *
+ * 通道与节流：原生弹窗（带「去设置 SV 集成」/「稍后」）+ 日志；**每个客户端版本只弹一次**
+ * （记在 `settings.yaml` 的 `sv.noDirNoticeShownFor`）—— 提醒是帮忙，不是唠叨。
+ * 先把标记落盘再弹：万一用户不点、或进程被杀，也不会下次又来。
+ */
+function notifyMissingSvDirs() {
+  try {
+    if (hasSvScriptsDir()) return
+    const s = readSettings()
+    const sv = s[SV_CONFIG_KEY] || {}
+    if (sv.noDirNoticeShownFor === app.getVersion()) return
+    s[SV_CONFIG_KEY] = { ...sv, noDirNoticeShownFor: app.getVersion() }
+    writeSettings(s)
+    let found = []
+    try { found = scanSvScriptsDirs() } catch { /* 忽略 */ }
+    console.log('[akdagent] ⚠ 没有指定任何 SV scripts 目录（SV/IX 侧的工具都用不了）'
+      + (found.length ? '；自动检测到 ' + found.length + ' 个候选：' + found.join(' , ') : '；自动检测也没找到候选')
+      + ' ⇒ 打开 SV 配置向导')
+    if (process.env.AKDAGENT_NO_DIALOG === '1') return
+    /* 🆕 2026-09-27（用户改的流程）：不再弹原生提示框，改成**打开 HTML 配置向导窗口** ——
+     * 没配目录不是"通知一下"就完了，它需要用户动手（挑目录 + 部署），向导里三步走完。 */
+    openSvSetup()
+  } catch (e) {
+    console.log('[akdagent] 提醒 SV 目录时出错（忽略）：' + (e && e.message ? e.message : e))
+  }
+}
+
+/**
+ * 开发辅助（2026-09-27）：把 **SV 配置向导的三步**真跑一遍（scan → 全选 → 部署），
+ * 每步结果写进日志 —— 用于验收（人不用手点），也能在改动后第一时间发现"某一步断了"。
+ *
+ * 用法：`AKDAGENT_DEV_WIZARD_RUN=1`，**并配合 `AKDAGENT_HOME_DIR=<临时目录>`** ——
+ * 向导会真往 scripts 目录里写桥/面板脚本，别拿真实 SV 安装做实验。
+ */
+function devRunSvWizard() {
+  if (process.env.AKDAGENT_DEV_WIZARD_RUN !== '1') return
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+  const js = (code) => {
+    if (!svSetupWin || svSetupWin.isDestroyed()) return Promise.resolve(null)
+    return svSetupWin.webContents.executeJavaScript(code)
+  }
+  ;(async () => {
+    await wait(2500)
+    console.log('[akdagent] 开发辅助：向导三步自测 —— ① 点「自动检索目录」')
+    await js(`document.getElementById('btn-scan').click()`)
+    await wait(1500)
+    /* ⚠️ 只勾**第一行**再部署：`svScriptsDirCandidates()` 里 AppData 那几个候选**不受 HOME_DIR 影响**
+     * （APPDATA 是真实环境变量）⇒ 用假 HOME 自测时，全勾会写进**用户真实的** SV2/IX 目录。
+     * 只勾第一行（Documents 下那个，随假 HOME 走）就只碰临时树。 */
+    const ticked = await js(`(() => {
+      const rows = [...document.querySelectorAll('#list .row')];
+      rows.forEach((r, i) => {
+        const cb = r.querySelector('input');
+        const want = i === 0;
+        if (cb.checked !== want) { cb.checked = want; cb.dispatchEvent(new Event('change', { bubbles: true })); }
+      });
+      return rows.length;
+    })()`)
+    console.log('[akdagent] 开发辅助：共 ' + ticked + ' 行，只勾第 1 行（避免碰真实 AppData 下的宿主目录）')
+    const list = await js(`(() => {
+      const rows = [...document.querySelectorAll('#list .row')];
+      return { rows: rows.length, checked: rows.filter((r) => r.querySelector('input').checked).length,
+               paths: rows.map((r) => r.querySelector('.path').textContent),
+               badges: rows.map((r) => (r.querySelector('.badges') || {}).textContent || '') };
+    })()`)
+    console.log('[akdagent] 开发辅助：② 第 2 步列表 = ' + JSON.stringify(list))
+    console.log('[akdagent] 开发辅助：③ 点「一键部署」')
+    await js(`document.getElementById('btn-deploy').click()`)
+    await wait(3000)
+    const res = await js(`(() => {
+      const rs = [...document.querySelectorAll('#results .result')];
+      return { count: rs.length, lines: rs.map((r) => r.textContent) };
+    })()`)
+    console.log('[akdagent] 开发辅助：第 3 步结果 = ' + JSON.stringify(res))
+    console.log('[akdagent] 开发辅助：向导三步自测结束')
+  })().catch((e) => console.log('[akdagent] 开发辅助：向导自测出错：' + (e && e.message ? e.message : e)))
+}
+
+/**
+ * 开发辅助（2026-09-27）：把「SV 集成 → 某行的『部署面板』」这条**真实路径**点一遍
+ * （渲染层 → IPC → 主进程确认窗），用于实机验收那个确认框。
+ *
+ * 用法：`AKDAGENT_DEV_CLICK_PANEL=1`（会自己把设置窗开到 SV 页）。
+ * 为什么需要它：这个确认窗**只有"人在设置页点按钮"才出得来**，验收时不该靠手点；
+ * ⚠️ 它只**点一下真按钮**，不绕过任何逻辑（确认窗、默认取消、`cancelled` 回报都照走）。
+ */
+function devClickSvPanelDeploy() {
+  if (process.env.AKDAGENT_DEV_CLICK_PANEL !== '1') return
+  const dirs = (getSvConfig().scriptsDirs || []).filter(Boolean)
+  const dir = dirs.find((d) => ['sv1', 'opsv'].includes(hostKindOfScriptsDir(d))) || dirs[0]
+  if (!dir) { console.log('[akdagent] 开发辅助：没有任何 scripts 目录可点（先加一个再来）'); return }
+  const label = i18n.dictFor('settings')['settings.sv.deployPanelBtn'] || '部署面板'
+  console.log('[akdagent] 开发辅助 AKDAGENT_DEV_CLICK_PANEL=1 ⇒ 将模拟点「' + label + '」：' + dir)
+  openSettings('sv')
+  let tries = 0
+  const attempt = () => {
+    tries += 1
+    if (tries > 15) { console.log('[akdagent] 开发辅助：设置页没等到可点的行，放弃'); return }
+    if (!settingsWin || settingsWin.isDestroyed()) { setTimeout(attempt, 800); return }
+    const code = `(() => {
+      const rows = Array.from(document.querySelectorAll('#sv-dir-list .row'));
+      const row = rows.find((r) => (r.textContent || '').includes(${JSON.stringify(dir)}));
+      if (!row) return 'row-not-found';
+      const btn = Array.from(row.querySelectorAll('button')).find((b) => b.textContent === ${JSON.stringify(label)});
+      if (!btn) return 'btn-not-found';
+      btn.click();
+      return 'clicked';
+    })()`
+    settingsWin.webContents.executeJavaScript(code)
+      .then((r) => {
+        console.log('[akdagent] 开发辅助：模拟点「部署面板」⇒ ' + r + '（第 ' + tries + ' 次）')
+        if (r !== 'clicked') setTimeout(attempt, 800)
+      })
+      .catch((e) => { console.log('[akdagent] 开发辅助：点击注入失败：' + (e && e.message)); setTimeout(attempt, 800) })
+  }
+  setTimeout(attempt, 1500)
+}
+
 /** 每个 scripts 目录的派生信息（Agent 目录 = scripts 的上级 + Agent；桥脚本 = scripts/Agent 子目录）
  *  🆕 2026-09-25：一并给出**面板**的状态与"这个宿主要不要面板"，供设置页的目录列表显示徽标 + 手动部署。 */
 function svDirInfo(scriptsDir) {
@@ -1608,20 +2101,26 @@ function wantsPanel(dir) {
   return k === 'sv2' || k === 'ix'
 }
 
-/** 自动检测常见 SV scripts 目录（SV1 文档目录 / SV2 AppData / OPSV 便携版等） */
-ipcMain.handle('akdagent-scan-sv-scripts', () => {
+/** 常见 SV / IX 的 scripts 目录候选（SV1 文档目录 / SV2 AppData 与文档 / OPSV 便携版 / IX） */
+function svScriptsDirCandidates() {
   const user = HOME_DIR
   const appdata = process.env.APPDATA || path.join(user, 'AppData', 'Roaming')
-  const candidates = [
+  return [
     path.join(user, 'Documents', 'Dreamtonics', 'Synthesizer V Studio', 'scripts'),
     path.join(appdata, 'Dreamtonics', 'Synthesizer V Studio 2', 'scripts'),
     path.join(user, 'Documents', 'Dreamtonics', 'Synthesizer V Studio 2', 'scripts'),
     path.join(user, 'Documents', 'OPSV', 'Dreamtonics', 'Synthesizer V Studio', 'scripts'),
     path.join(appdata, 'Dreamtonics', 'Instrument X', 'scripts'),
   ]
-  const found = [...new Set(candidates)].filter((p) => fs.existsSync(p))
-  return { found }
-})
+}
+
+/** 真的存在于磁盘上的候选目录（去重） */
+function scanSvScriptsDirs() {
+  return [...new Set(svScriptsDirCandidates())].filter((p) => fs.existsSync(p))
+}
+
+/** 自动检测常见 SV scripts 目录（设置页「自动检测」按钮用） */
+ipcMain.handle('akdagent-scan-sv-scripts', () => ({ found: scanSvScriptsDirs() }))
 
 /** 读取完整 SV 集成配置 */
 ipcMain.handle('akdagent-get-sv-config', () => {
@@ -1663,6 +2162,15 @@ ipcMain.handle('akdagent-deploy-sv-bridge', () => {
   const src = bridgeSourcePath()
   const panelSrc = panelSourcePath()
   const cfg = getSvConfig()
+  /* 🆕 2026-09-27（用户）：一个目录都没配时别再"跑一遍空操作" —— 界面上什么都没发生，
+   * 用户会以为按钮坏了。这里明确回报 `no-dirs` + 把自动检测的结果一起给界面（让它能一键补上）。 */
+  if (!cfg.scriptsDirs.filter(Boolean).length) {
+    let found = []
+    try { found = scanSvScriptsDirs() } catch { /* 忽略 */ }
+    console.log('[akdagent] 一键部署被跳过：还没有指定任何 SV scripts 目录'
+      + (found.length ? '（自动检测到 ' + found.length + ' 个候选）' : '（自动检测也没找到候选）'))
+    return { ok: false, reason: 'no-dirs', found }
+  }
   const results = cfg.scriptsDirs.map((scriptsDir) => {
     const r = { scriptsDir, kind: hostKindOfScriptsDir(scriptsDir), ok: false, error: '', steps: [], panel: 'skipped' }
     try {
@@ -1709,10 +2217,133 @@ ipcMain.handle('akdagent-deploy-sv-bridge', () => {
   return { results, bridgeSource: src, panelSource: panelSrc }
 })
 
+/* ── SV 配置向导（2026-09-27 · 用户定的流程）───────────────────────────────
+ * 为什么单独开一个窗口（而不是弹个原生框）：**没配 scripts 目录**这件事不是"通知一下"就完了，
+ * 它需要用户动手（挑目录 + 部署），而设置页那一堆行对第一次来的用户太重。所以给一个**三步向导**：
+ *   ① 说明为什么需要 → ② 自动检索所有候选目录、列出让你勾选（也可以「浏览…」手动加）
+ *   → ③ 一键部署（复用设置页那套部署逻辑），最后告诉你去 SV 里跑一次桥脚本。
+ * 触发：启动时 `hasSvScriptsDir()` 为假（每个客户端版本一次，见 notifyMissingSvDirs）。
+ * 老的自然语言弹窗（MessageBox）已被这个窗口取代 —— 文案与按钮都在 `sv-setup.html` 里。 */
+let svSetupWin = null
+
+function createSvSetupWindow() {
+  if (svSetupWin && !svSetupWin.isDestroyed()) {
+    ensureWindowKeyboardFocus(svSetupWin, 'sv-setup')
+    return
+  }
+  svSetupWin = new BrowserWindow({
+    width: 760,
+    height: 620,
+    minWidth: 640,
+    minHeight: 520,
+    show: false,
+    title: i18n.dictFor('svSetup')['svSetup.title'] || 'SV 集成配置向导',
+    icon: assetPath('icon.ico'),
+    backgroundColor: '#2e2e2e',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#2e2e2e', symbolColor: 'rgb(179,179,179)', height: 32 },
+    webPreferences: {
+      preload: path.join(__dirname, 'sv-setup-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  svSetupWin.loadFile(path.join(__dirname, 'sv-setup.html'))
+  /* 渲染层排障（2026-09-27 加）：向导第一版曾经**整页空白** —— 页面脚本在 `window.svi18n` 上抛错，
+   * 而主进程这边一点日志都没有（只能靠用户截图猜）。这类"窗口活着但界面是死的"必须留痕。 */
+  svSetupWin.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    // 过滤 Electron 自带的开发告警（各页面都有，属噪音；与 test-settings-clicks.cjs 同一口径）
+    if (level >= 2 && !/Security Warning|Content Security/.test(message)) {
+      console.log(`[sv-setup] 渲染层错误：${message} @${String(sourceId).split(/[\\/]/).pop()}:${line}`)
+    }
+  })
+  svSetupWin.webContents.on('preload-error', (_e, preloadPath, error) => {
+    console.error('[sv-setup] preload 失败：' + preloadPath + ' → ' + ((error && error.message) || error))
+  })
+  svSetupWin.webContents.on('did-fail-load', (_e, code, desc) => {
+    console.error('[sv-setup] 页面加载失败：' + code + ' ' + desc)
+  })
+  svSetupWin.once('ready-to-show', () => {
+    svSetupWin.show()
+    ensureWindowKeyboardFocus(svSetupWin, 'sv-setup')
+  })
+  svSetupWin.on('closed', () => {
+    console.log('[akdagent] SV 配置向导已关闭')
+    svSetupWin = null
+  })
+}
+
+/** 打开配置向导（已开着就前置） */
+function openSvSetup() {
+  if (svSetupWin && !svSetupWin.isDestroyed()) {
+    ensureWindowKeyboardFocus(svSetupWin, 'sv-setup')
+    return
+  }
+  createSvSetupWindow()
+}
+
+/** 向导第 2 步用：把"能自动找到的目录"连同每个目录的宿主类型/已装状态一起给它 */
+ipcMain.handle('akdagent-sv-setup-scan', () => {
+  const configured = new Set(getSvConfig().scriptsDirs.filter(Boolean))
+  const found = scanSvScriptsDirs()
+  // 已配置但这次没扫到的目录也列出来（用户手填过的路径不该在向导里消失）
+  const all = [...new Set([...found, ...configured])]
+  return {
+    entries: all.map((dir) => {
+      const info = svDirInfo(dir)
+      return {
+        scriptsDir: info.scriptsDir,
+        kind: info.kind,
+        exists: info.exists,
+        bridgeInstalled: info.bridgeInstalled,
+        panelInstalled: info.panelInstalled,
+        panelWanted: info.panelWanted,
+        alreadyConfigured: configured.has(dir),
+      }
+    }),
+    candidates: svScriptsDirCandidates().map((p) => ({ path: p, exists: fs.existsSync(p) })),
+  }
+})
+
+/** 向导关闭（window-all-closed 不能把 App 带走：这里有球/设置窗，一般不会触发，但语义要明确） */
+ipcMain.on('akdagent-sv-setup-close', () => {
+  if (svSetupWin && !svSetupWin.isDestroyed()) svSetupWin.close()
+})
+
+/** 设置页「配置向导…」按钮：随时能重新打开向导（不只看启动那一次） */
+ipcMain.on('akdagent-open-sv-setup', () => openSvSetup())
+
+/**
+ * 🆕 2026-09-27（用户要求）：往**没有侧栏**的宿主部署面板前的**确认**。
+ *
+ * 触发面：用户点「部署面板」而该目录被认成 `sv1` / `opsv`，或者**根本认不出**（null）。
+ * 为什么要挡一下：这两类宿主没有 `SidePanelSection`（也没有 project scriptData），面板在那边
+ * 不生效；而且 SV1 的脚本菜单会把 `scripts/Agent/*.js` 也列出来 ⇒ 多一个"点了就出事"的菜单项
+ *（用户 2026-09-25 明确：面板误放到 SV1 **会**出问题）。以前是"照装 + 事后警告"，现在把决定权
+ * 摆在动手**之前**。
+ * 🆕 2026-09-27 二改（用户："面板加载的提醒也是 html"）：从原生 `showMessageBoxSync` 换成
+ *   我们自己画的 HTML 确认窗（`confirm.html` + `askConfirm()`）。
+ * @returns {Promise<boolean>} true = 用户确认要装
+ */
+async function confirmPanelDeploy(scriptsDir, kind) {
+  const label = kind || i18n.t('main.deploy.kindUnknown')
+  const ok = await askConfirm({
+    icon: '⚠️',
+    title: i18n.t('main.deploy.panelConfirmTitle'),
+    message: i18n.t('main.deploy.panelConfirmMessage', label),
+    detail: i18n.t('main.deploy.panelConfirmDetail', scriptsDir),
+    okLabel: i18n.t('main.deploy.panelConfirmOk'),
+    cancelLabel: i18n.t('common.cancel'),
+  })
+  // 留痕：验证/排障时一眼看出"问过没有、用户选了哪个"
+  console.log(`[akdagent] 面板部署确认（HTML 窗口）：${label} · ${scriptsDir} ⇒ ${ok ? '用户选择"仍然部署"' : '用户取消（未部署）'}`)
+  return ok
+}
+
 /** 🆕 2026-09-25（用户：可以在目录列表里手动部署面板）—— **单个目录**单独部署一个文件。
  *  与"一键部署"的区别：这里**尊重手动意愿**，不做宿主推断拦截；
  *  认不出/认出是 SV1·OPSV 而用户仍要装面板时，**照装**但在结果里带一条明确警告（用户自己决定）。 */
-ipcMain.handle('akdagent-deploy-sv-file', (_e, dir, what) => {
+ipcMain.handle('akdagent-deploy-sv-file', async (_e, dir, what) => {
   const steps = []
   const scriptsDir = String(dir || '')
   const kind = hostKindOfScriptsDir(scriptsDir)
@@ -1724,6 +2355,11 @@ ipcMain.handle('akdagent-deploy-sv-file', (_e, dir, what) => {
     if (what === 'panel') {
       const src = panelSourcePath()
       if (!src) throw new Error(i18n.t('main.deploy.panelNoSrc'))
+      /* 🆕 2026-09-27（用户）：SV1 / OPSV（或认不出的宿主）点「部署面板」时**先弹窗确认** ——
+       * 面板在那边不生效，还会在脚本菜单里多一个点了就出事的项。确认了才装（并照旧附一条警告）。 */
+      if (!wantsPanel(scriptsDir) && !(await confirmPanelDeploy(scriptsDir, kind))) {
+        return { ok: false, cancelled: true, kind, steps: [i18n.t('main.deploy.panelCancelled')] }
+      }
       const target = path.join(targetDir, 'AKDAgentPanel.js')
       fs.copyFileSync(src, target)
       steps.push(i18n.t('main.deploy.panelStep', target))
@@ -1965,7 +2601,9 @@ ipcMain.handle('akdagent-remove-model', (_e, id) => {
     s['agent-default-model'] = adm
   }
   writeSettings(s)
-  return { ok: true, defaultModel: adm.model || '', models }
+  /* 🆕 2026-09-27：把"列表空了"明确回报给界面 —— 以前这里静默把 model 写成空串，
+   * 宿主随后每一轮都 `no provider/model`，而用户只看到"回合结束（error）"。 */
+  return { ok: true, defaultModel: adm.model || '', models, noModels: models.length === 0 }
 })
 
 // ── 提供方管理（模型页） ──────────────────────────────────────────
@@ -1983,8 +2621,13 @@ function readCredentials() {
 function writeCredentials(obj) {
   const dir = path.dirname(CREDENTIALS_PATH)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
-  fs.writeFileSync(CREDENTIALS_PATH, out, 'utf8')
+  /* 落盘前**统一规范化**（2026-09-27）：顶层杂键搬进 `refs`、保证 `version: 1`、清掉形状不对的
+   * records 条目 —— 写出去的文件必须**宿主读得了**。规范化后的文本同时用于热镜像，
+   * 所以镜像进隔离家目录的那份也一定是安全的（否则宿主 boot 直接失败）。 */
+  const { doc } = normalizeCredentialsDoc(obj)
+  const out = yaml.dump(doc, { indent: 2, lineWidth: -1 })
+  // 原子写（宿主 chokidar 守着它）；失败就抛，交给 IPC 回报界面（别做哑失败）
+  if (!writeFileAtomic(CREDENTIALS_PATH, out)) throw new Error('写 ' + CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
   mirrorDshFileToIsolatedHome('.credentials.yaml', out)
 }
 
@@ -1997,7 +2640,10 @@ const PI_AI_PROVIDER_PRESETS = [
 /** 读取所有提供方（DeepSeek 专用 + pi-ai routes）及密钥状态 */
 ipcMain.handle('akdagent-get-providers', () => {
   const s = readSettings()
-  const creds = readCredentials()
+  /* 界面上的"已配置"必须按**宿主实际会读的那份**判（2026-09-27 改）——
+   * 以前只看源 `~/.dsh` ⇒ 出现"界面说已配置、宿主其实没 key"（假象源头见 effectiveCredentials）。 */
+  const eff = effectiveCredentials()
+  const creds = eff.doc && typeof eff.doc === 'object' ? eff.doc : {}
   const adm = s['agent-default-model'] || {}
   const llmDeepseek = s['llm-deepseek'] || {}
   const piAi = s['llm-pi-ai'] || {}
@@ -2012,7 +2658,7 @@ ipcMain.handle('akdagent-get-providers', () => {
     namespace: 'llm-deepseek',
     kind: 'deepseek',
     apiKeyEnv: 'DEEPSEEK_API_KEY',
-    hasKey: !!getCred(creds, 'DEEPSEEK_API_KEY'),
+    hasKey: docHasApiKey(creds, 'DEEPSEEK_API_KEY'),
     models: Array.isArray(llmDeepseek.models) ? llmDeepseek.models : [],
     defaultModel: adm.provider === 'deepseek-official' ? adm.model : '',
     isDefault: adm.provider === 'deepseek-official',
@@ -2028,7 +2674,7 @@ ipcMain.handle('akdagent-get-providers', () => {
       namespace: 'llm-pi-ai',
       kind: 'pi-ai',
       apiKeyEnv: keyEnv,
-      hasKey: !!keyEnv && !!getCred(creds, keyEnv),
+      hasKey: !!keyEnv && docHasApiKey(creds, keyEnv),
       models: Array.isArray(p.models) ? p.models : [],
       baseURL: p.baseURL || '',
       api: p.api || '',
@@ -2044,7 +2690,12 @@ ipcMain.handle('akdagent-get-providers', () => {
     reasoningEffort: adm.reasoningEffort || 'high',
     language: (s['locale'] || {}).preference || 'zh',
     presets: PI_AI_PROVIDER_PRESETS,
-    credentialKeys: Object.keys(creds).map((k) => ({ key: k, configured: true })),
+    /* 已配置的凭据 = **refs 里的键**（2026-09-27 修：以前列的是顶层键，新格式下会变成
+     * `version/refs/records` 三个噪音词）；另附"这份是谁的、读得了吗"，便于排障时一眼看清。 */
+    credentialKeys: Object.keys((creds && typeof creds.refs === 'object' && creds.refs) || {})
+      .map((k) => ({ key: k, configured: true })),
+    credentialSource: eff.from,
+    credentialReadable: eff.doc !== null,
   }
 })
 
@@ -2063,14 +2714,23 @@ ipcMain.handle('akdagent-set-default-provider', (_e, providerId, modelId) => {
 /** 更新提供方 API 密钥（写 credentials.yaml；keyEnv 为空时按命名空间推断） */
 ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) => {
   const env = keyEnv || 'DEEPSEEK_API_KEY'
-  const creds = readCredentials()
-  if (keyValue && keyValue.trim()) {
-    setCred(creds, env, keyValue.trim())      // 新格式 ⇒ refs；老格式 ⇒ 顶层
-  } else {
-    delCred(creds, env)
+  /* 凭据名必须符合宿主的引用文法 `/^[A-Za-z_][A-Za-z0-9_]*$/`（2026-09-27）：
+   * 名字里带 `-` / `.` 之类的键，宿主读凭据时会直接抛错 ⇒ **整个宿主起不来**。
+   * 名字来自界面上的自由输入（自定义提供方的 keyEnv 框）⇒ 在这里拦下来并把原因交给界面，
+   * 而不是写进去等下次启动炸。 */
+  if (!CRED_REF_RE.test(env)) {
+    return { ok: false, error: `凭据名 "${env}" 不合法：只能用字母/数字/下划线、且不能以数字开头（宿主会拒绝启动）` }
   }
-  writeCredentials(creds)
-  return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env) }
+  try {
+    const creds = readCredentials()
+    if (keyValue && keyValue.trim()) setCred(creds, env, keyValue.trim())
+    else delCred(creds, env)
+    writeCredentials(creds)
+    return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env) }
+  } catch (e) {
+    // 以前这里异常会直接冒到渲染层（而且界面还没接住）⇒ 用户以为存好了；现在如实回报
+    return { ok: false, error: '写入凭据失败：' + (e && e.message ? e.message : e) }
+  }
 })
 
 /** 添加 pi-ai 提供方（预设 route：只写 apiKeyEnv + displayName，模型用内建目录） */
@@ -2795,7 +3455,11 @@ function followBoundSession(sessionId) {
             if (r && r.kind && r.kind !== 'completed') {
               const hint = turnErrorHint(r.error)
               console.error('[akdagent] turn/end reason = ' + JSON.stringify(r).slice(0, 2000))
-              if (hint) console.error('[akdagent] ⇒ 可能的原因：' + hint)
+              if (hint) {
+                console.error('[akdagent] ⇒ 可能的原因：' + hint)
+                // 🆕 2026-09-27：**同时推给悬浮球**（用户看得见的那个界面），别再让原因只躺在日志里
+                notifyOrb('warn', hint)
+              }
               try {
                 fs.writeFileSync(
                   path.join(app.getPath('userData'), 'last-turn-error.json'),
@@ -3411,44 +4075,32 @@ app.whenReady().then(async () => {
      *  ⇒ 宿主永远拿不到用户后填的 key ⇒ 每轮 AUTH/401，而手工 copy 凭据**立刻就好**。
      *  宿主读的就是隔离家目录那份、且对它 chokidar 热重载 ⇒ 复用同版本 host 时同步同样生效，
      *  所以这里**无条件**跑（复用与新起两条路都覆盖）。 */
-    ensureAkdagentDshHome()
-    const prevHost = loadHostRecord()
-    const clientVersion = app.getVersion()
-    if (prevHost && prevHost.port && await probeHost(prevHost.port)) {
-      // 0.1.5-rc.2：宿主有鉴权 ⇒ 复用必须带上上次换到的会话 cookie，并**实测确认还能用**。
-      // 不能"因为端口有应答就复用"：新版裸请求一律 401，复用等于让 /api/* 全废。
-      hostPort = prevHost.port
-      hostTokenUrl = prevHost.tokenUrl || null
-      hostCookie = prevHost.cookie || null
-      const alive = await httpGet(hostPort, '/', { cookie: hostCookie })
-      /* 复用条件里再加一条**版本一致**（2026-09-26 热修 · 治本）：老客户端起的宿主体内没有
-       *  本次的客户端侧修复，复用它 = "升级了但还在跑旧逻辑"。记录里**没有 `v`**（≤1.0.1 写的，
-       *  版本戳是本次才加的）一律当不一致 ⇒ 杀掉重起一次，之后记录里就有 `v` 了。 */
-      if (alive.status === 200 && prevHost.v === clientVersion) {
-        console.log(`[akdagent] 复用上一次的内嵌 host（端口 ${hostPort} · pid ${prevHost.pid || '?'} · v${prevHost.v}）—— 避免起第二个 host`)
-      } else if (alive.status === 200) {
-        // 版本不一致：**必须**换新宿主，否则升级后的客户端侧逻辑永远不生效
-        console.log(`[akdagent] 上一次的内嵌 host 是 v${prevHost.v || '(无版本记录)'} 起的（当前客户端 v${clientVersion}）⇒ 杀掉重起，避免用旧逻辑跑`)
-        if (prevHost.pid) killTree(prevHost.pid)
-        hostPort = null; hostTokenUrl = null; hostCookie = null
-      } else {
-        // 复用不了就得**杀掉它再重起**：留着一个没人能调的 host 等于两个 host 写同一会话（会损坏日志）
-        console.log(`[akdagent] 上一次的 host 在端口 ${hostPort} 上不可用（HTTP ${alive.status}）⇒ 杀掉孤儿 host，重起一个`)
-        if (prevHost.pid) killTree(prevHost.pid)
-        hostPort = null; hostTokenUrl = null; hostCookie = null
+    warnCredentialEnvShadowing()
+    /* 起宿主 + **失败自愈重试一次**（2026-09-27）。
+     * 以前：宿主在就绪前退出 ⇒ 客户端直接跟着退（用户看到"过了一会就闪退"，且重装也没用）。
+     * 现在：先在原地自愈（`ensureAkdagentDshHome()` 会把"宿主读不了"的凭据规范化/挪走 —— 实测那正是
+     * boot 失败最常见的原因），再重来一次；两次都起不来才弹框 + 退出（并把宿主的报错一起摆出来）。 */
+    let hostUp = false
+    let lastErr = null
+    for (let attempt = 0; attempt < HOST_MAX_ATTEMPTS && !hostUp; attempt++) {
+      try {
+        await bringUpHost(attempt)
+        hostUp = true
+      } catch (e) {
+        lastErr = e
+        const msg = (e && e.message) || String(e)
+        if (attempt + 1 < HOST_MAX_ATTEMPTS) {
+          console.error(`[akdagent] 宿主启动失败（${msg}）⇒ 先自愈再重试（第 ${attempt + 2}/${HOST_MAX_ATTEMPTS} 次）`)
+          hostPort = null; hostTokenUrl = null; hostCookie = null
+        }
       }
     }
-    if (!hostPort) {
-      hostPort = await findFreePort()
-      hostChild = spawnHost(hostPort)
-      saveHostRecord(hostPort, hostChild && hostChild.pid)
+    if (!hostUp) {
+      const tail = hostStderrTail.slice().reverse().find((l) => /error|failed|FATAL|unknown|refus/i.test(l)) || ''
+      throw new Error('内嵌宿主起不来：' + ((lastErr && lastErr.message) || '未知原因')
+        + (hostExitInfo ? `（宿主退出 code=${hostExitInfo.code}）` : '')
+        + (tail ? '\n宿主最后一条错误：' + tail : ''))
     }
-    await waitForWeb(hostPort)
-    // 会话建好后再落一次盘：复用孤儿 host 时要靠这里的 token/cookie
-    saveHostRecord(hostPort, (hostChild && hostChild.pid) || (prevHost && prevHost.pid) || null,
-      { tokenUrl: hostTokenUrl, cookie: hostCookie })
-    setOrbStatus(true)
-    connectAgentMux()
     adoptOrphanSessions()          // fire-and-forget：把段表外的早期孤儿会话登记进来（能显示/能导出）
     // 启动自检①：宿主版本向前更新时，去查 API 文档站时间戳、提示是否要更新本地 api 文档
     //（非阻塞 fire-and-forget：离线/失败都不影响启动；机制见 skills/sv-scripting/api/_sync.json）
@@ -3475,6 +4127,13 @@ app.whenReady().then(async () => {
     }
     // 首次启动：无 DeepSeek key 则弹配置窗（等 settings 就绪后）
     maybeShowKeyPrompt()
+    /* 🆕 2026-09-27（用户）：一个 SV scripts 目录都没指定 ⇒ 提醒一次（每个版本一次，不做唠叨）。
+     * 延后 1.5s：让球/设置窗先画出来，也让"密钥窗"那种启动弹窗先落地，别挤在一起。 */
+    setTimeout(() => notifyMissingSvDirs(), 1500)
+    /* 🆕 2026-09-27：开机就检查"默认模型能不能解析" —— 缺了直接推到球上（否则用户只会看到每轮 error） */
+    setTimeout(() => checkAgentModelConfigured(), 2000)
+    // 开发辅助：模拟点「SV 集成 → 部署面板」（验收那个原生确认框；env 门控，默认无副作用）
+    devClickSvPanelDeploy()
   } catch (e) {
     console.error('[akdagent] failed to start:', e)
     /* 启动失败**不能静默退出**（用户只会觉得"点了没反应"，我们也没日志）：
@@ -3482,20 +4141,25 @@ app.whenReady().then(async () => {
      * 否则模态框会挡住无人值守的测试（看起来"活着"其实在等点击）。 */
     if (process.env.AKDAGENT_NO_DIALOG !== '1') {
       try {
+        let crashPath = ''
+        try { crashPath = path.join(app.getPath('userData'), 'host-crash.json') } catch { crashPath = '' }
         dialog.showErrorBox('AKDAgent 启动失败 / failed to start',
-          String((e && e.message) || e) + '\n\n日志 / log: ' + (safeLogPath || '(不可用)'))
+          String((e && e.message) || e)
+          + '\n\n日志 / log: ' + (safeLogPath || '(不可用)')
+          + (crashPath ? '\n宿主现场 / host crash: ' + crashPath : ''))
       } catch { /* 弹框失败就算了，日志仍然有 */ }
     }
-    quitApp()
+    quitApp('启动失败')
   }
 })
 
 app.on('window-all-closed', () => {
   console.log('[akdagent] window-all-closed (all windows gone)')
-  quitApp()
+  quitApp('窗口全关（悬浮球与设置窗都没了）')
 })
 
 app.on('before-quit', () => {
+  console.log('[akdagent] before-quit（进程退出中）')
   quitting = true
   if (hostChild) killTree(hostChild.pid)
   stopSttServer()

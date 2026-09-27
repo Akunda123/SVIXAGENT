@@ -56,20 +56,29 @@ const callSites = [];
 for (const m of t.matchAll(/^[ \t]*ensureAkdagentDshHome\(\)[ \t]*$/gm)) callSites.push(m.index);
 const iPrevHost = t.indexOf('const prevHost = loadHostRecord()');
 
-console.log('\n== ① 同步调用必须脱离 spawnHost，落在 ready 段的复用判定之前 ==');
+console.log('\n== ① 同步调用必须脱离 spawnHost，且早于"复用判定 / 新起闸门" ==');
+/* ⚠️ 2026-09-27：起宿主被抽成 `bringUpHost(attempt)`（为了"失败自愈重试一次"），
+ * 所以判据从"调用点必须内联在 ready 段里"改成"调用点必须在 bringUpHost() 里、且早于复用判定与新起闸门"，
+ * 并额外确认 ready 段真的 await 了它。**不变的是意图**：复用孤儿 host 那条路也必须跑到同步。 */
+const bring = bodyOf('async function bringUpHost(');
 if (!spawn) fail('找不到 function spawnHost( —— 结构变了，本守卫要跟着改');
 else if (/^[ \t]*ensureAkdagentDshHome\(\)[ \t]*$/m.test(spawn.text)) {
   fail('spawnHost() 里**又**出现了 ensureAkdagentDshHome()：复用孤儿 host 时这条路不会走 ⇒ 宿主拿不到后填的 key（本次事故原样复发）');
 } else ok('spawnHost() 体内没有同步调用（复用孤儿 host 时不会漏）');
 
 if (callSites.length === 0) fail('全文件找不到 ensureAkdagentDshHome() 的调用 ⇒ 依赖它的启动同步没了');
-else if (callSites.length > 1) fail('ensureAkdagentDshHome() 有多处调用（' + callSites.length + ' 处）—— 只该在 ready 段留一处，多点会各写一遍凭据');
+else if (callSites.length > 1) fail('ensureAkdagentDshHome() 有多处调用（' + callSites.length + ' 处）—— 只该在起宿主那一段留一处，多点会各写一遍凭据');
+else if (!bring) fail('找不到 `async function bringUpHost(` ⇒ 起宿主的结构变了，本守卫要跟着改');
 else {
-  const at = callSites[0];
-  if (readyAt < 0 || at < readyAt) fail('调用点不在 app.whenReady() 里（在启动流程之外 ⇒ 不保证每次启动都跑）');
-  else if (iPrevHost < 0) fail('找不到 `const prevHost = loadHostRecord()` ⇒ 复用判定结构变了，本守卫要跟着改');
-  else if (at > iPrevHost) fail('调用点在**复用判定之后** ⇒ 复用成功时仍会被跳过（必须放在它之前）');
-  else ok('调用点在 ready 段、且早于复用判定（复用与新起两条路都覆盖）');
+  const rel = callSites[0] - bring.start;
+  const iReuse = bring.text.indexOf('prevHost && prevHost.port');
+  const iGate = bring.text.indexOf('if (!hostPort)');
+  if (rel < 0 || rel > bring.text.length) fail('同步调用不在 bringUpHost() 里 ⇒ 起宿主时不一定跑得到');
+  else if (iReuse >= 0 && rel > iReuse) fail('同步调用在**复用判定之后** ⇒ 复用成功时仍会被跳过（必须放在它之前）');
+  else if (iGate >= 0 && rel > iGate) fail('同步调用在**"新起宿主"的闸门之后** ⇒ 复用时同样会被跳过');
+  else ok('同步调用在 bringUpHost() 里、且早于复用判定与新起闸门（两条路都覆盖）');
+  if (/await bringUpHost\(/.test(t)) ok('ready 段确实 await bringUpHost()（起宿主只走这一条路）');
+  else fail('ready 段没有 await bringUpHost() ⇒ 起宿主没走这条路，上面的保证不成立');
 }
 
 console.log('\n== ② 宿主记录必须带版本戳，且复用要比它 ==');

@@ -1408,10 +1408,45 @@ end
 
 section("op: set_note_phoneme_attrs / set_note_dur（A：辅音抢前一个音符 · 2026-09-18）")
 do
+  local savedHost, savedIsSV2 = B.ST.host, B.ST.isSV2
   local la = OPS.get_lyrics_attrs({})
   ok("读整组：带 phonemeAttrs 字段", type(la.notes[1].phonemeAttrs) == "table", type(la.notes[1].phonemeAttrs))
   ok("读整组：带 durationQuarter", type(la.notes[1].durationQuarter) == "number", la.notes[1].durationQuarter)
 
+  -- ⛔ 2026-09-27 宿主闸门（用户真机事故）：这两个字段各属于一个宿主 ——
+  --    `phonemes` 只有 SV2 2.1.1+ 有、`dur` 只有 SV1 有。把"本宿主没有的字段"递给宿主，
+  --    宿主会**直接弹模态脚本错误框**（真机样例：`setAttributes: 无效的输入类型。`），
+  --    框一弹宿主主线程停、桥随之死（pcall 拦不住）⇒ 现在**在桥里先拒**。
+  B.ST.host, B.ST.isSV2 = "sv", false                      -- ===== SV1 =====
+  local rSv1 = OPS.set_note_phoneme_attrs({ items = { { index = 0, phonemes = { { leftOffset = -0.05 } } } } })
+  ok("SV1 上写 phonemes ⇒ 明确拒绝（changed = 0）", rSv1.changed == 0 and rSv1.refused == "sv1-no-phonemes",
+     tostring(rSv1.refused))
+  ok("SV1 拒绝时给替代（set_note_dur）", type(rSv1.hint) == "string" and rSv1.hint:find("set_note_dur") ~= nil)
+  local afterRef = OPS.get_lyrics_attrs({})
+  ok("SV1 拒绝 ⇒ 一个字都没写", type(afterRef.notes[1].phonemeAttrs) ~= "table" or #afterRef.notes[1].phonemeAttrs == 0)
+
+  -- SV1：写 dur 比例数组
+  local r2 = OPS.set_note_dur({ items = { { index = 1, dur = { 0.65, 1 } } } })
+  ok("写 dur：changed = 1 且回读 \"0.65,1\"", r2.changed == 1 and r2.applied[1].dur == "0.65,1", r2.applied[1] and r2.applied[1].dur)
+  local after2 = OPS.get_lyrics_attrs({})
+  ok("写 dur：读回 dur 数组（第 1 项 = 0.65）", type(after2.notes[2].dur) == "table" and after2.notes[2].dur[1] == 0.65,
+     type(after2.notes[2].dur) == "table" and after2.notes[2].dur[1] or "nil")
+  local r2b = OPS.set_note_dur({ items = { { index = 9, dur = { 0.5 } } } })
+  ok("写 dur：越界 ⇒ failed", r2b.changed == 0 and #r2b.failed == 1, r2b.failed[1] and r2b.failed[1].reason)
+  -- ⚠️ 用户 2026-09-27 提醒：`dur` 是**比例**数组，**任意正数都合法**（>1 = 拉长）
+  --    ⇒ 桥**不许做值域 clamp**（只剔非数）。这条测试就是钉住"别顺手加个 0~1 夹子"。
+  local r2big = OPS.set_note_dur({ items = { { index = 0, dur = { 2.5, 7 } } } })
+  ok("写 dur：**任意正数原样写入**（不做 0~1 clamp）",
+     r2big.changed == 1 and r2big.applied[1].dur == "2.5,7", r2big.applied[1] and r2big.applied[1].dur)
+  ok("写 dur：note 里写明「任意正数都合法 / 不做 clamp」",
+     type(r2big.note) == "string" and r2big.note:find("任意正数都合法") ~= nil and r2big.note:find("clamp") ~= nil,
+     r2big.note)
+  -- 值清洗（2026-09-27）：字符串比例 ⇒ 非数项折成 nil 并回报，**绝不递给宿主**
+  local r2c = OPS.set_note_dur({ items = { { index = 0, dur = { "0.5", "abc" } } } })
+  ok("写 dur：非数项被剔掉并如实回报", r2c.changed == 1 and type(r2c.applied[1].droppedFields) == "string"
+     and r2c.applied[1].droppedFields:find("2=abc") ~= nil, r2c.applied[1] and r2c.applied[1].droppedFields)
+
+  B.ST.host, B.ST.isSV2 = "sv", true                       -- ===== SV2 =====
   -- SV2：写音素属性整数组（辅音 leftOffset 收边）
   local r1 = OPS.set_note_phoneme_attrs({ items = { { index = 0, phonemes = { { leftOffset = -0.05, strength = 0.5 } } } } })
   ok("写音素属性：changed = 1", r1.changed == 1, r1.changed)
@@ -1422,15 +1457,249 @@ do
   local rb = OPS.set_note_phoneme_attrs({ items = { { index = 5, phonemes = { {} } } } })
   ok("写音素属性：越界 ⇒ failed", rb.changed == 0 and #rb.failed == 1, rb.failed[1] and rb.failed[1].reason)
   ok("写音素属性：空 items ⇒ 报错", pcall(OPS.set_note_phoneme_attrs, {}) == false)
+  -- SV2 上写 dur ⇒ 必须被拒
+  local rDur2 = OPS.set_note_dur({ items = { { index = 0, dur = { 0.5 } } } })
+  ok("SV2 上写 dur ⇒ 明确拒绝（changed = 0）", rDur2.changed == 0 and rDur2.refused == "sv2-no-dur", tostring(rDur2.refused))
+  ok("SV2 拒绝时给替代（set_note_phoneme_attrs）",
+     type(rDur2.hint) == "string" and rDur2.hint:find("set_note_phoneme_attrs") ~= nil)
+  -- 值清洗：字符串 leftOffset ⇒ 剔掉该键、**数组长度不变**（少一项会整体错位）
+  local rClean = OPS.set_note_phoneme_attrs({ items = { { index = 1, phonemes = { { leftOffset = "-0.05", position = "x" } } } } })
+  ok("写音素属性：非数值字段被剔掉并回报", rClean.changed == 1 and type(rClean.applied[1].droppedFields) == "string",
+     rClean.applied[1] and rClean.applied[1].droppedFields)
+  B.ST.host, B.ST.isSV2 = savedHost, savedIsSV2
+end
 
-  -- SV1：写 dur 比例数组
-  local r2 = OPS.set_note_dur({ items = { { index = 1, dur = { 0.65, 1 } } } })
-  ok("写 dur：changed = 1 且回读 \"0.65,1\"", r2.changed == 1 and r2.applied[1].dur == "0.65,1", r2.applied[1] and r2.applied[1].dur)
-  local after2 = OPS.get_lyrics_attrs({})
-  ok("写 dur：读回 dur 数组（第 1 项 = 0.65）", type(after2.notes[2].dur) == "table" and after2.notes[2].dur[1] == 0.65,
-     type(after2.notes[2].dur) == "table" and after2.notes[2].dur[1] or "nil")
-  local r2b = OPS.set_note_dur({ items = { { index = 9, dur = { 0.5 } } } })
-  ok("写 dur：越界 ⇒ failed", r2b.changed == 0 and #r2b.failed == 1, r2b.failed[1] and r2b.failed[1].reason)
+section("GATE：调用形式 / 实参预检 + 肇事 op 面包屑（2026-09-27 真机模态框事故）")
+do
+  local G = B.GATE
+  ok("导出 GATE", type(G) == "table")
+
+  -- ① JS 写法（点调用）必须被拦：点调用会把对象自己当第 1 个实参 ⇒ 宿主弹模态框。
+  local e1 = G.checkCallForm("local n = g:getNote(1)\nn.setAttributes({ tF0Left = 0.07 })\nreturn 1")
+  ok("点调用 `n.setAttributes(` 被拦", type(e1) == "string" and e1:find("setAttributes") ~= nil, e1)
+  ok("拦下时指明改法（冒号）", type(e1) == "string" and e1:find("n:setAttributes", 1, true) ~= nil, e1)
+  ok("拦下时带上行号", type(e1) == "string" and e1:find("第 2 行", 1, true) ~= nil, e1)
+  local e2 = G.checkCallForm("local p = SV.getProject()\nreturn p")
+  ok("点调用 `SV.getProject(` 被拦", type(e2) == "string" and e2:find("getProject") ~= nil, e2)
+  ok("点调用 `SV.create(` 被拦", G.checkCallForm("local n = SV.create('Note')\nreturn n") ~= nil)
+  -- ② 正确写法 / 标准库点调用**不许误伤**
+  ok("冒号写法放行", G.checkCallForm("local n = g:getNote(1)\nn:setAttributes({ tF0Left = 0.07 })\nreturn n:getPitch()") == nil)
+  ok("标准库点调用放行（math/string/table/os/SVH）",
+     G.checkCallForm("local x = math.abs(-1)\nlocal s = string.format('%d', x)\ntable.concat({})\nos.time()\nSVH.log('hi')") == nil)
+  ok("注释里的 JS 写法不拦", G.checkCallForm("-- n.setAttributes({}) 这样写是错的\nreturn 1") == nil)
+
+  -- ③ 属性 API 的字面量实参（同样是「无效的输入类型」的来源）
+  ok("`setAttributes(\"x\")` 被拦", G.checkAttrArgs('n:setAttributes("tF0Left")') ~= nil)
+  ok("`setAttributes(1)` 被拦", G.checkAttrArgs("n:setAttributes(1)") ~= nil)
+  ok("`setAttributes(nil)` 被拦", G.checkAttrArgs("n:setAttributes(nil)") ~= nil)
+  ok("`setAttributes(true)` 被拦", G.checkAttrArgs("n:setAttributes(true)") ~= nil)
+  ok("`setAttributes({...})` 放行", G.checkAttrArgs("n:setAttributes({ tF0Left = 0.07 })") == nil)
+  ok("`setAttributes(attrs)`（变量）放行", G.checkAttrArgs("n:setAttributes(attrs)") == nil)
+  ok("`setArticulations(\"Pizz.\")` 被拦", G.checkAttrArgs('n:setArticulations("Pizz.")') ~= nil)
+  ok("`setArticulations({...})` 放行", G.checkAttrArgs("n:setArticulations({ 'Pizz.', 'Staccato' })") == nil)
+
+  -- ④ 12 个"仅 SV1"音高属性在 SV2/IX 上 ⇒ **只警告**（不报错、不改行为）
+  local savedHost3, savedIsSV23 = B.ST.host, B.ST.isSV2
+  B.ST.isSV2 = false
+  ok("SV1 上不警告", G.attrHostWarning("n:setAttributes({ tF0Left = 0.07 })") == nil)
+  B.ST.host, B.ST.isSV2 = "sv", true
+  local w = G.attrHostWarning("n:setAttributes({ tF0Offset = -0.035 })")
+  ok("SV2 上警告（点名 tF0Offset）", type(w) == "string" and w:find("tF0Offset", 1, true) ~= nil, w)
+  ok("警告里说明'不生效'", type(w) == "string" and w:find("不生效", 1, true) ~= nil, w)
+  B.ST.host, B.ST.isSV2 = "ix", true
+  ok("IX 上警告文案按宿主（说 Instrument X）",
+     tostring(G.attrHostWarning("n:setAttributes({ tF0Left = 1 })")):find("Instrument X", 1, true) ~= nil)
+  B.ST.host, B.ST.isSV2 = savedHost3, savedIsSV23
+
+  -- ⑤ run_script 走完整 op：预检不通过 ⇒ **一笔都不执行**，且错误里带正确写法
+  local okBad, errBad = pcall(OPS.run_script, { code =
+    "SV:getProject():newUndoRecord()\nlocal g = SV:getMainEditor()\nlocal n = g:getCurrentGroup()\nreturn n.getTarget()" })
+  ok("run_script：点调用 ⇒ 报错（拒绝执行）", okBad == false and tostring(errBad):find("预检") ~= nil, tostring(errBad))
+  -- ⑥ 合法脚本仍照跑（用**本宿主存在**的键），并带回警告
+  local savedHost4, savedIsSV24 = B.ST.host, B.ST.isSV2
+  B.ST.host, B.ST.isSV2 = "sv", true
+  local okGood, resGood = pcall(OPS.run_script, { code =
+    "SV:getProject():newUndoRecord()\nlocal n = SV:getMainEditor():getCurrentGroup():getTarget():getNote(1)\n" ..
+    "n:setAttributes({ muted = true })\nreturn n:getPitch()" })
+  ok("run_script：合法脚本照跑", okGood == true and type(resGood) == "table", okGood and tostring(resGood.result) or tostring(resGood))
+  -- ⑧ SV2 上写"仅 SV1"的音高键 ⇒ **内容检测直接拒**（以前只是警告，现在是错 —— 静默无效最阴）
+  local okS2, errS2 = pcall(OPS.run_script, { code =
+    "SV:getProject():newUndoRecord()\nlocal n = SV:getMainEditor():getCurrentGroup():getTarget():getNote(1)\n" ..
+    "n:setAttributes({ tF0Offset = -0.035 })\nreturn 1" })
+  ok("run_script：SV2 上写 tF0Offset ⇒ 拒绝（内容检测）",
+     okS2 == false and tostring(errS2):find("setAttributes 内容预检") ~= nil, tostring(errS2))
+  -- ⑨ 只在"提到"（非字面量表）时仍走弱警告，不误杀
+  local okMention, resMention = pcall(OPS.run_script, { code =
+    "SV:getProject():newUndoRecord()\nlocal k = \"tF0Offset\"\nSVH.log(k)\nreturn k" })
+  ok("run_script：只在字符串里提到 ⇒ 放行 + 警告（不误杀）",
+     okMention == true and type(resMention.warnings) == "table", okMention and tostring(resMention.warnings and resMention.warnings[1]) or tostring(resMention))
+  B.ST.host, B.ST.isSV2 = savedHost4, savedIsSV24
+
+  -- ⑦ 肇事 op 面包屑：执行前 stage="running"、执行完改 done；被冻住时它会停在 running
+  local tmp2 = (os.getenv("TEMP") or ".") .. "\\akdagent-test-lastop"
+  os.execute('mkdir "' .. tmp2 .. '" 2>nul')
+  B.PATH.lastop = tmp2 .. "\\lastop.json"
+  B.dispatchTraced("ping", {}, { id = "crumb-1", seq = 1 })
+  local f1 = io.open(B.PATH.lastop, "r")
+  local txt1 = f1 and f1:read("*a") or ""
+  if f1 then f1:close() end
+  local last1 = B.jdec(txt1)
+  ok("面包屑已落盘", type(last1) == "table" and last1.op == "ping", type(last1))
+  ok("面包屑记了 id/seq（能对回是哪一笔请求）", last1.id == "crumb-1" and last1.seq == 1,
+     tostring(last1.id) .. "/" .. tostring(last1.seq))
+  ok("执行完 stage = done", last1.stage == "done", tostring(last1.stage))
+  -- 写 op 的**参数摘要**也要留下来（下次被冻住时才知道递了什么过去）
+  B.dispatchTraced("set_note_dur", { items = { { index = 0, dur = { 0.5 } } } }, { id = "crumb-2", seq = 2 })
+  local f2 = io.open(B.PATH.lastop, "r")
+  local txt2 = f2 and f2:read("*a") or ""
+  if f2 then f2:close() end
+  local last2 = B.jdec(txt2)
+  ok("面包屑留下参数摘要（op + args）", last2.op == "set_note_dur" and type(last2.args) == "table",
+     tostring(last2.op))
+  os.remove(B.PATH.lastop)
+  B.PATH.lastop = nil
+  os.execute('rmdir "' .. tmp2 .. '" 2>nul')
+end
+
+
+section("GATE：setAttributes **内容**检测（官方文档字段表 · IX 豁免 · 2026-09-27 用户指定）")
+do
+  local G = B.GATE
+  ok("导出字段表 GATE.ATTR_TYPE", type(G.ATTR_TYPE) == "table" and G.ATTR_TYPE.tF0Offset == "number")
+  ok("字段表覆盖文档三组（1.9.0b2 / 2.1.1 / version 1）",
+     G.ATTR_BOTH.rTone == true and G.ATTR_SV2_ONLY.muted == true and G.ATTR_SV1_ONLY.dur == true)
+  ok("NaN 被视为合法值（文档：NaN = 用组引用的默认值）", G.valueKind("0/0") == "nan")
+  ok("注释会被剥掉（字符串里的 -- 不算注释）",
+     G.stripLuaComments('local s = "a--b" -- 注释\nreturn s'):find("注释") == nil and
+     G.stripLuaComments('local s = "a--b" -- 注释\nreturn s'):find("a--b") ~= nil)
+
+  local function E(code, sv2, isIx) return (G.checkAttrTables(code, sv2, isIx)) end
+
+  -- ===== SV1 =====
+  ok("SV1：合法键（音高 + dur）放行",
+     E("n:setAttributes({ tF0Left = 0.07, dF0Left = 0.15, dur = { 0.5, 1 } })", false) == nil)
+  ok("SV1：rTone/dF0VbrMod（1.9.0b2 起）两版本都有 ⇒ 放行",
+     E("n:setAttributes({ rTone = 4, dF0VbrMod = 0.2 })", false) == nil)
+  ok("SV1：NaN 放行（恢复默认）", E("n:setAttributes({ tF0Left = 0/0 })", false) == nil)
+  local e1 = E("n:setAttributes({ phonemes = { { leftOffset = -0.02 } } })", false)
+  ok("SV1：phonemes（2.1.1 起）⇒ 拒绝", type(e1) == "string" and e1:find("不属于本宿主") ~= nil, e1)
+  ok("SV1：拒绝时给 SV1 的替代（dur）", type(e1) == "string" and e1:find("dur") ~= nil, e1)
+  local e2 = E("n:setAttributes({ tF0left = 0.07 })", false)
+  ok("SV1：拼错的键（tF0left）⇒ 拒绝", type(e2) == "string" and e2:find("不在官方") ~= nil, e2)
+  local e3 = E("n:setAttributes({ muted = 1 })", false)
+  ok("SV1：SV2 专属键 ⇒ 拒绝（先判归属，不啰嗦类型）", type(e3) == "string" and e3:find("不属于本宿主") ~= nil, e3)
+  local e4 = E("n:setAttributes({ dur = 0.5 })", false)
+  ok("SV1：dur 不是数组 ⇒ 拒绝（类型）", type(e4) == "string" and e4:find("值类型不对") ~= nil, e4)
+  local e5 = E('n:setAttributes({ dur = { 0.5, "x" } })', false)
+  ok("SV1：dur 元素不是数 ⇒ 拒绝", type(e5) == "string" and e5:find("不是数") ~= nil, e5)
+  ok("SV1：变量实参不判内容（判不了）", E("n:setAttributes(attrs)", false) == nil)
+  ok("SV1：注释里的 setAttributes 不误判", E("-- n:setAttributes({ bogus = 1 })\nreturn 1", false) == nil)
+
+  -- ===== SV2 =====
+  ok("SV2：合法键（muted/phonemes/languageOverride/expValueX）放行",
+     E('n:setAttributes({ muted = true, expValueX = 0.25, languageOverride = "japanese", ' ..
+       'evenSyllableDuration = true, phonemes = { { leftOffset = -0.02, strength = 0.8 } } })', true) == nil)
+  ok("SV2：音高参数（version 1 专属）⇒ 拒绝",
+     (function() local x = E("n:setAttributes({ tF0Left = 0.07 })", true); return type(x) == "string" and x:find("不属于本宿主") ~= nil end)())
+  local s2 = E("n:setAttributes({ tF0Left = 0.07 })", true)
+  ok("SV2：拒绝时指向曲线/setScriptData", type(s2) == "string" and s2:find("曲线") ~= nil, s2)
+  ok("SV2：dur/alt（version 1 专属）⇒ 拒绝", E("n:setAttributes({ dur = { 0.5 } })", true) ~= nil)
+  local s3 = E("n:setAttributes({ expValueX = true })", true)
+  ok("SV2：值类型不对（expValueX 给布尔）⇒ 拒绝", type(s3) == "string" and s3:find("值类型不对") ~= nil, s3)
+  local s4 = E("n:setAttributes({ phonemes = { { leftOffsets = -0.02 } } })", true)
+  ok("SV2：phonemes 里的未知字段 ⇒ 拒绝", type(s4) == "string" and s4:find("未知字段") ~= nil, s4)
+  local s5 = E('n:setAttributes({ phonemes = { { leftOffset = "x" } } })', true)
+  ok("SV2：phonemes 字段值不是数 ⇒ 拒绝", type(s5) == "string" and s5:find("不是数") ~= nil, s5)
+
+  -- ===== 扩展键（我们自己用；放行 + 警告）=====
+  local _, w1 = G.checkAttrTables('n:setAttributes({ articulations = { "Pizz." }, articulationsFixed = true })', true)
+  ok("扩展键 articulations 放行但**给警告**（SV-007 静默忽略）", type(w1) == "string" and w1:find("静默忽略") ~= nil, w1)
+
+  -- ===== 逃逸口 =====
+  local _, w2 = G.checkAttrTables("-- akdagent:allow-extra-attrs\nn:setAttributes({ myOwnKey = 1 })", true)
+  ok("逃逸口：allow-extra-attrs ⇒ 未知键降级为警告", w2 ~= nil and (E("-- akdagent:allow-extra-attrs\nn:setAttributes({ myOwnKey = 1 })", true) == nil))
+  local esc = E("-- akdagent:allow-extra-attrs\nn:setAttributes({ muted = 1 })", true)
+  ok("逃逸口不放过类型错（muted = 1 仍拒）", type(esc) == "string" and esc:find("值类型不对") ~= nil, esc)
+
+  -- ===== ⛔ IX 豁免（用户口径）=====
+  ok("IX：整体豁免 —— 文档外的键（toneShift/pitchDelta/articulations）也不拦",
+     E('n:setAttributes({ toneShift = 3, pitchDelta = 2, articulations = { "Pizz." }, dynamic = 0.8, bogus = 1 })', true, true) == nil)
+  ok("IX：类型乱写也不拦（豁免 = 完全不查）", E("n:setAttributes({ muted = 1 })", true, true) == nil)
+
+  -- ===== 自动音高提醒（2026-09-27 真机核对：写音高参数**不报错**但**不切手动** ⇒ 可能静默不生效）=====
+  ok("自动音高：SV1 写音高参数但没写 setPitchAutoMode ⇒ 给警告",
+     (function() local w = G.autoModeWarning("n:setAttributes({ tF0Right = 0.13 })", false, false)
+       return type(w) == "string" and w:find("自动音高") ~= nil and w:find("setPitchAutoMode") ~= nil end)())
+  ok("自动音高：写了 setPitchAutoMode ⇒ 不再啰嗦",
+     G.autoModeWarning("n:setPitchAutoMode(false)\nn:setAttributes({ tF0Right = 0.13 })", false, false) == nil)
+  ok("自动音高：只有非音高键（dur/rTone）⇒ 不误导（它们不受 auto 影响）",
+     G.autoModeWarning("n:setAttributes({ dur = { 0.5 }, rTone = 4 })", false, false) == nil)
+  ok("自动音高：SV2 / IX 不提示（音高在曲线上）",
+     G.autoModeWarning("n:setAttributes({ tF0Right = 0.13 })", true, false) == nil and
+     G.autoModeWarning("n:setAttributes({ tF0Right = 0.13 })", true, true) == nil)
+
+  -- ===== 自洽性：桥自己的 setAttributes 字面量必须是文档里的键 =====
+  local src = (function()
+    local f = io.open(T .. "/../AKDAgentBridge.lua", "r")
+    if f == nil then return nil end
+    local s = f:read("*a"); f:close(); return s
+  end)()
+  if src == nil then
+    ok("读得到桥源码做自洽性检查", false, "io.open 失败")
+  else
+    local bad, seen = {}, {}
+    for _, kv in ipairs(G.attrEntriesIn(G.stripLuaComments(src))) do
+      for i = 1, #kv do
+        local k = kv[i].key
+        seen[k] = true
+        if G.ATTR_TYPE[k] == nil and G.ATTR_EXTRA[k] == nil then bad[#bad + 1] = k end
+      end
+    end
+    ok("桥自己写 setAttributes 时用的键都在字段表里（自洽）", #bad == 0, table.concat(bad, ","))
+    ok("自洽性检查确实覆盖到了桥的写入点（>=2 个不同的键）",
+       (function() local n = 0; for _ in pairs(seen) do n = n + 1 end; return n >= 2 end)(),
+       (function() local t = {}; for k in pairs(seen) do t[#t + 1] = k end; return table.concat(t, ",") end)())
+  end
+end
+
+section("GATE：crash 清单运行时硬拒 + 探针口子 + 反应式提示（2026-09-27 用户选 ①）")
+do
+  local G = B.GATE
+  ok("导出 GATE.checkCrashApi / CRASH_PATTERNS",
+     type(G.checkCrashApi) == "function" and type(G.CRASH_PATTERNS) == "table" and #G.CRASH_PATTERNS >= 5)
+
+  -- 判据本身
+  ok("getPoints ⇒ 命中", G.checkCrashApi("local p = a:getPoints()") ~= nil)
+  ok("getAllPoints / getLinear / getDefinition ⇒ 命中",
+     G.checkCrashApi("a:getAllPoints()") ~= nil and G.checkCrashApi("a:getLinear(1,2)") ~= nil and
+     G.checkCrashApi("a:getDefinition()") ~= nil)
+  ok("remove(单参) ⇒ 命中", G.checkCrashApi("a:remove(3)") ~= nil and G.checkCrashApi("a:remove( 3 )") ~= nil)
+  ok("remove(begin, end) **区间重载** ⇒ 放行（这是唯一允许的删点写法）",
+     G.checkCrashApi("a:remove(0, 705600000)") == nil)
+  ok("`get(b)` 单点采样 ⇒ 放行", G.checkCrashApi("local v = a:get(705600000)") == nil)
+  ok("注释里提到 ⇒ 不误伤", G.checkCrashApi("-- a:getPoints() 别这么写\nreturn 1") == nil)
+  -- ⚠️ 字符串里提到**照拦**（fail-closed，故意的）：`load("…getPoints()…")()` 这种动态写法一旦放行就是漏网，
+  --    而漏一个 = 可能冻桥；相比之下"冤枉一个写着玩的字符串"只是小摩擦。注释已剥、代码里的字面量不剥。
+  ok("字符串里提到也照拦（宁严不乱：漏一个就是冻桥）", G.checkCrashApi('SVH.log("a:getPoints()")') ~= nil)
+
+  -- 走 run_script：默认**拒**，带 allowCrashApi 才放行
+  local okDeny, errDeny = pcall(OPS.run_script, { readonly = true,
+    code = "local t = { getPoints = function() return 1 end }\nreturn t:getPoints()" })
+  ok("run_script：crash 清单 ⇒ 默认拒绝", okDeny == false and tostring(errDeny):find("crash 清单预检") ~= nil,
+     tostring(errDeny))
+  ok("拒绝文案给出探针口子（allowCrashApi）", tostring(errDeny):find("allowCrashApi") ~= nil)
+  local okAllow, resAllow = pcall(OPS.run_script, { readonly = true, allowCrashApi = true,
+    code = "local t = { getPoints = function() return 1 end }\nreturn t:getPoints()" })
+  ok("run_script：allowCrashApi=true ⇒ 放行并跑通", okAllow == true and type(resAllow) == "table", tostring(resAllow))
+  ok("放行时回包带「后果自负」警告",
+     okAllow and type(resAllow.warnings) == "table" and tostring(resAllow.warnings[1]):find("后果自负") ~= nil,
+     okAllow and tostring(resAllow.warnings and resAllow.warnings[1]) or "n/a")
+
+  -- 反应式提示：脚本调了不存在的成员 ⇒ 错误里补一句"用 SVH.has 先确认"
+  local okMiss, errMiss = pcall(OPS.run_script, { readonly = true, code = "local t = {}\nreturn t:noSuchMethod()" })
+  ok("调不存在的成员 ⇒ 报错且带 SVH.has 提示（零误报：只在真出错时补）",
+     okMiss == false and tostring(errMiss):find("attempt to call a nil value") ~= nil and
+     tostring(errMiss):find("SVH.has") ~= nil, tostring(errMiss))
 end
 
 section("P7：布局报告（重叠=违规 · 缝隙=允许但告知）+ 写守卫")
@@ -1873,6 +2142,31 @@ do
 
   ok("既没 points 也没 probe ⇒ 报错",
      pcall(OPS.set_automation, { parameter = "voicing" }) == false)
+
+  -- 🆕 2026-09-27：**音区偏移 `toneShift` 进夹值表了**（用户提醒「api 文档好像没写音区偏移属性」
+  --    ⇒ 查下去发现它属于 Automation（不是 Note 属性），而事实源 param-units.json 早就记了
+  --    **±800 音分**，桥的 AUTO_RANGE 里却**没有它** ⇒ 写它完全不夹值（±1 那种写法照收））。
+  local rt = OPS.set_automation({ parameter = "toneShift", points = { { onsetQuarter = 1, value = 9999 } } })
+  ok("toneShift：进了夹值表（range = −800~800 音分）",
+     type(rt.range) == "table" and rt.range[1] == -800 and rt.range[2] == 800,
+     rt.range and (rt.range[1] .. "~" .. rt.range[2]) or "nil")
+  ok("toneShift：超上域夹到 800 且标 clamped",
+     rt.applied[1].value == 800 and rt.applied[1].clamped == true, tostring(rt.applied[1].value))
+  local rt2 = OPS.set_automation({ parameter = "toneshift", points = { { onsetQuarter = 1, value = -9999 } } })
+  ok("toneShift：参数名大小写不敏感，下域夹到 −800", rt2.applied[1].value == -800, tostring(rt2.applied[1].value))
+  ok("toneShift：域内值原样不夹（0 与 800 都不算 clamped）", (function()
+    local r = OPS.set_automation({ parameter = "toneShift", points = { { onsetQuarter = 1, value = 800 } } })
+    return r.applied[1].value == 800 and r.applied[1].clamped == false
+  end)())
+  -- 未收录的参数（mouthOpening）⇒ **不夹**，并如实说明
+  local rm = OPS.set_automation({ parameter = "mouthOpening", points = { { onsetQuarter = 1, value = 9999 } } })
+  ok("未收录参数（mouthOpening）⇒ range = nil（不夹）且 note 里点明",
+     rm.range == nil and tostring(rm.note):find("没做取值范围 clamp") ~= nil, tostring(rm.note))
+  -- vocalMode_* 走前缀规则（登记在 tools/check-param-units.cjs 的 PREFIX_RULES 里）
+  local rv = OPS.set_automation({ parameter = "vocalMode_1", points = { { onsetQuarter = 1, value = 999 } } })
+  ok("vocalMode_*：前缀规则夹到 150",
+     type(rv.range) == "table" and rv.range[2] == 150 and rv.applied[1].value == 150,
+     tostring(rv.applied[1] and rv.applied[1].value))
 end
 
 section("写音符「写哪里」（target 参数 · SV1 主组路线）—— 放在最后：本节会改共享假宿主的状态")
