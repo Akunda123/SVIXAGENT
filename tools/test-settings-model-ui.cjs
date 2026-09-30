@@ -47,8 +47,20 @@ ok(/removeModel:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\('akdagent-remove-model'/.t
   'preload 暴露 removeModel → akdagent-remove-model');
 ok(/ipcMain\.handle\('akdagent-add-model'/.test(main) && /ipcMain\.handle\('akdagent-remove-model'/.test(main),
   '主进程两个 handler 都在');
-// 增删只对 DeepSeek 专用插件路由开放（addModel 写的是 llm-deepseek.models）
-ok(/const canEdit = p\.kind === 'deepseek'/.test(html), '增删只对 kind==="deepseek" 的提供方开放');
+/* 增删对**两种 kind 都开放**（2026-09-25 用户选 B），但**去向不同**：
+ *   deepseek ⇒ addModel/removeModel（写 `llm-deepseek.models`）
+ *   pi-ai    ⇒ setPiProviderFields(p.id, { models })（覆写提供方内建目录；空数组 = 删键回内建）
+ * ⚠️ 2026-09-30 更正：本行原断言 `const canEdit = p.kind === 'deepseek'` —— 那是 09-20 的旧口径，
+ *   09-25 改成"两种都能编辑"后**这里忘了同步** ⇒ 这条守卫一直红（改代码时守卫也要跟着改）。
+ *   现按现行实现重写：不只钉"都开放"，还钉"各走各的去向"（比原来更严）。 */
+ok(!/canEdit = p\.kind === 'deepseek'/.test(html) && /const isPiAi = p\.kind === 'pi-ai'/.test(html),
+  '增删不再只对 deepseek 开放（canEdit 无条件 · isPiAi 分流）');
+/* 计数断言（≥2）：**增**与**删**两条路都必须落在 setPiProviderFields 上 ——
+   只钉一处会被"另一处写回 llm-deepseek"漏掉（反向验证时正是这么发现的）。 */
+{
+  const n = (html.match(/if \(isPiAi\) \{[\s\S]{0,200}?setPiProviderFields\(p\.id, \{ models/g) || []).length;
+  ok(n >= 2, `pi-ai 的「增」与「删」都走 setPiProviderFields（命中 ${n} 处，要求 ≥2）`);
+}
 
 console.log('\nB. 空列表不再造假模型（真 bug）');
 ok(!/\{ id: p\.id, name: p\.id \+ I\.t\('settings\.model\.defaultSuffix'\) \}/.test(html),

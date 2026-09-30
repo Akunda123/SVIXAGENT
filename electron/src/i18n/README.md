@@ -5,7 +5,7 @@
 
 | | 存哪 | 管什么 | 谁改 |
 |---|---|---|---|
-| DSH 语言 | `~/.dsh/settings.yaml` → `locale.preference` | 模型回复语言 + DSH 网页界面 | 设置页「DSH 界面语言」 |
+| DSH 语言 | **我们自己的** `~/.dsh-akdagent/settings.yaml` → `locale.preference`（宿主读的就是这份；用户那份 `~/.dsh/settings.yaml` **只读**、仅首次导入一次） | 模型回复语言 + DSH 网页界面 | 设置页「DSH 界面语言」 |
 | **客户端语言** | `%APPDATA%/akdagent-electron/ui-prefs.json` → `locale` | 本客户端所有界面文案 | 设置页「客户端界面语言」 |
 
 语种：`zh-Hans` 简体 / `zh-Hant` 繁體 / `en` English / `ja` 日本語。

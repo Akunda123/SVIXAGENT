@@ -22,9 +22,25 @@ const IGNORE_VOICES = new Set(["refresh"]);
 //    以 databases 的 nofs 是否为 JSON 作为判定依据 ─────────────────
 let flatDirCache: { dataDir: string; dbDir: string } | null | undefined;
 
-/** 读 ~/.dsh/settings.yaml 的 sv.scriptsDirs（简单解析，不引 yaml 依赖） */
+/** 读 settings.yaml 的 `sv.scriptsDirs`（简单解析，不引 yaml 依赖）。
+ *  ⛔ 2026-09-28（与用户自己的 DSH 分离）：**先读我们那份**（`$DSH_HOME/settings.yaml`，
+ *    = `~/.dsh-akdagent/settings.yaml`；客户端把设置写在这里），没有再回退用户那份 `~/.dsh`
+ *    （**只读**，兼容"用户在自己的 DSH 里配了 scriptsDirs"的老情形）。 */
 function settingsScriptsDirs(): string[] {
-  const p = path.join(os.homedir(), ".dsh", "settings.yaml");
+  const cands: string[] = [];
+  const home = process.env.DSH_HOME || process.env.AKDAGENT_DSH_HOME_DIR;
+  if (home) cands.push(path.join(home, "settings.yaml"));
+  cands.push(path.join(os.homedir(), ".dsh-akdagent", "settings.yaml"));
+  cands.push(path.join(os.homedir(), ".dsh", "settings.yaml"));   // 用户那份：只读回退
+  for (const p of cands) {
+    const dirs = parseScriptsDirs(p);
+    if (dirs.length) return dirs;
+  }
+  return [];
+}
+
+/** 解析一份 settings.yaml 的 `sv.scriptsDirs`（读不到 / 没配就返回空） */
+function parseScriptsDirs(p: string): string[] {
   try {
     const txt = fs.readFileSync(p, "utf8");
     const out: string[] = [];

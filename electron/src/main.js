@@ -136,31 +136,39 @@ const HOME_DIR = process.env.AKDAGENT_HOME_DIR
   || (process.platform === 'win32' ? process.env.USERPROFILE : null)
   || os.homedir()
 
-// ── DSH 设置读写（~/.dsh/settings.yaml） ───────────────────────────
-const SETTINGS_PATH = path.join(HOME_DIR, '.dsh', 'settings.yaml')
+// ── DSH 设置读写 ───────────────────────────────────────────────────
+// ⛔ 2026-09-28（用户报「AKDAgent 夺舍了 DSH」· 方案 ABCD）：**与用户自己的 DSH 彻底分离**
+//   · `SOURCE_*` = 用户自己那份 `~/.dsh` ⇒ **只读**（首次导入 / 界面展示的回退），我们一个字都不写、也不建那个目录；
+//   · `OWNED_*`  = 我们自己的那份（隔离家目录 `~/.dsh-akdagent`）⇒ **读写目标**，宿主真正读的就是它。
+//   （`OWNED_*` 在下面 `AKDAGENT_DSH_HOME` 定义处声明 —— 那两个常量依赖它。）
+const SOURCE_SETTINGS_PATH = path.join(HOME_DIR, '.dsh', 'settings.yaml')
 // 聊天「段表」：记录每个会话段的工程归属（显示全量 + 模型只喂当前段），见 docs/聊天记录归属设计.md
 const orbSegments = require('./orb-segments.js')
 const ORB_SEGMENTS_PATH = path.join(app.getPath('userData'), 'orb-segments.json')
 orbSegments.init(ORB_SEGMENTS_PATH)
 
 function readSettings() {
-  try {
-    if (!fs.existsSync(SETTINGS_PATH)) return {}
-    return yaml.load(fs.readFileSync(SETTINGS_PATH, 'utf8')) || {}
-  } catch (e) {
-    console.error('[akdagent] read settings failed:', e.message)
-    return {}
+  /* 先读**我们自己的**（宿主读的那份），没有再退回用户的源（**只读**：首次导入 / 界面展示用）。
+   * ⛔ 一律不写源；写走 writeSettings（→ OWNED）。 */
+  for (const p of [OWNED_SETTINGS_PATH, SOURCE_SETTINGS_PATH]) {
+    try {
+      if (!fs.existsSync(p)) continue
+      return yaml.load(fs.readFileSync(p, 'utf8')) || {}
+    } catch (e) {
+      console.error('[akdagent] read settings failed (' + p + '):', e.message)
+    }
   }
+  return {}
 }
 
 function writeSettings(obj) {
-  const dir = path.dirname(SETTINGS_PATH)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  const dir = path.dirname(OWNED_SETTINGS_PATH)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })   // 建的是**我们自己的**目录（不是 ~/.dsh）
   // 保持紧凑但可读的 YAML（2 空格缩进）
   const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
   // 原子写（2026-09-27）：宿主 chokidar 守着这份文件，别让它在"已清空还没写完"的瞬间读到半截
-  if (!writeFileAtomic(SETTINGS_PATH, out)) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + SETTINGS_PATH)
-  mirrorDshFileToIsolatedHome('settings.yaml', out)
+  if (!writeFileAtomic(OWNED_SETTINGS_PATH, out)) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + OWNED_SETTINGS_PATH)
+  // ⛔ 不再镜像回 `~/.dsh`（源只读）：宿主读的就是上面这份
 }
 
 /** 合并局部设置到 settings.yaml（只动给定路径，保留其他键） */
@@ -384,24 +392,14 @@ const AKDAGENT_DSH_HOME = process.env.AKDAGENT_DSH_HOME_DIR
   || path.join(HOME_DIR, '.dsh-akdagent')
 const DSH_SOURCE_HOME = path.join(HOME_DIR, '.dsh')
 
-/** 把 `~/.dsh` 那份凭据/设置**即时镜像**一份进内嵌 host 的隔离家目录。
- *  为什么（2026-09-26 修）：客户端只往 `~/.dsh` 写（CREDENTIALS_PATH / SETTINGS_PATH），
- *  宿主读的却是隔离家目录 ⇒ "只在首次创建时抄一次"会漏掉**用户后填的** key
- *  （干净机器必然踩：先建目录、后填 key ⇒ 宿主永远没 key ⇒ 每轮 AUTH/401）。
- *  两道保险：① 写入时即时镜像（这里）；② dsh-home.js 的 ensureHome 每次启动再补齐。 */
-function mirrorDshFileToIsolatedHome(name, text) {
-  try {
-    if (!AKDAGENT_DSH_HOME) return
-    fs.mkdirSync(AKDAGENT_DSH_HOME, { recursive: true })
-    const dst = path.join(AKDAGENT_DSH_HOME, name)
-    // 原子写：宿主对这两个文件都是 chokidar 监听（truncate+write 会让它有机会读到半截/空文档）
-    if (!writeFileAtomic(dst, text)) throw new Error('写不进去（权限 / 杀软？）')
-    // ⚠️ 留痕（2026-09-26 加）：以前这里是**静默**的，一旦镜像失败（权限/杀软）我们什么都看不到。
-    if (name === '.credentials.yaml') console.log('[akdagent] 已把凭据镜像进隔离家目录：' + dst)
-  } catch (e) {
-    console.error('[akdagent] 镜像 ' + name + ' 失败（宿主可能读不到 key）：' + (e && e.message ? e.message : e))
-  }
-}
+/* ── 「谁的」两份路径（2026-09-28 · 方案 ABCD）────────────────────────────
+ * 用户报「AKDAgent 夺舍了 DSH」⇒ 定下：**用户那份 `~/.dsh` 只读，我们只写自己那份。**
+ *   · OWNED_*  = `~/.dsh-akdagent/*`（隔离家目录）⇒ **一切写入的唯一目标**；宿主读的就是它。
+ *   · SOURCE_* = `~/.dsh/*`（用户自己的 DSH）⇒ **只读**：首次导入（见 dsh-home.ensureHome）
+ *                与 readSettings/readCredentials 的回退；**绝不写、绝不建目录、绝不 .bak**。 */
+const OWNED_CREDENTIALS_PATH = path.join(AKDAGENT_DSH_HOME, '.credentials.yaml')
+const OWNED_SETTINGS_PATH = path.join(AKDAGENT_DSH_HOME, 'settings.yaml')
+const SOURCE_CREDENTIALS_PATH = path.join(DSH_SOURCE_HOME, '.credentials.yaml')
 
 /** 首次启动 + 运行时换代：初始化/迁移独立 DSH_HOME（实现与测试见 src/dsh-home.js）
  *  只抄 credentials/settings；profile 交给运行时按随包模板生成。 */
@@ -722,7 +720,18 @@ function spawnHost(port) {
     ? ['--import', 'tsx/esm', entry, 'web', '--port', String(port), ...tail]
     : [entry, 'web', '--port', String(port), ...tail]
   const env = { ...process.env }
-  delete env.DSH_OPEN_INBOX
+  /* ⛔ 2026-09-28（方案 D · 与用户自己的 DSH 彻底分离）：**别把用户环境里的 `DSH_*` 继承给内嵌宿主。**
+   *   以前是 `{...process.env}` 原样透传（只删了 `DSH_OPEN_INBOX`）⇒ 用户自己设过的 `DSH_*`
+   *   （profile / 端口 / 各种开关，或者指向他自己的家目录）会被内嵌宿主吃进去，行为变得不可预测 ——
+   *   这正是"两个 DSH 互相串"的一条。现在：先清掉所有继承来的 `DSH_*`，**只留下面我们自己设的两个**。 */
+  const droppedDshEnv = []
+  for (const k of Object.keys(env)) {
+    if (/^DSH_/i.test(k)) { droppedDshEnv.push(k); delete env[k] }
+  }
+  if (droppedDshEnv.length) {
+    console.log('[akdagent] 已隔离环境变量：忽略继承来的 ' + droppedDshEnv.join(', ') +
+      '（内嵌宿主只用我们设的 DSH_HOME / DSH_BUNDLED_SKILL_DIR）')
+  }
   /* ⛔ 凭据/设置的启动同步**不在这里**（2026-09-26 热修）：
    *  `spawnHost()` 只在"没得复用"时被调（ready 段的 `if (!hostPort)`）⇒ 一旦复用孤儿 host
    *  就整段跳过 ⇒ 用户「装了新版还是每轮 AUTH/401」，而手工 copy 凭据却立刻好
@@ -1237,10 +1246,10 @@ function readCredentialsFrom(p) {
  *  用户侧看到的第一个假象都是它。判断必须和宿主一致。 */
 function effectiveCredentials() {
   try {
-    const p = path.join(AKDAGENT_DSH_HOME, '.credentials.yaml')
-    if (fs.existsSync(p)) return { doc: readCredentialsFrom(p), from: 'isolated', path: p }
+    if (fs.existsSync(OWNED_CREDENTIALS_PATH)) return { doc: readCredentialsFrom(OWNED_CREDENTIALS_PATH), from: 'isolated', path: OWNED_CREDENTIALS_PATH }
   } catch { /* 忽略，退回源 */ }
-  return { doc: readCredentials(), from: 'source', path: CREDENTIALS_PATH }
+  // 回退读**用户那份**（只读）—— 只在"我们这份还不存在"时发生；我们从不写它
+  return { doc: readCredentials(), from: 'source', path: SOURCE_CREDENTIALS_PATH }
 }
 
 /** 文档里有没有某个 api-key：`refs.<name>`，或某条 record 的 `env.<name>`（后者是 DSH 自己的写法）。 */
@@ -2607,28 +2616,28 @@ ipcMain.handle('akdagent-remove-model', (_e, id) => {
 })
 
 // ── 提供方管理（模型页） ──────────────────────────────────────────
-const CREDENTIALS_PATH = path.join(HOME_DIR, '.dsh', '.credentials.yaml')
-
+/* ⛔ 2026-09-28（方案 ABCD）：凭据**只写我们自己的那份**（`~/.dsh-akdagent/.credentials.yaml` —— 宿主读的就是它）；
+ *   用户那份 `~/.dsh/.credentials.yaml` 一律**只读**（只在我们这份还不存在时读它做回退/导入，见 dsh-home.ensureHome）。 */
 function readCredentials() {
-  try {
-    if (!fs.existsSync(CREDENTIALS_PATH)) return {}
-    return yaml.load(fs.readFileSync(CREDENTIALS_PATH, 'utf8')) || {}
-  } catch {
-    return {}
+  for (const p of [OWNED_CREDENTIALS_PATH, SOURCE_CREDENTIALS_PATH]) {
+    try {
+      if (!fs.existsSync(p)) continue
+      return yaml.load(fs.readFileSync(p, 'utf8')) || {}
+    } catch { /* 试下一份 */ }
   }
+  return {}
 }
 
 function writeCredentials(obj) {
-  const dir = path.dirname(CREDENTIALS_PATH)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  const dir = path.dirname(OWNED_CREDENTIALS_PATH)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })   // 建的是**我们自己的**目录（不是 ~/.dsh）
   /* 落盘前**统一规范化**（2026-09-27）：顶层杂键搬进 `refs`、保证 `version: 1`、清掉形状不对的
-   * records 条目 —— 写出去的文件必须**宿主读得了**。规范化后的文本同时用于热镜像，
-   * 所以镜像进隔离家目录的那份也一定是安全的（否则宿主 boot 直接失败）。 */
+   * records 条目 —— 写出去的文件必须**宿主读得了**（宿主 boot 读不懂就直接失败 ⇒ 客户端跟着退）。 */
   const { doc } = normalizeCredentialsDoc(obj)
   const out = yaml.dump(doc, { indent: 2, lineWidth: -1 })
   // 原子写（宿主 chokidar 守着它）；失败就抛，交给 IPC 回报界面（别做哑失败）
-  if (!writeFileAtomic(CREDENTIALS_PATH, out)) throw new Error('写 ' + CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
-  mirrorDshFileToIsolatedHome('.credentials.yaml', out)
+  if (!writeFileAtomic(OWNED_CREDENTIALS_PATH, out)) throw new Error('写 ' + OWNED_CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
+  // ⛔ 不再写/镜像回 `~/.dsh`（源只读）
 }
 
 /** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */

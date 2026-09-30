@@ -3,21 +3,26 @@
  * 守卫：**干净用户机上，用户后填的 API Key 必须能进到内嵌 host 真正读的那个 DSH 家目录**
  * （2026-09-26 立 —— 当天一个用户机「一发消息就 回合结束（error）」的真因就是这个）
  *
- * 事故序列（干净机器上必然踩）：
+ * 事故序列（干净机器上必然踩，当时的老实现）：
  *   ① 首次启动：隔离家目录 `~/.dsh-akdagent` 不存在 ⇒ 老代码抄一次 `~/.dsh` 的凭据 —— 可这时用户**还没填 key** ⇒ 抄了个空；
- *   ② 用户在客户端里填 key ⇒ 客户端只写 `~/.dsh/.credentials.yaml`（`main.js` 的 CREDENTIALS_PATH），**不是**隔离家目录；
+ *   ② 用户在客户端里填 key ⇒ 当时只写 `~/.dsh/.credentials.yaml`（用户那份），**不是**隔离家目录；
  *   ③ 之后每次启动：隔离家目录已存在 ⇒ 老代码**再也不抄** ⇒ 宿主永远没有 key
  *      ⇒ 每个请求在 HTTP 层被拒（实测签名 `{code:'AUTH',status:401}`，**1.4 秒**）
  *      ⇒ 用户侧正是「一发消息就 回合结束（error）」，新建对话也一样，而他在界面上"明明配好了 key"。
  *
+ * ⚠️ 2026-09-28 实现方式变了（用户报「AKDAgent 夺舍了 DSH」⇒ 方案 ABCD）：**用户那份 `~/.dsh` 只读**，
+ *   填 key 直接写**隔离家目录**那份（宿主读的就是它）—— 不再有"写用户那份 + 镜像"的回路。
+ *   本守卫守的**不变式没变**：填了 key ⇒ 宿主读的那份里必须有它。
+ *
  * 本守卫做两件事：
  *   A. **行为验证**（真跑一遍那个序列）：临时 home 无凭据 → ensureHome → 往"源"写凭据 → 再 ensureHome
  *      ⇒ 断言隔离家目录里出现了凭据（且 BOM 被剥掉）。
- *   B. **接线验证**：`main.js` 里 `writeSettings` / `writeCredentials` 都必须调 `mirrorDshFileToIsolatedHome`
- *      （写入时即时镜像；A 是每次启动的兜底，两道保险缺一不可）。
+ *   B. **接线验证**：写入目标必须是 `OWNED_CREDENTIALS_PATH` / `OWNED_SETTINGS_PATH`（隔离家目录），
+ *      且**没有**任何写 `~/.dsh`（SOURCE_*）的代码路径（详见 B 段）。
+ *      （"绝不写用户那份"另有一条更全的守卫：`tools/check-dsh-separation.cjs`。）
  *
- * 用法：node tools/check-credentials-sync.cjs [--module <dsh-home.js 路径>]
- *   （`--module` 主要用于反向验证：指向修复前那份，守卫应 FAIL）
+ * 用法：node tools/check-credentials-sync.cjs [--module <dsh-home.js 路径>] [--main <main.js 路径>]
+ *   （`--module` / `--main` 主要用于反向验证：指向修复前那份，守卫应 FAIL）
  */
 const fs = require('fs');
 const os = require('os');
@@ -83,20 +88,34 @@ console.log('== A. 行为验证：干净机器序列（module=' + path.relative(
   }
 }
 
-console.log('\n== B. 接线验证：main.js 写入时要即时镜像 ==');
+console.log('\n== B. 接线验证：写入目标必须是**我们自己的**那份（2026-09-28 起与用户 ~/.dsh 分离）==');
+/*
+ * 不变式（本守卫真正守的东西）：**用户填了 key ⇒ 宿主读的那份里必须有它。**
+ * 实现方式在 2026-09-28 变了（用户报「AKDAgent 夺舍了 DSH」⇒ 方案 ABCD）：
+ *   · 以前：写 `~/.dsh/.credentials.yaml`（用户那份）＋ `mirrorDshFileToIsolatedHome()` 镜像进隔离家目录；
+ *   · 现在：**直接写隔离家目录** `<DSH_HOME>/.credentials.yaml`（宿主读的就是它），
+ *           用户那份 `~/.dsh` 只读（只在缺文件时导入）。
+ * ⇒ 这里改为断言"写入目标是 OWNED 前缀的常量、且没有对 SOURCE 前缀常量（= 用户那份）的写"。
+ */
 {
   const t = fs.existsSync(MAIN) ? fs.readFileSync(MAIN, 'utf8') : '';
   if (!t) fail('读不到 electron/src/main.js');
   else {
-    if (/function mirrorDshFileToIsolatedHome\(/.test(t)) ok('mirrorDshFileToIsolatedHome() 存在');
-    else fail('缺少 mirrorDshFileToIsolatedHome() —— 写入时不再镜像');
-    const inSettings = /mirrorDshFileToIsolatedHome\('settings\.yaml'/.test(t);
-    const inCreds = /mirrorDshFileToIsolatedHome\('\.credentials\.yaml'/.test(t);
-    if (inSettings) ok("writeSettings 镜像 settings.yaml"); else fail('writeSettings 没有镜像 settings.yaml');
-    if (inCreds) ok("writeCredentials 镜像 .credentials.yaml"); else fail('writeCredentials 没有镜像 .credentials.yaml');
-    if (/const CREDENTIALS_PATH = path\.join\(HOME_DIR, '\.dsh', '\.credentials\.yaml'\)/.test(t)) {
-      info('客户端凭据路径仍是 ~/.dsh/.credentials.yaml（隔离家目录靠镜像 + ensureHome 兜底）');
-    }
+    if (/const OWNED_CREDENTIALS_PATH = path\.join\(AKDAGENT_DSH_HOME, '\.credentials\.yaml'\)/.test(t)) {
+      ok('写入目标 = 隔离家目录的 .credentials.yaml（OWNED_CREDENTIALS_PATH）');
+    } else fail('没有 OWNED_CREDENTIALS_PATH ⇒ 不知道 key 写到哪去了');
+    if (/if \(!writeFileAtomic\(OWNED_CREDENTIALS_PATH/.test(t)) ok('writeCredentials 写的是 OWNED 那份');
+    else fail('writeCredentials 没写 OWNED 那份');
+    if (/writeFileAtomic\(OWNED_SETTINGS_PATH/.test(t)) ok('writeSettings 写的是 OWNED 那份');
+    else fail('writeSettings 没写 OWNED 那份');
+    if (!/mirrorDshFileToIsolatedHome\(/.test(t)) ok('已删除 mirrorDshFileToIsolatedHome（不再有"写用户那份再镜像"的回路）');
+    else fail('mirrorDshFileToIsolatedHome 还在 ⇒ 说明仍在写用户那份');
+    if (/const CREDENTIALS_PATH = path\.join\(HOME_DIR, '\.dsh'/.test(t)) {
+      fail('`CREDENTIALS_PATH` 仍指向 ~/.dsh（写侧旧名残留，容易又被写进去）');
+    } else ok('没有指向 ~/.dsh 的写侧常量（源只走 SOURCE_* 只读名）');
+    if (/SOURCE_CREDENTIALS_PATH/.test(t) && !/writeFileAtomic\(SOURCE_CREDENTIALS_PATH/.test(t)) {
+      ok('SOURCE_CREDENTIALS_PATH 只用于读（没有对它 writeFileAtomic）');
+    } else fail('源凭据路径仍有写操作 ⇒ 又动用户的文件了');
   }
 }
 

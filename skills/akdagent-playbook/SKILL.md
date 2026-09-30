@@ -1,7 +1,7 @@
 ---
 name: akdagent-playbook
 description: AKDAgent 实战踩坑与交接手册 —— 在 Synthesizer V Studio / Instrument X 上干活时的**开工自检、主动提醒清单、以及踩过的坑**。含：连桥自检与跳过条件 · 多 SV 只留一个桥 · 连上后按工程状态（空工程/无伴奏轨/无音符）与宿主（SV/IX）给提醒 · BPM/音频轨/音符/和声逐条问（含 **和弦分析**、**MusicXML 乐谱导入**）· 加音频与改 .svp/.ixp 的安全三步（先保存→重写→重载）· 产物存放位置（Agent 目录/指定目录/随工程）· 内置库不满意时给更强替代 · 歌词专项（检测/搜索/对齐/作词七项）· ⛔ **语言（语种）纪律（AKDAgent 整体：默认不改、用户更懂声库语种、语种不兼容⇒无音素⇒不渲染）**· 音高参数三层检测与调声交接（全自动 or 重点音符、我们做 or 用户做）· 其他参数**按风格**问 · **声线（vocal mode）交接**与**声库 styles / 声线音色**处置 · **IX 上用和弦自动创建织体**（成套配方见 **`sv-texture`** 技能）· 桥与文件通道故障（版本不生效/轮询死/弹框冻桥/id 匹配/目录不一致）· 文档与工具纪律。触发：接 SV/IX 任务不知道从哪开始、桥连不上或行为诡异、要加音频/改工程/分离伴奏/转录、要**分析和弦**或**用和弦铺织体**、要**导入乐谱（MusicXML）**、要调声但没参数、参数是否该动、vocal mode 读不到、要动**声库 styles / 声线音色**、文档/编码/工具踩坑等
-version: 1.0.2
+version: 1.0.3
 ---
 
 # AKDAgent 作业手册 —— 开工自检 · 交接规范 · 运行
@@ -643,6 +643,7 @@ version: 1.0.2
 | **PowerShell 改中文文件** | **禁止**用字符串读写（曾把 `README.md` 弄成乱码、~2% 丢失）。只用 `read`/`edit`/`write`；万不得已用 PowerShell 时走 .NET **UTF-8 无 BOM**（`UTF8Encoding($false)`），并注意 `Get-String` 会把 BOM 解成开头 `U+FEFF` |
 | **`Get-Content` 数行数 / 定位行** | **两样都不准** —— 默认按 **cp936** 解 UTF-8：① 数是错的（实测 1563 vs 真实 2283，差 700+ 行，害我误判"文件被删"）；② 🆕 **行号会整体错位**（cp936 双字节字符会把后面的 `\n` 当第二字节吃掉 ⇒ 行结构被破坏）：2026-09-19 实测 `Get-Content main.js` 说第 976 行是 `agentDir`，而 ripgrep 说第 976 行是 `devReadme` —— **差点据此改错地方**。⇒ 行号只信 **ripgrep（grep 工具）/ read 工具**；非要用 PowerShell 就显式 `-Encoding UTF8` |
 | **改动生效要重启** | 桥源码改完 ⇒ **在宿主里重跑桥**（Lua 常驻）；MCP `tools.ts` 改完 ⇒ **重启 DSH web host**；Electron 客户端改完 ⇒ **重启应用** |
+| ⭐ **用户数据分层：只写自己的家**（2026-09-27 新增） | AKDAgent 自带宿主跑在 `DSH_HOME=~/.dsh-akdagent`（凭据 `~/.dsh-akdagent/.credentials.yaml`、设置 `~/.dsh-akdagent/settings.yaml`）；**用户自己的 `~/.dsh` 是只读的**（只在他那份文件不存在时**首次导入**读一次，之后只增不改）。**任何情况下都不许往 `~/.dsh` 写 / 补文件 / 留 `.bak`** —— 用户报的"夺舍 dsh"就是这么来的。找脚本目录（声库 / styles 所在）的顺序：`$DSH_HOME/settings.yaml` → `~/.dsh-akdagent/settings.yaml` → `~/.dsh/settings.yaml`（**末级只读**）。生成宿主前会把继承来的 `DSH_*` 环境变量**剥掉**，别指望父进程的 `DSH_HOME` 会传进来。守卫：`node tools/check-dsh-separation.cjs` |
 | **验证纪律** | **不采信子代理/自己的报告数字**：独立复跑 + node 量行数/编码 + 抽关键条目是否还在；**任何"文件疑似损坏"先 node 复量再下结论** |
 | **上游内容用法** | 只做**摘要改写**、标来源与日期；冲突**以实测为准**（许可 = Apache-2.0 + Commons Clause + Additional Terms）|
 

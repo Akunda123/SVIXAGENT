@@ -275,7 +275,7 @@
 
     <section>
       <h2 data-i18n="settings.conv.section.language">语言</h2>
-      <!-- DSH 自己的语言（~/.dsh/settings.yaml 的 locale.preference），管模型回复语言 + DSH 网页界面 -->
+      <!-- DSH 自己的语言（**我们这份** ~/.dsh-akdagent/settings.yaml 的 locale.preference），管模型回复语言 + DSH 网页界面 -->
       <div class="row">
         <div>
           <div class="label" data-i18n="settings.conv.dshLanguage">DSH 界面语言</div>
@@ -610,8 +610,7 @@
       const body = document.createElement('div')
       body.className = 'provider-body'
 
-      // 模型选择（单选默认模型）+ 增删（**只有 DeepSeek 专用插件路由能增删**：
-      //   `addModel`/`removeModel` 写的是 `llm-deepseek.models`；pi-ai 的列表来自提供方预设）
+      // 模型选择（单选默认模型）+ 增删（**两种 kind 都能增删**，去向见下面 2026-09-25 那条注释）
       const label = document.createElement('div')
       label.className = 'key-hint'
       label.textContent = I.t('settings.model.defaultModel')

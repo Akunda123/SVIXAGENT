@@ -516,42 +516,69 @@ function ensureHome(opts) {
   //         「一发消息就 回合结束（error）」，新建对话也一样，而他在界面上"明明配好了 key"。
   //    只同步凭据 + 设置；**不抄 profiles**（用户 profile 带私有 workspace 依赖会让宿主起不来，实测）。
   //    必须走 writeTextFile（去 BOM/UTF-16）：新版凭据层按正则校验 key 名，BOM 会让它拒启动（实测）。
-  /* 先给**源**做一次只规范化、绝不挪走的自愈：老扁平 / 混合文档在这里被修成新格式
-   * （等价于宿主自带的 renderFlatLayoutMigration，只是那个只认纯扁平文档）。
-   * 这样下面的同步送过去的就是宿主读得了的。 */
-  healCredentialsFile(sourceHome, say, { allowQuarantine: false, label: '源 ~/.dsh' })
+  /* ⛔ 2026-09-28（用户「AKDAgent 夺舍了 DSH」反馈 · 方案 ABCD）：**源 `~/.dsh` 一律只读。**
+   *   以前这里做两件"动用户文件"的事：
+   *     ① `healCredentialsFile(sourceHome, …)` —— 启动时就地**规范化改写**用户的凭据文件（带 .bak）；
+   *     ② 每次启动把源的凭据/设置**覆盖**进隔离家目录。
+   *   现在：**绝不写源、绝不建源目录**；只在"隔离家目录缺这份文件"或"缺某个 ref"时**单向导入**
+   *   （读源 → 写我们自己的那份）。⇒ 用户自己那份 DSH 的数据从此完全不受影响；
+   *   代价（已知并接受）：我们在客户端里的改动**不再回流**到用户自己的 DSH（两边各填一次）。 */
+  const docAt = (p) => { try { return fs.existsSync(p) ? yaml.load(readTextFile(p)) : undefined } catch { return undefined } }
+  const refNames = (doc) => (isPlainMap(doc) && isPlainMap(doc.refs)
+    ? Object.keys(doc.refs).filter((k) => typeof doc.refs[k] === 'string' && doc.refs[k]) : [])
   const synced = []
   for (const f of ['.credentials.yaml', 'settings.yaml']) {
     const s = path.join(sourceHome, f)
+    const d = path.join(home, f)
     if (!fs.existsSync(s)) continue
     try {
       const text = readTextFile(s)
-      /* ⚠️ 凭据文件**必须先规范化再进隔离家目录**（2026-09-27 事故）：
-       * 以前是**逐字抄一份**过去 —— 可"客户端能读"≠"宿主能读"：源里只要有顶层杂键
-       * （老扁平格式，或被 setCred 写坏的混合文档），宿主 boot 时就 `unknown top-level key`
-       * 直接失败 ⇒ 宿主进程退出 ⇒ 客户端跟着退出（用户看到"闪退"，且重装也没用）。
-       * 规范化不了（读不懂 / version 不是 1）就**不写**，保留隔离家目录里已有那份 —— 宁可没 key，
-       * 也不能给宿主一份它读不了的文件。 */
+      /* ⚠️ 凭据文件**必须先规范化再进隔离家目录**（2026-09-27 事故）：以前逐字抄一份过去 ——
+       * 可"客户端能读"≠"宿主能读"：源里有顶层杂键（老扁平格式）时宿主 boot 就
+       * `unknown top-level key` 直接失败 ⇒ 宿主退出 ⇒ 客户端跟着退出（用户看到"闪退"）。
+       * ⚠️ 规范化**只作用在我们自己的拷贝上**（源那份一个字都不动）。 */
       if (f === '.credentials.yaml') {
         const out = normalizeCredentialsText(text, say)
         if (!out.ok) {
-          say(`[akdagent] ⚠ ${f} 没有同步进隔离家目录（${out.reason}）—— 避免宿主起不来；隔离家目录里那份保持不动`)
+          say(`[akdagent] ⚠ 源的 ${f} 读不懂（${out.reason}）⇒ 不导入；隔离家目录里那份保持不动（源未改动）`)
           continue
         }
-        // refs 取源、records 取隔离家目录（宿主自己的）—— 见 mergeCredentialDocs 的说明
-        const merged = mergeCredentialDocs(out.text, path.join(home, f), say)
-        writeFileAtomic(path.join(home, f), merged)
-        synced.push(f)
+        if (!fs.existsSync(d)) {
+          // 首次导入：隔离那份还不存在 ⇒ 用规范化后的源那份（records 不搬：那是**另一个家目录**的授权）
+          writeFileAtomic(d, mergeCredentialDocs(out.text, d, say))
+          synced.push(f + '(首次导入)')
+        } else {
+          /* 已有我们那份 ⇒ 只把**源里有、我们这份没有的 ref** 补进来（只增不改）。
+           * ⚠️ refs 必须取**并集、且以我们这份为准**（2026-09-28 修的真 bug）：
+           *   `mergeCredentialDocs` 的 refs 是**整份取源**的 —— 它诞生时客户端只写源，源必然是超集；
+           *   现在客户端写的是**我们这份**，于是"源有 K、我们有 J"时按它合并会把 **J 弄丢**
+           *   （用户自己填的 key 消失，且不报错）。⇒ 这里显式并集：`{ ...我们的, ...新增的 }`。 */
+          const dDoc = docAt(d)
+          const dRefs = isPlainMap(dDoc) && isPlainMap(dDoc.refs) ? dDoc.refs : {}
+          let srcDoc = null
+          try { srcDoc = yaml.load(out.text) } catch { srcDoc = null }
+          const toAdd = refNames(srcDoc).filter((k) => !(k in dRefs))
+          if (toAdd.length) {
+            const addRefs = {}
+            for (const k of toAdd) addRefs[k] = srcDoc.refs[k]
+            const dstRecords = isPlainMap(dDoc) && isPlainMap(dDoc.records) ? dDoc.records : null
+            const outDoc = { version: CRED_VERSION, refs: { ...dRefs, ...addRefs } }
+            if (dstRecords && Object.keys(dstRecords).length) outDoc.records = dstRecords
+            writeFileAtomic(d, dumpCredentialsDoc(outDoc))
+            synced.push(f + '(补齐 ' + toAdd.join(',') + ')')
+          }
+        }
       } else {
-        writeFileAtomic(path.join(home, f), text)
-        synced.push(f)
+        /* settings：**只在隔离那份不存在时**导入一次；之后以隔离那份为准（那是我们的写入目标）。
+         * 以前每次启动都用源的覆盖 ⇒ 用户在客户端改的语言会被源里那份"顶回去"。 */
+        if (!fs.existsSync(d)) { writeFileAtomic(d, text); synced.push(f + '(首次导入)') }
       }
     } catch (e) {
       // ⚠️ 以前这里是静默 catch —— 同步失败时用户照样没 key，而我们一无所知（2026-09-26 改）
-      say(`[akdagent] ⚠ 同步 ${f} 失败（宿主会读不到）：${e && e.message ? e.message : e}`)
+      say(`[akdagent] ⚠ 导入 ${f} 失败（宿主会读不到）：${e && e.message ? e.message : e}`)
     }
   }
-  if (synced.length && !firstTime) say(`[akdagent] 已同步凭据/设置：${synced.join(', ')}`)
+  if (synced.length && !firstTime) say(`[akdagent] 已从源 ~/.dsh 只读导入：${synced.join(', ')}`)
   /* 起宿主**之前**的最后一道闸：隔离家目录那份自己也得是宿主读得了的。
    * 为什么单列这一步（而不是只靠同步）：源里没有凭据时同步整段跳过 ⇒ 隔离家目录里
    * 那份**历史遗留**（旧版客户端写坏的混合文档 / 扁平文档）会一直留着 ⇒ 宿主每次启动都失败。
@@ -562,9 +589,6 @@ function ensureHome(opts) {
    *   ② 源里有哪些 ref **没进**隔离家目录 —— 旧判据是"值像 sk-xxx"或"refs 段非空"，
    *      对非 `sk-` 开头的提供方会**漏报**，而"refs 非空"又可能把别的东西当 key。 */
   try {
-    const docAt = (p) => { try { return fs.existsSync(p) ? yaml.load(readTextFile(p)) : undefined } catch { return undefined } }
-    const refNames = (doc) => (isPlainMap(doc) && isPlainMap(doc.refs)
-      ? Object.keys(doc.refs).filter((k) => typeof doc.refs[k] === 'string' && doc.refs[k]) : [])
     const dstDoc = docAt(path.join(home, '.credentials.yaml'))
     const dstProblems = credentialDocProblems(dstDoc)
     if (dstProblems.length) {
@@ -572,7 +596,12 @@ function ensureHome(opts) {
     }
     const missing = refNames(docAt(path.join(sourceHome, '.credentials.yaml'))).filter((k) => !refNames(dstDoc).includes(k))
     if (missing.length) {
-      say('[akdagent] ⚠ 自检未通过：源里有 ' + missing.join(', ') + '，隔离家目录里没有 ⇒ 宿主取不到这几个 key（把这段日志发回来）')
+      // ⚠️ 2026-09-28 起语义变了：源只读、我们只会"补齐"它——所以这里能剩下的，
+      //    只有**源里那份规范化时被丢掉**的 ref（键名不合法 / 值为空 / records 形状不对）。
+      //    不再是"同步没跑"，而是"源里那几个 key 我们不敢往宿主送"。
+      say('[akdagent] ⚠ 源 ~/.dsh 里有 ' + missing.join(', ') +
+        '，但没进隔离家目录（多因键名/值不符合宿主凭据格式）⇒ 这几个 key 宿主取不到；' +
+        '源文件我们**只读**、一个字都没改（把这段日志发回来）')
     }
   } catch { /* 忽略 */ }
   // 每次启动都做的两件体检（都幂等且便宜；失败模式是宿主直接起不来，代价太大）：

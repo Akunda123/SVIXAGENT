@@ -1,6 +1,6 @@
 {
   "name": "akdagent-mcp-server",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "description": "MCP server bridging DSH to Synthesizer V Studio / Instrument X via the file-channel Lua bridge",

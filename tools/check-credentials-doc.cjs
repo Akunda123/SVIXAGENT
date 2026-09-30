@@ -137,11 +137,16 @@ else {
     if (key) ok('key 落在 refs.DEEPSEEK_API_KEY 里（宿主能取到）');
     else fail('key 没进 refs ⇒ 宿主取不到 key（会退化成 AUTH/401）');
   }
-  // 源那份也应被规范化（只改格式、不挪走）
+  /* ⛔ 2026-09-28（方案 ABCD）**断言反过来了**：以前要求"源那份也该被规范化（我们顺手治它）"，
+   *   现在要求**源那份一个字都不许动**（用户报「夺舍 DSH」）—— 规范化只作用在我们自己那份拷贝上。
+   *   判据：跑完 ensureHome 后，源文件仍**逐字节**等于放进去的那份（事故现场文档）。 */
   const srcText = fs.readFileSync(path.join(src, '.credentials.yaml'), 'utf8');
-  const srcProbs = parseOk(srcText).problems;
-  if (srcProbs.length) fail('源 ~/.dsh 那份没被规范化：' + srcProbs.join('；'));
-  else ok('源 ~/.dsh 那份也被规范化（下次填 key 不会再写坏）');
+  if (srcText === INCIDENT_DOC) ok('源 ~/.dsh 那份**逐字节未变**（只读；不再被我们规范化/挪走）');
+  else fail('源 ~/.dsh 那份被改动了（分离没做到位）：' + JSON.stringify(srcText).slice(0, 160));
+  const srcDirFiles = fs.readdirSync(src).sort();
+  if (srcDirFiles.length === 1 && srcDirFiles[0] === '.credentials.yaml') {
+    ok('源目录里没有多出 .bak / rejected-* 之类的文件');
+  } else fail('源目录多出文件：' + srcDirFiles.join(', '));
   /* 场景 2：源里**没有**凭据文件 ⇒ 同步整段跳过 ⇒ 隔离家目录里那份坏的（历史遗留）必须被挪走，
    * 否则宿主每次启动都还是会炸 —— 这才是"用户手改过 / 旧版写坏过"的真实形态。 */
   const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'akd-guard-doc2-'));
@@ -195,7 +200,12 @@ console.log('\n== D. 同步链路：规范化后再写 + 起宿主前自检自�
    *（records 是宿主自己写的、且与"哪个家目录"绑定：搬源那份进来等于把别的家目录的会话授权塞给宿主） */
   if (/mergeCredentialDocs\(out\.text/.test(t)) ok('同步凭据走 mergeCredentialDocs()（refs 取源 / records 取隔离家目录）');
   else fail('同步还是整份覆盖 ⇒ 会把宿主自己写的 records 盖掉');
-  // 行为验证：源与隔离家目录各有一条 record，合并后必须保留**隔离家目录**那条
+  /* ⚠️ 2026-09-28（方案 ABCD）：**已有我们那份**时不能再"refs 整份取源" ——
+   *   客户端现在写的正是**我们那份**（不再是源），整份取源会把用户自己填的 key 弄丢。
+   *   判据：补齐分支必须显式取并集（我们的优先）。 */
+  if (/refs: \{ \.\.\.dRefs, \.\.\.addRefs \}/.test(t)) ok('补齐 ref 时取**并集**（我们那份优先，不会把我们自己的 key 顶掉）');
+  else fail('补齐 ref 时 refs 整份取源 ⇒ 用户自己填的 key 会静默消失（见 tools/check-dsh-separation.cjs ⑧）');
+  // 行为验证：源与隔离家目录各有一条 ref + 各有一条 record ⇒ 源的新 ref 补齐、我们那条不丢、records 用隔离那份
   {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'akd-guard-merge-'));
     const src = path.join(tmp, 'dsh');
@@ -208,10 +218,10 @@ console.log('\n== D. 同步链路：规范化后再写 + 起宿主前自检自�
       'version: 1\nrefs:\n  OLD_API_KEY: sk-old\nrecords:\n  client-connection/browser-session:\n    kind: grant\n    payload:\n      version: 1\n      secret: FROM-ISOLATED\n', 'utf8');
     H.ensureHome({ home, sourceHome: src, dshRoot: DSH_ROOT, log: () => {} });
     const t2 = fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8');
-    const refsOk = /DEEPSEEK_API_KEY: sk-from-source/.test(t2) && !/OLD_API_KEY/.test(t2);
+    const refsOk = /DEEPSEEK_API_KEY: sk-from-source/.test(t2) && /OLD_API_KEY: sk-old/.test(t2);
     const recOk = /FROM-ISOLATED/.test(t2) && !/FROM-SOURCE/.test(t2);
-    if (refsOk && recOk) ok('合并正确：refs 换成源的、records 保留隔离家目录那份');
-    else fail('合并语义不对（refs来自源=' + refsOk + ' records保留隔离=' + recOk + '）：' + JSON.stringify(t2).slice(0, 240));
+    if (refsOk && recOk) ok('合并正确：源的新 ref 补齐、我们自己那条 ref 不丢、records 保留隔离家目录那份');
+    else fail('合并语义不对（源的新 ref 补齐=' + refsOk + ' records保留隔离=' + recOk + '）：' + JSON.stringify(t2).slice(0, 240));
   }
 }
 
@@ -255,9 +265,10 @@ console.log('\n== E. 第二轮（2026-09-27 二）：自愈重试 / 判据 / 原
   if (/writeFileAtomic/.test(t) && /function writeFileAtomic\(/.test(dh)) ok('writeFileAtomic() 存在并被 main.js 使用');
   else fail('没有原子写（宿主可能在 truncate 后读到空文档）');
   const atomicUse = (t.match(/writeFileAtomic\(/g) || []).length;
-  if (atomicUse >= 3) ok('原子写覆盖 ' + atomicUse + ' 处（凭据 / 设置 / 镜像）');
-  else fail('原子写只用了 ' + atomicUse + ' 处（凭据、设置、镜像都要）');
-  if (/if \(!writeFileAtomic\(CREDENTIALS_PATH/.test(t)) ok('写凭据失败会抛错（交给界面，而不是哑失败）');
+  if (atomicUse >= 2) ok('原子写覆盖 ' + atomicUse + ' 处（凭据 / 设置）');
+  else fail('原子写只用了 ' + atomicUse + ' 处（凭据、设置都要）');
+  // 2026-09-28：写入目标改成**我们自己的**那份（隔离家目录）——`OWNED_CREDENTIALS_PATH`
+  if (/if \(!writeFileAtomic\(OWNED_CREDENTIALS_PATH/.test(t)) ok('写凭据失败会抛错（交给界面，而不是哑失败）');
   else fail('写凭据失败仍可能被吞');
 
   // 5. 可见化：key 保存失败 / 环境变量遮蔽

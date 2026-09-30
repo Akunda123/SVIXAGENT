@@ -1,7 +1,8 @@
 /**
  * Electron 客户端界面语言（i18n）—— **与 DSH 的语言设置相互独立**。
  *
- * - DSH 语言：`~/.dsh/settings.yaml` 的 `locale.preference`（模型回复语言 + DSH 网页界面）。
+ * - DSH 语言：**我们自己的** `~/.dsh-akdagent/settings.yaml` 的 `locale.preference`
+ *   （2026-09-28 起宿主读的就是这份；用户自己那份 `~/.dsh/settings.yaml` **只读**，仅首次导入一次）。
  * - 客户端语言：本模块，存 `app.getPath('userData')/ui-prefs.json` 的 `locale`。
  *   **首次启动**（文件不存在）按系统语言自动选：见 `detectSystemLocale()`。
  *
