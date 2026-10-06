@@ -135,21 +135,32 @@ jobs:
           done
           node -e "console.log(\"  electron 版本 = \" + require(\"./electron/package.json\").version)"
 
-      - name: 用仓库里的 MCP server 覆盖整包里那份（server 代码改了也能生效）
+      - name: 用仓库里的 MCP server 覆盖整包里那份（server 代码 + 依赖都补齐）
         run: |
           set -euo pipefail
           T="$RUNNER_TEMP/tree"
           # 为什么需要（2026-09-26 加）：整包里的 dist/server-runtime-darwin-<arch> 是**打包那天**的 server
           # 产物；仓库里的 server/ 后来又改过（例如 onnx 改懒加载），而整包是 release 资产、冻住的
-          # ⇒ 不重新构建就会把**旧 server** 打进 mac 包。这里在 runner 上现场构建、只替换它的 dist/。
-          # （node_modules 与 models 仍用整包那份：省时间，且它们与平台绑定。）
+          # ⇒ 不重新构建就会把**旧 server** 打进 mac 包。
+          # ⛔ 2026-10-06 修（发布后核出的真缺口）：原先**只回填 dist/**、`node_modules` 仍用整包那份 ——
+          #   而本轮新增的 5 个生产依赖（pdf-lib / pdfjs-dist / pngjs / jpeg-js / sharp ≈24 MB）在整包里**没有**
+          #   ⇒ mac 版「内置识谱」调用时缺模块（好在它们全是动态 `await import` ⇒ server 仍能启动、其余工具正常）。
+          #   ⇒ 改成**跑仓库自己的构建器**：它按 server/package.json 装齐生产依赖，并把 onnxruntime 裁到目标平台
+          #     （与 Windows 侧同一套逻辑）。⛔ 别用 `npm install <缺的包>` 就地补 —— 那会把 onnxruntime-node
+          #     的全平台二进制（258 MB）重新拉回来，dmg 直接涨 250 MB。
           npm ci --no-audit --no-fund --prefix server
           npm run build --prefix server
           for a in arm64 x64; do
-            if [ -d "$T/dist/server-runtime-darwin-$a/dist" ]; then
-              rm -rf "$T/dist/server-runtime-darwin-$a/dist"
-              cp -R server/dist "$T/dist/server-runtime-darwin-$a/dist"
-              echo "  ✓ 已替换 dist/server-runtime-darwin-$a/dist"
+            R="$T/dist/server-runtime-darwin-$a"
+            if [ -d "$R/dist" ]; then
+              EXTRA=""
+              # Intel mac：onnxruntime-node 自 1.24 起不再发布 darwin/x64（上游 microsoft/onnxruntime#27961）⇒ 钉 1.23.2
+              if [ "$a" = "x64" ]; then EXTRA="--onnx-version 1.23.2"; fi
+              node tools/build-server-runtime.cjs --platform darwin --arch "$a" --no-models --out "$RUNNER_TEMP/srv-$a" $EXTRA
+              # 只回填 dist/ 与 node_modules/：**models/ 保留整包那份**（模型在 .gitignore 里，checkout 拿不到）
+              rsync -a --delete "$RUNNER_TEMP/srv-$a/dist/" "$R/dist/"
+              rsync -a --delete "$RUNNER_TEMP/srv-$a/node_modules/" "$R/node_modules/"
+              echo "  ✓ 已重建 ${a} 的 dist + node_modules（models 仍用整包那份）"
             fi
           done
           node -e "console.log('  server 版本 = ' + require('./server/package.json').version)"
@@ -245,4 +256,4 @@ jobs:
           #    （2026-09-26 实测：`${TAG}：` ⇒ `TAG?: unbound variable`；与当初 `${label}：` 同一个坑）
           echo "挂到 release ${TAG}：${FILES[*]}"
           gh release upload "${TAG}" "${FILES[@]}" --clobber -R "${GITHUB_REPOSITORY}"
-          echo "✓ 已挂上（同名资产已存在会报错，不带 --clobber 是有意的）"
+          echo "✓ 已挂上（带 --clobber ⇒ 同一个 tag 重出包会**覆盖**旧资产；2026-10-06 修口径：mac 包重出必须能覆盖）"
