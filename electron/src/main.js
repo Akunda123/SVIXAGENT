@@ -3091,66 +3091,9 @@ function writeCredentials(obj) {
 }
 
 /** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */
-function writeCodexSettings(settings) {
-  if (!writeSettings(settings)) throw new Error('Cannot save Codex settings')
-}
-let codexModels = null
-async function getCodexModels() {
-  if (!codexModels) {
-    const result = await codexService.run('catalog')
-    if (!result.ok) throw new Error('runtime-unavailable')
-    codexModels = result.models
-  }
-  return codexModels
-}
-function codexHandle(channel, handler) {
-  ipcMain.handle(channel, async (event, ...args) => {
-    if (!settingsWin || event.sender !== settingsWin.webContents || event.senderFrame !== settingsWin.webContents.mainFrame) return { ok: false, error: 'forbidden' }
-    try { return await handler(...args) }
-    catch { return { ok: false, error: 'operation-failed' } }
-  })
-}
-codexHandle('akdagent-codex-status', async () => {
-  const models = await getCodexModels()
-  const settings = readSettings()
-  return { ok: true, signedIn: hasCodexGrant(), models, updated: codexCatalog.UPDATED,
-    fastModels: models.filter(m => codexCatalog.FAST_MODELS.includes(m.id)),
-    fastEnabled: settings['akdagent-codex']?.fastEnabled === true,
-    selected: settings['agent-default-model'] || {} }
-})
-codexHandle('akdagent-codex-refresh', async () => {
-  codexModels = null
-  writeCodexSettings(codexCatalog.configure(readSettings(), await getCodexModels()))
-  return { ok: true }
-})
-codexHandle('akdagent-codex-login', async method => {
-  // Configure the native route before starting login; credentials never enter settings.
-  writeCodexSettings(codexCatalog.configure(readSettings(), await getCodexModels()))
-  return codexService.login(method)
-})
-codexHandle('akdagent-codex-reply', (attempt, id, value) => codexService.reply(attempt, id, value))
-codexHandle('akdagent-codex-cancel', () => codexService.cancel())
-codexHandle('akdagent-codex-logout', () => codexService.logout())
-codexHandle('akdagent-codex-fast', async enabled => {
-  if (typeof enabled !== 'boolean') return { ok: false }
-  const next = codexCatalog.configure(readSettings(), await getCodexModels())
-  next['akdagent-codex'] = { ...next['akdagent-codex'], fastEnabled: enabled }
-  // Preserve an explicit Fast selection. Disabled Fast requests fail visibly;
-  // the user chooses an ordinary route themselves instead of a silent downgrade.
-  writeCodexSettings(next)
-  return { ok: true }
-})
-codexHandle('akdagent-codex-select', async (provider, modelId, effort) => {
-  if (![codexCatalog.PROVIDER, codexCatalog.FAST_PROVIDER].includes(provider)) return { ok: false }
-  const models = await getCodexModels()
-  const model = models.find(m => m.id === modelId)
-  if (!model || !model.reasoningEfforts || !Object.hasOwn(model.reasoningEfforts, effort)) return { ok: false }
-  const next = codexCatalog.configure(readSettings(), models)
-  if (provider === codexCatalog.FAST_PROVIDER &&
-      (!next['akdagent-codex']?.fastEnabled || !codexCatalog.FAST_MODELS.includes(modelId))) return { ok: false }
-  next['agent-default-model'] = { ...next['agent-default-model'], provider, model: modelId, reasoningEffort: effort }
-  writeCodexSettings(next)
-  return { ok: true }
+require('./codex-controller.cjs').registerCodexIPC({
+  ipcMain, getSettingsWindow: () => settingsWin, service: codexService,
+  readSettings, writeSettings, hasGrant: hasCodexGrant,
 })
 
 const PI_AI_PROVIDER_PRESETS = [

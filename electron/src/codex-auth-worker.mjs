@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline'
 import { loadRuntime, withStore } from './codex-runtime.mjs'
 import catalogModule from './codex-catalog.cjs'
-const { PROVIDER, catalog, validGrant } = catalogModule
+const { PROVIDER, catalog, validGrant, loginTimeoutMs } = catalogModule
 
 // stdin/stdout are a bounded control protocol, never a token transport.
 const [root, home, command, method = 'browser'] = process.argv.slice(2)
@@ -22,7 +22,7 @@ input.on('line', line => {
 input.on('close', () => abort.abort())
 process.on('SIGTERM', () => abort.abort())
 process.on('SIGINT', () => abort.abort())
-const timer = setTimeout(() => abort.abort(), 5 * 60 * 1000)
+const timer = setTimeout(() => abort.abort(), loginTimeoutMs(method))
 timer.unref()
 
 function promptUser(prompt) {

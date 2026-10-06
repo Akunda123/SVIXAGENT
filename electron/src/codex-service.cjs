@@ -2,6 +2,7 @@
 const { spawn } = require('node:child_process')
 const { createInterface } = require('node:readline')
 const { randomUUID } = require('node:crypto')
+const { loginTimeoutMs } = require('./codex-catalog.cjs')
 
 function authUrl(value) {
   try {
@@ -12,7 +13,7 @@ function authUrl(value) {
 }
 
 function createCodexService({ paths, emit, openExternal, spawnWorker = spawn }) {
-  let active
+  let active, authBusy = false
   const children = new Set()
   function run(command, method, initial) {
     const { node, worker, root, home } = paths()
@@ -39,7 +40,7 @@ function createCodexService({ paths, emit, openExternal, spawnWorker = spawn }) 
       const timeout = setTimeout(() => {
         child.kill()
         finish({ ok: false, error: 'timeout' })
-      }, command === 'login' ? 310000 : 15000)
+      }, command === 'login' ? loginTimeoutMs(method) + 10000 : 15000)
       const lines = createInterface({ input: child.stdout })
       child.stdout.on('data', data => { bytes += data.length; if (bytes > 1024 * 1024) child.kill() })
       child.stderr.resume() // Never log provider errors or credential parser input.
@@ -55,7 +56,9 @@ function createCodexService({ paths, emit, openExternal, spawnWorker = spawn }) 
           const url = authUrl(event.url)
           if (!url) { child.kill(); return }
           emit({ attempt: id, type: event.type, url, code: typeof event.code === 'string' ? event.code.slice(0,32) : '' })
-          Promise.resolve(openExternal(url)).catch(() => emit({ attempt: id, type: 'browser-failed' }))
+          Promise.resolve().then(() => openExternal(url)).catch(() => {
+            if (active === attempt) emit({ attempt: id, type: 'browser-failed' })
+          })
         } else if (event.type === 'prompt' && Number.isInteger(event.id)) {
           attempt.prompt = event.id
           emit({ attempt: id, type: 'prompt', id: event.id })
@@ -69,14 +72,17 @@ function createCodexService({ paths, emit, openExternal, spawnWorker = spawn }) 
     })
   }
   return {
-    run,
+    run: command => ['status', 'catalog'].includes(command) ? run(command) : Promise.resolve({ ok: false, error: 'invalid-command' }),
     setKey: (ref, value) => run('set-key', undefined, { type: 'key', ref, value }),
     async login(method) {
-      if (active) return { ok: false, error: 'busy' }
+      if (authBusy) return { ok: false, error: 'busy' }
       if (!['browser', 'device'].includes(method)) return { ok: false, error: 'invalid-method' }
-      const result = await run('login', method)
-      emit({ type: 'finished', ok: !!result.ok, error: result.error })
-      return result
+      authBusy = true
+      try {
+        const result = await run('login', method)
+        emit({ type: 'finished', ok: !!result.ok, error: result.error })
+        return result
+      } finally { authBusy = false }
     },
     reply(attempt, id, value) {
       if (!active || active.id !== attempt || active.prompt !== id || typeof value !== 'string' || value.length > 8192) return { ok: false }
@@ -89,8 +95,10 @@ function createCodexService({ paths, emit, openExternal, spawnWorker = spawn }) 
     },
     async logout() {
       // Do not allow a late login result to recreate a deleted credential.
-      if (active) return { ok: false, error: 'busy' }
-      return run('logout')
+      if (authBusy) return { ok: false, error: 'busy' }
+      authBusy = true
+      try { return await run('logout') }
+      finally { authBusy = false }
     },
     dispose() { for (const child of children) child.kill(); active = undefined },
   }

@@ -69,12 +69,47 @@ test('login single flight, stale replies, cancellation and late sign-out', async
   assert.equal(service.reply(prompt.attempt,1,'callback').ok,true)
   assert.ok(input.includes('callback'))
   child.stdout.write(JSON.stringify({type:'auth-url',url:'https://auth.openai.com/oauth/authorize'})+'\n')
+  await Promise.resolve()
   assert.equal(opened.length,1)
   service.cancel(); assert.ok(input.includes('cancel'))
   child.stdout.write('{"type":"result","ok":false,"error":"cancelled"}\n');child.emit('close',0)
   assert.equal((await pending).error,'cancelled')
   assert.ok(!JSON.stringify(events).includes('callback'))
+  const leaving=service.logout()
+  assert.equal((await service.login('browser')).error,'busy')
+  child.stdout.write('{"type":"result","ok":true,"signedIn":false}\n');child.emit('close',0)
+  assert.equal((await leaving).ok,true)
   service.dispose()
+})
+
+test('Codex IPC isolates windows, preserves concurrent edits and rejects failed saves', async () => {
+  const {registerCodexIPC}=require('../electron/src/codex-controller.cjs')
+  const handlers=new Map(), frame={}, contents={mainFrame:frame}
+  const event={sender:contents,senderFrame:frame}
+  let settings={},failSave=false,resolveCatalog
+  const pending=new Promise(resolve=>{resolveCatalog=resolve})
+  const dispose=registerCodexIPC({
+    ipcMain:{handle:(channel,fn)=>handlers.set(channel,fn),removeHandler:channel=>handlers.delete(channel)},
+    getSettingsWindow:()=>({isDestroyed:()=>false,webContents:contents}),
+    service:{run:()=>pending},readSettings:()=>settings,
+    writeSettings:next=>{if(failSave)return false;settings=next;return true},hasGrant:()=>false,
+  })
+  const call=(name,...args)=>handlers.get('akdagent-codex-'+name)(event,...args)
+  assert.equal((await handlers.get('akdagent-codex-status')({sender:{},senderFrame:frame})).error,'forbidden')
+  assert.equal((await handlers.get('akdagent-codex-status')({sender:contents,senderFrame:{}})).error,'forbidden')
+  const saving=call('fast',true)
+  settings={locale:{preference:'en'},'llm-pi-ai':{providers:{'openai-codex':{models:[{id:'gpt-6-astra',contextWindow:900000}]}}}}
+  resolveCatalog({ok:true,models:C.catalog()})
+  assert.equal((await saving).ok,true)
+  assert.equal(settings.locale.preference,'en')
+  assert.equal((await call('status')).models.find(m=>m.id==='gpt-6-astra').contextWindow,900000)
+  const before=JSON.stringify(settings)
+  failSave=true
+  assert.equal((await call('select',C.PROVIDER,'gpt-6.1-sol','high')).ok,false)
+  assert.equal(JSON.stringify(settings),before)
+  assert.equal((await call('select',C.PROVIDER,'gpt-6.1-sol','ultra')).ok,false)
+  assert.equal((await call('login','invalid')).ok,false)
+  dispose();assert.equal(handlers.size,0)
 })
 
 function runWorker(home, command, message) {
@@ -131,6 +166,37 @@ test('bundled runtime: native and Fast model resolution, shared locked credentia
       decorated.streamSimple({}, {}, {onPayload:p=>({...p,keep:true})})
       assert.deepEqual(await captured.onPayload(body,{}),{model:'gpt-6.1-sol',keep:true,service_tier:'priority'})
       assert.equal(body.service_tier,undefined)
+      // Exercise the real SDK's SSE request path with synthetic credentials.
+      // In particular, a newly added Sol must not inherit Astra's cost estimate.
+      const native=runtime.openaiCodexProvider()
+      const jwt='synthetic.'+Buffer.from(JSON.stringify({'https://api.openai.com/auth':{chatgpt_account_id:'synthetic-account'}})).toString('base64url')+'.synthetic'
+      await credentials.modifyRecord(key,async current=>({...current,payload:{...current.payload,access:jwt}}))
+      let payload,wireModel,fetchCount=0
+      const item={type:'message',id:'msg_synthetic',role:'assistant',content:[{type:'output_text',text:'OK'}]}
+      const events=[
+        {type:'response.created',response:{id:'resp_synthetic'}},
+        {type:'response.output_item.added',output_index:0,item:{...item,content:[]}},
+        {type:'response.output_text.delta',output_index:0,delta:'OK'},
+        {type:'response.output_item.done',output_index:0,item},
+        {type:'response.completed',response:{id:'resp_synthetic',status:'completed',output:[item],usage:{input_tokens:1,output_tokens:1,total_tokens:2}}},
+      ]
+      const observed={...native,streamSimple(model,context,options){
+        wireModel=model
+        return native.streamSimple(model,context,{...options,transport:'sse',
+          onPayload:async(body,m)=>{payload=await options.onPayload(body,m);return payload},
+          fetch:async(url,init)=>{fetchCount++;assert.ok(String(url).startsWith('https://chatgpt.com/backend-api/'));assert.equal(init.method,'POST');
+            return new Response(events.map(e=>'data: '+JSON.stringify(e)+'\n\n').join(''),{headers:{'Content-Type':'text/event-stream'}})},
+        })
+      }}
+      const wire=createFastAdapter(runtime,{credentials,get:()=>undefined},()=>settings,observed)
+      const chunks=[]
+      for await(const chunk of wire.stream({provider:C.FAST_PROVIDER,model:'gpt-6.1-sol',reasoningEffort:'low',
+        messages:[runtime.createUserMessage({source:{kind:'plugin',plugin:'test'},content:[{type:'text',text:'Return OK'}]})]}))chunks.push(chunk)
+      assert.equal(fetchCount,1)
+      assert.equal(payload.service_tier,'priority');assert.equal(payload.model,'gpt-6.1-sol')
+      assert.equal(wireModel.cost.input,0)
+      assert.equal(chunks.findLast(c=>c.type==='finish').reason.kind,'stop')
+      assert.ok(chunks.some(c=>c.type==='block-end'&&c.block.text==='OK'))
       settings['akdagent-codex'].fastEnabled=false
       assert.deepEqual(await fast.listModels(C.FAST_PROVIDER),[])
       await assert.rejects(async()=>{for await (const _ of fast.stream({provider:C.FAST_PROVIDER,model:'gpt-6-astra',messages:[]})){}},/Enable Codex Fast/)

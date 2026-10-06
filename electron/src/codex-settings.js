@@ -3,19 +3,19 @@
 window.initCodexSettings = function (root, api, I) {
   if (!api.codexStatus) return // Older test harnesses / preloads.
   const t = key => I.t('settings.codex.' + key)
-  let state, busy = false, prompt, notice = '', url = '', code = ''
+  let state, busy = false, signingIn = false, prompt, notice = '', url = '', code = ''
   const make = (tag, text) => { const node = document.createElement(tag); if (text) node.textContent = text; return node }
   async function load() {
     try { state = await api.codexStatus() } catch { state = { ok: false } }
     render()
   }
-  async function perform(operation) {
-    busy = true; notice = ''; render()
+  async function perform(operation, login = false) {
+    busy = true; signingIn = login; notice = ''; render()
     try {
       const result = await operation()
       notice = result?.ok ? t('saved') : t(result?.error === 'cancelled' ? 'cancelled' : 'failed')
     } catch { notice = t('failed') }
-    finally { busy = false; url = ''; code = ''; prompt = null; await load() }
+    finally { busy = false; signingIn = false; url = ''; code = ''; prompt = null; await load() }
   }
   function button(label, action, allowedWhileBusy = false) {
     const el = make('button', label)
@@ -40,10 +40,10 @@ window.initCodexSettings = function (root, api, I) {
     if (!state?.ok) { root.appendChild(button(t('retry'), load)); return }
     root.appendChild(make('p', t('intro')))
     const actions = make('div'); actions.className = 'actions'
-    actions.appendChild(button(t('login'), () => perform(() => api.codexLogin('browser'))))
-    actions.appendChild(button(t('device'), () => perform(() => api.codexLogin('device'))))
+    actions.appendChild(button(t('login'), () => perform(() => api.codexLogin('browser'), true)))
+    actions.appendChild(button(t('device'), () => perform(() => api.codexLogin('device'), true)))
     if (state.signedIn) actions.appendChild(button(t('logout'), () => perform(() => api.codexLogout())))
-    if (busy) actions.appendChild(button(t('cancel'), () => api.codexCancel(), true))
+    if (signingIn) actions.appendChild(button(t('cancel'), () => api.codexCancel(), true))
     root.appendChild(actions)
     if (url) {
       const link = make('a', t('openBrowser')); link.href = url
@@ -68,7 +68,8 @@ window.initCodexSettings = function (root, api, I) {
     let model, effort
     const updateEfforts = () => {
       const previous = effort?.value || state.selected?.reasoningEffort || 'high'
-      const levels = Object.keys(models.find(m => m.id === model.value)?.reasoningEfforts || {})
+      const supported = models.find(m => m.id === model.value)?.reasoningEfforts
+      const levels = supported === false ? ['off'] : Object.keys(supported || {})
       if (effort) effort.parentNode.remove()
       effort = select(t('effort'), levels.map(id => [id, id]), previous, modelBox)
     }

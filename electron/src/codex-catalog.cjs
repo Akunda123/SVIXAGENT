@@ -15,6 +15,8 @@ const current = [
   ['gpt-6-sol', 'GPT-6 Sol'],
 ]
 const efforts = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }
+// Match pi-ai's 15-minute device-code deadline; bound browser callback waiting.
+const loginTimeoutMs = method => method === 'device' ? 15 * 60 * 1000 : 5 * 60 * 1000
 
 function catalog(installed = []) {
   const models = new Map(installed.filter(m => m && !retired.has(m.id)).map(m => [m.id, {
@@ -61,4 +63,4 @@ function validGrant(record) {
     Number.isFinite(p.expires))
 }
 
-module.exports = { UPDATED, PROVIDER, FAST_PROVIDER, FAST_MODELS, catalog, configure, validGrant }
+module.exports = { UPDATED, PROVIDER, FAST_PROVIDER, FAST_MODELS, catalog, configure, validGrant, loginTimeoutMs }

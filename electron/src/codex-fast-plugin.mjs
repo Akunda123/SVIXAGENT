@@ -67,6 +67,9 @@ export function createFastAdapter(runtime, ctx, readSettings, native = runtime.o
     if (snapshot && signature === lastSignature) return snapshot
     const provider = priorityProvider({ ...native, getModels: () => models.map(m => ({
       ...template, ...sdkModels.get(m.id), id: m.id, name: m.name, provider: PROVIDER,
+      // Unknown models must not inherit Astra's price estimate. Match the
+      // native adapter's unknown-price sentinel until the SDK supplies pricing.
+      cost: sdkModels.get(m.id)?.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       api: 'openai-codex-responses', baseUrl: native.baseUrl,
       input: m.input, contextWindow: m.contextWindow, maxTokens: m.maxTokens,
       reasoning: true, thinkingLevelMap: { ...m.reasoningEfforts, off: null, minimal: null },
