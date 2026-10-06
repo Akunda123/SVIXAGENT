@@ -17,6 +17,7 @@
     "test:settings-ui": "electron dev/test-settings-clicks.cjs",
     "test:badge": "electron dev/test-badge-layout.cjs",
     "test:host-pick": "node dev/test-host-pick.cjs",
+    "test:codex": "node --test ../tools/test-codex.cjs ../tools/test-codex-ui.cjs",
     "test:panel-dual": "node ../tools/test-panel-dual.cjs",
     "dist": "electron-builder --win nsis",
     "dist:msi": "electron-builder --win msi",

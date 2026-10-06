@@ -67,6 +67,17 @@
   section h2 {
     font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--text);
   }
+  #codex-settings > p { margin: 8px 0; line-height: 1.6; }
+  #codex-settings .hint { font-size: 12px; color: var(--muted); }
+  #codex-settings .actions { margin: 10px 0; flex-wrap: wrap; }
+  #codex-settings .frow { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+  #codex-settings .frow > span { min-width: 90px; }
+  #codex-settings select { min-width: 160px; max-width: 100%; }
+  #codex-settings a { display: block; color: var(--accent); margin: 8px 0; }
+  #codex-settings input[type="password"] {
+    display: block; width: 100%; margin: 8px 0; padding: 8px;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
+  }
   .row {
     display: flex; align-items: center; justify-content: space-between;
     padding: 8px 0; border-bottom: 1px solid var(--border); gap: 12px;
@@ -219,6 +230,7 @@
     <div class="sub" data-i18n="settings.model.sub">填入各提供方的 API 密钥即可使用其模型。</div>
 
     <!-- 提供方卡片动态渲染 -->
+    <section id="codex-settings" aria-label="OpenAI Codex"></section>
     <div id="provider-list"></div>
 
     <section>
@@ -502,6 +514,7 @@
 
 </div>
 
+<script src="codex-settings.js"></script>
 <script>
   const $ = (id) => document.getElementById(id)
 
@@ -509,6 +522,7 @@
    * ⚠️ 这里管的是**客户端**界面文案（悬浮球 / 设置窗 / 托盘），
    *    和对话设置页里 DSH 的 locale.preference 是两套独立设置。 */
   const I = window.svi18n || { t: (k) => k, apply: () => {}, onChange: () => {}, locale: 'zh-Hans' }
+  window.initCodexSettings(document.getElementById('codex-settings'), window.svsettings, I)
 
   /* ── 左侧导航切换 ── */
   function activatePage(name) {

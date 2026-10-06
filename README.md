@@ -81,6 +81,16 @@
 - **自定义提供方**（`+ 添加自定义提供方`）：填**密钥环境变量名** · **接口协议**（如 `openai-completions` / `anthropic-messages`）· **服务地址**；密钥也可以直接填
 
 **如果本机已经装了 DeepSeek Harness（DSH），助手会直接沿用它的密钥与设置**，不用再填一遍。
+
+#### 使用 Codex（ChatGPT OAuth）
+
+在 **设置 → 模型 → OpenAI Codex** 选择「浏览器登录」，在系统浏览器完成 ChatGPT 授权；也可以使用「设备码登录」。浏览器无法自动回调时，可以在设置页粘贴完整回调网址。随后选择模型、推理强度，点击「设为默认模型」。已有会话保留自己的模型选择，新默认值用于后续新会话。
+
+Codex 授权单独保存在 AKDAgent 的 `~/.dsh-akdagent`，由随包 DSH / pi-ai 处理登录和刷新，不复制独立 DSH 或 Codex CLI 的令牌。退出登录会移除 AKDAgent 内的 Codex 授权；设置窗口关闭时会取消未完成的登录。已选择 Codex 且保存了授权时，不再要求填写 DeepSeek API Key。
+
+模型目录在 **2026-10-06** 对照 [OpenAI 官方 Codex 模型说明](https://learn.chatgpt.com/docs/models)核对，补齐 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-luna` 和 `gpt-6-sol`，并合并随包 SDK 的其他模型，过滤已退役的 Codex Spark。「刷新随包模型目录」重新读取本地 SDK 并合并这份已核对目录，不联网探测账号权限。模型是否可用取决于账号、工作区和服务端；出现模型无权限错误时，请选择账号支持的模型。更新后保留用户已有的上下文容量设置。
+
+**Codex Fast 是可选扩展**，本项目的适配实现来自 higekibaka 独立开发的插件。在同一设置区启用后，可选择 Fast 通道中的 Astra 或 6.1 Sol；它复用普通 Codex 授权和刷新锁，仅为该通道的请求附加 `service_tier: priority`。普通通道保持不变。禁用 Fast 不会把已有 Fast 会话静默降为普通模式，需要手动切换通道。Priority 的可用性、额度和实际速度由账号与服务端决定。
 > ⏳ 待补：截图。
 
 ### 1.4 把桥部署到宿主

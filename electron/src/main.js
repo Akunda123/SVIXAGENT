@@ -32,6 +32,9 @@ const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf } = require('
 const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
+const { pathToFileURL } = require('node:url')
+const codexCatalog = require('./codex-catalog.cjs')
+const { createCodexService } = require('./codex-service.cjs')
 
 /* ── 日志安全网（2026-09-19 修「打包版静默退出」）──────────────────────
  * 事故：打包版是 GUI 子系统进程，**没有可写的 stdout/stderr**，任何 `console.log`
@@ -167,7 +170,7 @@ function writeSettings(obj) {
   // 保持紧凑但可读的 YAML（2 空格缩进）
   const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
   // 原子写（2026-09-27）：宿主 chokidar 守着这份文件，别让它在"已清空还没写完"的瞬间读到半截
-  if (!writeFileAtomic(OWNED_SETTINGS_PATH, out)) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + OWNED_SETTINGS_PATH)
+  if (!writeFileAtomic(OWNED_SETTINGS_PATH, out)) throw new Error('Cannot save AKDAgent settings')
   // ⛔ 不再镜像回 `~/.dsh`（源只读）：宿主读的就是上面这份
 }
 
@@ -401,6 +404,34 @@ const OWNED_CREDENTIALS_PATH = path.join(AKDAGENT_DSH_HOME, '.credentials.yaml')
 const OWNED_SETTINGS_PATH = path.join(AKDAGENT_DSH_HOME, 'settings.yaml')
 const SOURCE_CREDENTIALS_PATH = path.join(DSH_SOURCE_HOME, '.credentials.yaml')
 
+function codexFile(name) {
+  const file = path.join(__dirname, name)
+  return isPackaged ? file.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1') : file
+}
+const codexService = createCodexService({
+  paths: () => ({ node: resolveNodeBin(), root: resolveDshRoot(), home: AKDAGENT_DSH_HOME,
+    worker: codexFile('codex-auth-worker.mjs') }),
+  emit: event => { if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('akdagent-codex-event', event) },
+  openExternal: url => shell.openExternal(url),
+})
+function hasCodexGrant() {
+  try {
+    const doc = yaml.load(fs.readFileSync(OWNED_CREDENTIALS_PATH, 'utf8'))
+    return codexCatalog.validGrant(doc?.records?.['llm-pi-ai/openai-codex'])
+  } catch { return false }
+}
+function ensureCodexRegistration() {
+  const dir = path.join(AKDAGENT_DSH_HOME, 'profiles', 'web')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'cordis.patch.yml')
+  const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+  const clean = original.replace(/\r?\n?# BEGIN AKDAGENT CODEX\r?\n[\s\S]*?# END AKDAGENT CODEX\r?\n?/g, '')
+  const entry = { id: 'akdagent-codex-fast', name: pathToFileURL(codexFile('codex-fast-plugin.mjs')).href,
+    config: { runtimeRoot: resolveDshRoot(), settingsPath: OWNED_SETTINGS_PATH } }
+  const next = clean.trimEnd() + '\n# BEGIN AKDAGENT CODEX\n' + yaml.dump([{ insert: [entry] }], { lineWidth: -1 }) + '# END AKDAGENT CODEX\n'
+  if (next !== original && !writeFileAtomic(file, next)) throw new Error('Cannot register Codex Fast')
+}
+
 /** 首次启动 + 运行时换代：初始化/迁移独立 DSH_HOME（实现与测试见 src/dsh-home.js）
  *  只抄 credentials/settings；profile 交给运行时按随包模板生成。 */
 function ensureAkdagentDshHome() {
@@ -411,6 +442,7 @@ function ensureAkdagentDshHome() {
       dshRoot: resolveDshRoot(),
       log: (m) => console.log(m),
     })
+    ensureCodexRegistration()
   } catch (e) {
     console.error('[akdagent] ensureAkdagentDshHome failed: ' + e.message)
   }
@@ -555,6 +587,9 @@ function checkAgentModelConfigured() {
       why = i18n.t('main.model.notSet')
     } else if (provider === 'deepseek-official') {
       ok = Array.isArray(dsModels) && dsModels.some((m) => m && m.id === model)
+      if (!ok) why = i18n.t('main.model.notInList', model)
+    } else if (provider === codexCatalog.FAST_PROVIDER) {
+      ok = s['akdagent-codex']?.fastEnabled === true && codexCatalog.FAST_MODELS.includes(model)
       if (!ok) why = i18n.t('main.model.notInList', model)
     } else {
       const p = piProviders[provider]
@@ -1166,6 +1201,7 @@ function createSettingsWindow() {
   })
   settingsWin.loadFile(path.join(__dirname, 'settings.html'))
   settingsWin.on('closed', () => {
+    codexService.cancel()
     console.log('[akdagent] settings window closed')
     settingsWin = null
   })
@@ -1401,6 +1437,8 @@ ipcMain.on('akdagent-confirm-answer', (_e, ok) => {
 
 /** 首次启动：无 key 则弹窗（仅当窗口都就绪后）—— 判据是**宿主实际会读的那份**（2026-09-27 改） */
 function maybeShowKeyPrompt() {
+  const selected = readSettings()['agent-default-model']?.provider
+  if ([codexCatalog.PROVIDER, codexCatalog.FAST_PROVIDER].includes(selected) && hasCodexGrant()) return
   const has = hasDeepSeekKey()
   const eff = effectiveCredentials()      // 只为把"判据是哪一份"写进日志（两次读文件，可忽略）
   console.log('[akdagent] DeepSeek key: ' + (has ? 'configured（不再弹窗）' : 'MISSING ⇒ 弹密钥窗')
@@ -1411,12 +1449,11 @@ function maybeShowKeyPrompt() {
   setTimeout(() => createKeyPromptWindow(), 500)
 }
 
-ipcMain.on('akdagent-key-save', (_e, key) => {
+ipcMain.on('akdagent-key-save', async (_e, key) => {
   try {
-    const creds = readCredentials()
     if (key && String(key).trim()) {
-      setCred(creds, 'DEEPSEEK_API_KEY', String(key).trim())   // 只写 refs（顶层键会被宿主拒读，见 setCred 注释）
-      writeCredentials(creds)
+      const result = await codexService.setKey('DEEPSEEK_API_KEY', String(key).trim())
+      if (!result.ok) throw new Error('Credential store write failed')
       console.log('[akdagent] DeepSeek API key saved（写到 refs: DEEPSEEK_API_KEY）')
     }
     if (keyPromptWin) keyPromptWin.close()
@@ -2641,6 +2678,65 @@ function writeCredentials(obj) {
 }
 
 /** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */
+let codexModels = null
+async function getCodexModels() {
+  if (!codexModels) {
+    const result = await codexService.run('catalog')
+    if (!result.ok) throw new Error('runtime-unavailable')
+    codexModels = result.models
+  }
+  return codexModels
+}
+function codexHandle(channel, handler) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!settingsWin || event.sender !== settingsWin.webContents || event.senderFrame !== settingsWin.webContents.mainFrame) return { ok: false, error: 'forbidden' }
+    try { return await handler(...args) }
+    catch { return { ok: false, error: 'operation-failed' } }
+  })
+}
+codexHandle('akdagent-codex-status', async () => {
+  const models = await getCodexModels()
+  const settings = readSettings()
+  return { ok: true, signedIn: hasCodexGrant(), models, updated: codexCatalog.UPDATED,
+    fastModels: models.filter(m => codexCatalog.FAST_MODELS.includes(m.id)),
+    fastEnabled: settings['akdagent-codex']?.fastEnabled === true,
+    selected: settings['agent-default-model'] || {} }
+})
+codexHandle('akdagent-codex-refresh', async () => {
+  codexModels = null
+  writeSettings(codexCatalog.configure(readSettings(), await getCodexModels()))
+  return { ok: true }
+})
+codexHandle('akdagent-codex-login', async method => {
+  // Configure the native route before starting login; credentials never enter settings.
+  writeSettings(codexCatalog.configure(readSettings(), await getCodexModels()))
+  return codexService.login(method)
+})
+codexHandle('akdagent-codex-reply', (attempt, id, value) => codexService.reply(attempt, id, value))
+codexHandle('akdagent-codex-cancel', () => codexService.cancel())
+codexHandle('akdagent-codex-logout', () => codexService.logout())
+codexHandle('akdagent-codex-fast', async enabled => {
+  if (typeof enabled !== 'boolean') return { ok: false }
+  const next = codexCatalog.configure(readSettings(), await getCodexModels())
+  next['akdagent-codex'] = { ...next['akdagent-codex'], fastEnabled: enabled }
+  // Preserve an explicit Fast selection. Disabled Fast requests fail visibly;
+  // the user chooses an ordinary route themselves instead of a silent downgrade.
+  writeSettings(next)
+  return { ok: true }
+})
+codexHandle('akdagent-codex-select', async (provider, modelId, effort) => {
+  if (![codexCatalog.PROVIDER, codexCatalog.FAST_PROVIDER].includes(provider)) return { ok: false }
+  const models = await getCodexModels()
+  const model = models.find(m => m.id === modelId)
+  if (!model || !model.reasoningEfforts || !Object.hasOwn(model.reasoningEfforts, effort)) return { ok: false }
+  const next = codexCatalog.configure(readSettings(), models)
+  if (provider === codexCatalog.FAST_PROVIDER &&
+      (!next['akdagent-codex']?.fastEnabled || !codexCatalog.FAST_MODELS.includes(modelId))) return { ok: false }
+  next['agent-default-model'] = { ...next['agent-default-model'], provider, model: modelId, reasoningEffort: effort }
+  writeSettings(next)
+  return { ok: true }
+})
+
 const PI_AI_PROVIDER_PRESETS = [
   'openai', 'anthropic', 'google', 'groq', 'mistral', 'openrouter',
   'xai', 'moonshotai', 'deepseek', 'cerebras', 'together', 'huggingface',
@@ -2675,6 +2771,7 @@ ipcMain.handle('akdagent-get-providers', () => {
 
   // pi-ai routes（llm-pi-ai.providers.<route>）
   for (const [route, profile] of Object.entries(piProviders)) {
+    if (route === codexCatalog.PROVIDER) continue // Dedicated OAuth card; never render a key field.
     const p = profile || {}
     const keyEnv = p.apiKeyEnv || ''
     providers.push({
@@ -2721,7 +2818,7 @@ ipcMain.handle('akdagent-set-default-provider', (_e, providerId, modelId) => {
 })
 
 /** 更新提供方 API 密钥（写 credentials.yaml；keyEnv 为空时按命名空间推断） */
-ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) => {
+ipcMain.handle('akdagent-set-provider-key', async (_e, providerId, keyEnv, keyValue) => {
   const env = keyEnv || 'DEEPSEEK_API_KEY'
   /* 凭据名必须符合宿主的引用文法 `/^[A-Za-z_][A-Za-z0-9_]*$/`（2026-09-27）：
    * 名字里带 `-` / `.` 之类的键，宿主读凭据时会直接抛错 ⇒ **整个宿主起不来**。
@@ -2731,11 +2828,10 @@ ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) =
     return { ok: false, error: `凭据名 "${env}" 不合法：只能用字母/数字/下划线、且不能以数字开头（宿主会拒绝启动）` }
   }
   try {
-    const creds = readCredentials()
-    if (keyValue && keyValue.trim()) setCred(creds, env, keyValue.trim())
-    else delCred(creds, env)
-    writeCredentials(creds)
-    return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env) }
+    const value = String(keyValue || '').trim()
+    const result = await codexService.setKey(env, value)
+    if (!result.ok) throw new Error('Credential store write failed')
+    return { ok: true, apiKeyEnv: env, configured: !!value }
   } catch (e) {
     // 以前这里异常会直接冒到渲染层（而且界面还没接住）⇒ 用户以为存好了；现在如实回报
     return { ok: false, error: '写入凭据失败：' + (e && e.message ? e.message : e) }
@@ -4168,6 +4264,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  codexService.dispose()
   console.log('[akdagent] before-quit（进程退出中）')
   quitting = true
   if (hostChild) killTree(hostChild.pid)

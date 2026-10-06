@@ -46,6 +46,19 @@ syncHtmlLang(__i18n)
 contextBridge.exposeInMainWorld('svi18n', __i18n)
 
 contextBridge.exposeInMainWorld('svsettings', {
+  codexStatus: () => ipcRenderer.invoke('akdagent-codex-status'),
+  codexRefresh: () => ipcRenderer.invoke('akdagent-codex-refresh'),
+  codexLogin: method => ipcRenderer.invoke('akdagent-codex-login', method),
+  codexReply: (attempt, id, value) => ipcRenderer.invoke('akdagent-codex-reply', attempt, id, value),
+  codexCancel: () => ipcRenderer.invoke('akdagent-codex-cancel'),
+  codexLogout: () => ipcRenderer.invoke('akdagent-codex-logout'),
+  codexFast: enabled => ipcRenderer.invoke('akdagent-codex-fast', enabled),
+  codexSelect: (provider, model, effort) => ipcRenderer.invoke('akdagent-codex-select', provider, model, effort),
+  onCodexEvent: cb => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('akdagent-codex-event', listener)
+    return () => ipcRenderer.removeListener('akdagent-codex-event', listener)
+  },
   /* 查询 host 状态（注册回调，主进程随时推送） */
   onHostStatus: (cb) =>
     ipcRenderer.on('akdagent-host-status', (_e, ready, url) => cb(ready, url)),

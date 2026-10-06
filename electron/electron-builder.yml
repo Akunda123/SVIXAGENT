@@ -25,6 +25,8 @@ files:
 #   **系统 node 也读不了 asar 里的 js** ⇒ 这两样必须落到实盘（`resources/app.asar.unpacked/…`）。
 #   开发态 `__dirname` 就是真目录，所以**这个坑只在打包版出现**；守卫见 `tools/check-package-assets.cjs`。
 asarUnpack:
+  - src/codex-*.mjs
+  - src/codex-catalog.cjs
   - src/stt-server.js
   - src/stt-model.js
   - node_modules/sherpa-onnx-node/**
