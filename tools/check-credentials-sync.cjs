@@ -104,8 +104,9 @@ console.log('\n== B. 接线验证：写入目标必须是**我们自己的**那�
     if (/const OWNED_CREDENTIALS_PATH = path\.join\(AKDAGENT_DSH_HOME, '\.credentials\.yaml'\)/.test(t)) {
       ok('写入目标 = 隔离家目录的 .credentials.yaml（OWNED_CREDENTIALS_PATH）');
     } else fail('没有 OWNED_CREDENTIALS_PATH ⇒ 不知道 key 写到哪去了');
-    if (/if \(!writeFileAtomic\(OWNED_CREDENTIALS_PATH/.test(t)) ok('writeCredentials 写的是 OWNED 那份');
-    else fail('writeCredentials 没写 OWNED 那份');
+    const worker = fs.readFileSync(path.join(ROOT, 'electron/src/codex-auth-worker.mjs'), 'utf8');
+    if (/home: AKDAGENT_DSH_HOME/.test(t) && /withStore\(runtime, home/.test(worker) && /await store\.set\(name, value\)/.test(worker)) ok('凭据 worker 的写入目标仍是 AKDAgent 隔离家目录');
+    else fail('凭据 worker 未绑定隔离家目录或未使用原生写入');
     if (/writeFileAtomic\(OWNED_SETTINGS_PATH/.test(t)) ok('writeSettings 写的是 OWNED 那份');
     else fail('writeSettings 没写 OWNED 那份');
     if (!/mirrorDshFileToIsolatedHome\(/.test(t)) ok('已删除 mirrorDshFileToIsolatedHome（不再有"写用户那份再镜像"的回路）');

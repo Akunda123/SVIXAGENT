@@ -29,9 +29,12 @@ const sttModel = require('./stt-model.js')
 const { createPanelBridge } = require('./panel-bridge.js')
 const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge, probeBridgeHeartbeat } = require('./sv-bridge-client.js')
 const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf, pickHostType, ACE_HOST_TYPE } = require('./host-pick.js')
-const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
+const { ensureHome, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
+const { pathToFileURL } = require('node:url')
+const codexCatalog = require('./codex-catalog.cjs')
+const { createCodexService } = require('./codex-service.cjs')
 
 /* ── 日志安全网（2026-09-19 修「打包版静默退出」）──────────────────────
  * 事故：打包版是 GUI 子系统进程，**没有可写的 stdout/stderr**，任何 `console.log`
@@ -438,6 +441,34 @@ const OWNED_CREDENTIALS_PATH = path.join(AKDAGENT_DSH_HOME, '.credentials.yaml')
 const OWNED_SETTINGS_PATH = path.join(AKDAGENT_DSH_HOME, 'settings.yaml')
 const SOURCE_CREDENTIALS_PATH = path.join(DSH_SOURCE_HOME, '.credentials.yaml')
 
+function codexFile(name) {
+  const file = path.join(__dirname, name)
+  return isPackaged ? file.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1') : file
+}
+const codexService = createCodexService({
+  paths: () => ({ node: resolveNodeBin(), root: resolveDshRoot(), home: AKDAGENT_DSH_HOME,
+    worker: codexFile('codex-auth-worker.mjs') }),
+  emit: event => { if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('akdagent-codex-event', event) },
+  openExternal: url => shell.openExternal(url),
+})
+function hasCodexGrant() {
+  try {
+    const doc = yaml.load(fs.readFileSync(OWNED_CREDENTIALS_PATH, 'utf8'))
+    return codexCatalog.validGrant(doc?.records?.['llm-pi-ai/openai-codex'])
+  } catch { return false }
+}
+function ensureCodexRegistration() {
+  const dir = path.join(AKDAGENT_DSH_HOME, 'profiles', 'web')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'cordis.patch.yml')
+  const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+  const clean = original.replace(/\r?\n?# BEGIN AKDAGENT CODEX\r?\n[\s\S]*?# END AKDAGENT CODEX\r?\n?/g, '')
+  const entry = { id: 'akdagent-codex-fast', name: pathToFileURL(codexFile('codex-fast-plugin.mjs')).href,
+    config: { runtimeRoot: resolveDshRoot(), settingsPath: OWNED_SETTINGS_PATH } }
+  const next = clean.trimEnd() + '\n# BEGIN AKDAGENT CODEX\n' + yaml.dump([{ insert: [entry] }], { lineWidth: -1 }) + '# END AKDAGENT CODEX\n'
+  if (next !== original && !writeFileAtomic(file, next)) throw new Error('Cannot register Codex Fast')
+}
+
 /** 首次启动 + 运行时换代：初始化/迁移独立 DSH_HOME（实现与测试见 src/dsh-home.js）
  *  只抄 credentials/settings；profile 交给运行时按随包模板生成。 */
 function ensureAkdagentDshHome() {
@@ -448,6 +479,7 @@ function ensureAkdagentDshHome() {
       dshRoot: resolveDshRoot(),
       log: (m) => console.log(m),
     })
+    ensureCodexRegistration()
   } catch (e) {
     console.error('[akdagent] ensureAkdagentDshHome failed: ' + e.message)
   }
@@ -699,6 +731,9 @@ function checkAgentModelConfigured() {
        *   （现场：客户端日志 2026-09-27T09:58 与 2026-10-03T12:51 各一条），可模型其实是好的。
        *   ⇒ 现在：空列表 ⇒ 交给内置目录（不判、不报）；只有**配了自定义列表**时才要求命中。 */
       ok = !dsModels.length || dsModels.some((m) => m && m.id === model)
+      if (!ok) why = i18n.t('main.model.notInList', model)
+    } else if (provider === codexCatalog.FAST_PROVIDER) {
+      ok = s['akdagent-codex']?.fastEnabled === true && codexCatalog.FAST_MODELS.includes(model)
       if (!ok) why = i18n.t('main.model.notInList', model)
     } else {
       const p = piProviders[provider]
@@ -1548,6 +1583,7 @@ function createSettingsWindow() {
   })
   settingsWin.loadFile(path.join(__dirname, 'settings.html'))
   settingsWin.on('closed', () => {
+    codexService.cancel()
     console.log('[akdagent] settings window closed')
     settingsWin = null
   })
@@ -1597,26 +1633,6 @@ function getCred(creds, name) {
   const refs = credRefs(creds)
   return (refs && refs[name]) || creds[name]
 }
-/* ⚠️ 只写 `refs`（2026-09-27 修 —— "过了一会就闪退"的真因）：
- *  以前这里按"有没有 `refs` 段"判新旧格式，文件不存在 / 没有 `refs` 就**写到顶层** ⇒ 产出
- *  `version: 1` + `records` + **顶层键**的混合文档 ⇒ 宿主凭据层见顶层未知键直接抛
- *  （`unknown top-level key "DEEPSEEK_API_KEY"`）⇒ **宿主 boot 失败** ⇒ 进程退出 ⇒ 客户端 500ms 后
- *  跟着退出 = 用户看到的"闪退"，且**重装也没用**（每次启动都同步过去那份）。
- *  可那正是**全新机器**的必然形态：DSH 先写 `version: 1` + `records`（会话授权），**还没有 refs**
- *  ⇒ 用户一填 key 就把自己弄得起不来。宿主只认 `version`/`refs`/`records`（规则详见 dsh-home.js 顶部）。 */
-function setCred(creds, name, value) {
-  if (!creds || typeof creds !== 'object') return
-  if (!creds.refs || typeof creds.refs !== 'object') creds.refs = {}
-  if (creds.version === undefined) creds.version = 1
-  creds.refs[name] = value
-  delete creds[name]            // 顶层同名键必须清掉：它就是宿主拒读的那个键
-}
-function delCred(creds, name) {
-  const refs = credRefs(creds)
-  if (refs && refs[name] !== undefined) delete refs[name]
-  if (creds[name] !== undefined) delete creds[name]
-}
-
 /** 解析某一份凭据文件；**null 表示读不了**（宿主也读不了 ⇒ 界面不该说"已配置"）。 */
 function readCredentialsFrom(p) {
   try { return yaml.load(fs.readFileSync(p, 'utf8')) || {} } catch { return null }
@@ -1803,6 +1819,8 @@ ipcMain.on('akdagent-confirm-answer', (_e, ok) => {
 
 /** 首次启动：无 key 则弹窗（仅当窗口都就绪后）—— 判据是**宿主实际会读的那份**（2026-09-27 改） */
 function maybeShowKeyPrompt() {
+  const selected = readSettings()['agent-default-model']?.provider
+  if ([codexCatalog.PROVIDER, codexCatalog.FAST_PROVIDER].includes(selected) && hasCodexGrant()) return
   const has = hasDeepSeekKey()
   const eff = effectiveCredentials()      // 只为把"判据是哪一份"写进日志（两次读文件，可忽略）
   console.log('[akdagent] DeepSeek key: ' + (has ? 'configured（不再弹窗）' : 'MISSING ⇒ 弹密钥窗')
@@ -1813,12 +1831,11 @@ function maybeShowKeyPrompt() {
   setTimeout(() => createKeyPromptWindow(), 500)
 }
 
-ipcMain.on('akdagent-key-save', (_e, key) => {
+ipcMain.on('akdagent-key-save', async (_e, key) => {
   try {
-    const creds = readCredentials()
     if (key && String(key).trim()) {
-      setCred(creds, 'DEEPSEEK_API_KEY', String(key).trim())   // 只写 refs（顶层键会被宿主拒读，见 setCred 注释）
-      writeCredentials(creds)
+      const result = await codexService.setKey('DEEPSEEK_API_KEY', String(key).trim())
+      if (!result.ok) throw new Error('Credential store write failed')
       console.log('[akdagent] DeepSeek API key saved（写到 refs: DEEPSEEK_API_KEY）')
     }
     if (keyPromptWin) keyPromptWin.close()
@@ -3041,17 +3058,10 @@ function readCredentials() {
   return {}
 }
 
-function writeCredentials(obj) {
-  const dir = path.dirname(OWNED_CREDENTIALS_PATH)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })   // 建的是**我们自己的**目录（不是 ~/.dsh）
-  /* 落盘前**统一规范化**（2026-09-27）：顶层杂键搬进 `refs`、保证 `version: 1`、清掉形状不对的
-   * records 条目 —— 写出去的文件必须**宿主读得了**（宿主 boot 读不懂就直接失败 ⇒ 客户端跟着退）。 */
-  const { doc } = normalizeCredentialsDoc(obj)
-  const out = yaml.dump(doc, { indent: 2, lineWidth: -1 })
-  // 原子写（宿主 chokidar 守着它）；失败就抛，交给 IPC 回报界面（别做哑失败）
-  if (!writeFileAtomic(OWNED_CREDENTIALS_PATH, out)) throw new Error('写 ' + OWNED_CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
-  // ⛔ 不再写/镜像回 `~/.dsh`（源只读）
-}
+require('./codex-controller.cjs').registerCodexIPC({
+  ipcMain, getSettingsWindow: () => settingsWin, service: codexService,
+  readSettings, writeSettings, hasGrant: hasCodexGrant,
+})
 
 /** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */
 const PI_AI_PROVIDER_PRESETS = [
@@ -3093,6 +3103,7 @@ ipcMain.handle('akdagent-get-providers', () => {
 
   // pi-ai routes（llm-pi-ai.providers.<route>）
   for (const [route, profile] of Object.entries(piProviders)) {
+    if (route === codexCatalog.PROVIDER) continue // Dedicated OAuth card; never render a key field.
     const p = profile || {}
     const keyEnv = p.apiKeyEnv || ''
     providers.push({
@@ -3234,7 +3245,7 @@ ipcMain.handle('akdagent-set-default-provider', (_e, providerId, modelId) => {
 })
 
 /** 更新提供方 API 密钥（写 credentials.yaml；keyEnv 为空时按命名空间推断） */
-ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) => {
+ipcMain.handle('akdagent-set-provider-key', async (_e, providerId, keyEnv, keyValue) => {
   const env = keyEnv || 'DEEPSEEK_API_KEY'
   /* 凭据名必须符合宿主的引用文法 `/^[A-Za-z_][A-Za-z0-9_]*$/`（2026-09-27）：
    * 名字里带 `-` / `.` 之类的键，宿主读凭据时会直接抛错 ⇒ **整个宿主起不来**。
@@ -3244,15 +3255,11 @@ ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) =
     return { ok: false, error: `凭据名 "${env}" 不合法：只能用字母/数字/下划线、且不能以数字开头（宿主会拒绝启动）` }
   }
   try {
-    const creds = readCredentials()
-    let warn = ''
-    if (keyValue && keyValue.trim()) {
-      const v = keyValue.trim()
-      warn = keyShapeWarning(env, v)          // 🆕 2026-10-05：形状提示（**不拦**，见函数注释）
-      setCred(creds, env, v)
-    } else delCred(creds, env)
-    writeCredentials(creds)
-    return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env), warn }
+    const v = String(keyValue || '').trim()
+    const warn = v ? keyShapeWarning(env, v) : ''
+    const result = await codexService.setKey(env, v)
+    if (!result.ok) throw new Error('Credential store write failed')
+    return { ok: true, apiKeyEnv: env, configured: !!v, warn }
   } catch (e) {
     // 以前这里异常会直接冒到渲染层（而且界面还没接住）⇒ 用户以为存好了；现在如实回报
     return { ok: false, error: '写入凭据失败：' + (e && e.message ? e.message : e) }
@@ -4899,6 +4906,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  codexService.dispose()
   console.log('[akdagent] before-quit（进程退出中）')
   quitting = true
   if (hostChild) killTree(hostChild.pid)

@@ -166,15 +166,13 @@ console.log('\n== C. 接线：写侧不许再产出顶层键 / 要规范化 / �
   const t = fs.existsSync(MAIN) ? fs.readFileSync(MAIN, 'utf8') : '';
   if (!t) fail('读不到 electron/src/main.js');
   else {
-    // setCred 体内不许再出现"写顶层键"那条分支（creds[name] = value）
-    const m = /function setCred\(creds, name, value\) \{([\s\S]*?)\n\}/.exec(t);
-    if (!m) fail('找不到 setCred()');
-    else if (/creds\[name\]\s*=/.test(m[1])) fail('setCred() 里还在写顶层键 ⇒ 会产出宿主拒读的混合文档（本次事故原样复发）');
-    else if (!/creds\.refs\[name\]\s*=/.test(m[1]) || !/delete creds\[name\]/.test(m[1])) fail('setCred() 没走 refs / 没清顶层同名键');
-    else ok('setCred() 只写 refs，并清掉顶层同名键');
-
-    if (/normalizeCredentialsDoc\(obj\)/.test(t)) ok('writeCredentials() 落盘前规范化');
-    else fail('writeCredentials() 没规范化 ⇒ 写出去的文件不保证宿主能读');
+    const worker = fs.readFileSync(path.join(ROOT, 'electron/src/codex-auth-worker.mjs'), 'utf8');
+    if (/codexService\.setKey\('DEEPSEEK_API_KEY'/.test(t) && /codexService\.setKey\(env, v\)/.test(t)) ok('两条密钥写入路径都交给 DSH 凭据服务');
+    else fail('有密钥写入路径未使用 DSH 凭据服务');
+    if (/runtime\.credentialRef\(ref\)/.test(worker) && /await store\.set\(name, value\)/.test(worker) && /await store\.unset\(name\)/.test(worker)) ok('worker 校验引用名，并用原生 set/unset 保持凭据格式');
+    else fail('worker 没有通过原生凭据接口写入');
+    if (!/(?:writeFileAtomic|writeFileSync)\(OWNED_CREDENTIALS_PATH/.test(t)) ok('主进程不再整份重写凭据文件（避免覆盖 OAuth 刷新）');
+    else fail('主进程仍然直接覆写凭据文件');
     if (/CRED_REF_RE\.test\(env\)/.test(t) && /ok: false, error: `凭据名/.test(t)) ok('set-provider-key 会拒绝不合法的凭据名（并把原因交给界面）');
     else fail('set-provider-key 没校验凭据名 ⇒ 用户填 `my-key` 之类就能把宿主写崩');
     if (/host-crash\.json/.test(t) && /noteHostStderr\(/.test(t)) ok('宿主异常退出会落 host-crash.json（含 stderr 现场）');
@@ -267,8 +265,8 @@ console.log('\n== E. 第二轮（2026-09-27 二）：自愈重试 / 判据 / 原
   const atomicUse = (t.match(/writeFileAtomic\(/g) || []).length;
   if (atomicUse >= 2) ok('原子写覆盖 ' + atomicUse + ' 处（凭据 / 设置）');
   else fail('原子写只用了 ' + atomicUse + ' 处（凭据、设置都要）');
-  // 2026-09-28：写入目标改成**我们自己的**那份（隔离家目录）——`OWNED_CREDENTIALS_PATH`
-  if (/if \(!writeFileAtomic\(OWNED_CREDENTIALS_PATH/.test(t)) ok('写凭据失败会抛错（交给界面，而不是哑失败）');
+  // Both IPC paths must check the native store result, not a removed local writer.
+  if ((t.match(/if \(!result\.ok\) throw new Error\('Credential store write failed'\)/g) || []).length === 2) ok('两条原生凭据写入失败都会抛错（交给界面，而不是哑失败）');
   else fail('写凭据失败仍可能被吞');
 
   // 5. 可见化：key 保存失败 / 环境变量遮蔽

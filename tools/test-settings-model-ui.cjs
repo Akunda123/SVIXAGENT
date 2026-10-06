@@ -88,7 +88,7 @@ ok(!/ok = Array\.isArray\(dsModels\) && dsModels\.some/.test(main),
     ok(false, '抠不出 checkAgentModelConfigured()（改名了？判据要重新确认）');
   } else {
     // eslint-disable-next-line no-new-func
-    const build = new Function('readSettings', 'i18n', 'notifyOrb',
+    const build = new Function('readSettings', 'i18n', 'notifyOrb', 'console', 'codexCatalog', 'checkAgentModelInCatalog',
       fnSrc.replace('function checkAgentModelConfigured()', 'return function checkAgentModelConfigured()'));
     const i18nStub = { t: (k, ...a) => k + (a.length ? ':' + a.join(',') : '') };
     const quiet = { log: () => {} };
@@ -112,11 +112,16 @@ ok(!/ok = Array\.isArray\(dsModels\) && dsModels\.some/.test(main),
         true, 'pi-ai 路由：列表被删空（= 回内建）⇒ 通过'],
       [{ 'agent-default-model': { provider: 'not-configured', model: 'm1' }, 'llm-pi-ai': { providers: {} } },
         false, 'pi-ai 路由**整个没配** ⇒ 仍然报（这才是真的没配）'],
+      [{ 'agent-default-model': { provider: 'openai-codex-fast', model: 'gpt-6.1-sol' }, 'akdagent-codex': { fastEnabled: true } },
+        true, '已启用 Fast 且模型受支持 ⇒ 通过'],
+      [{ 'agent-default-model': { provider: 'openai-codex-fast', model: 'gpt-6.1-sol' }, 'akdagent-codex': { fastEnabled: false } },
+        false, '停用 Fast 保留原选择并明确报错，不静默降档'],
     ];
     for (const [settings, want, label] of cases) {
       let got = null;
       try {
-        const f = build(() => settings, i18nStub, () => {}, quiet);
+        const f = build(() => settings, i18nStub, () => {}, quiet,
+          require('../electron/src/codex-catalog.cjs'), async () => {});
         got = f();
       } catch (e) { got = 'threw: ' + e.message; }
       ok(got === want, label + `（实际 ${JSON.stringify(got)}）`);
