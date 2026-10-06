@@ -1,6 +1,6 @@
 # AKDAgent MCP 工具清单
 
-> 共 **42** 个工具。所有工具都可在 `sv`（Synthesizer V Studio）或 `ix`（Instrument X）宿主下运行（`host` 参数可选，默认自动探测；宿主在线是前提，先 `sv_ping`）。
+> 共 **53** 个工具 = **45** 个 SV/IX 工具（都可在 `sv`（Synthesizer V Studio）或 `ix`（Instrument X）宿主下运行；`host` 参数可选，默认自动探测；宿主在线是前提，先 `sv_ping`）+ **6 个 ACE Studio 工具**（`ace_state` / `ace_cli` / `acep` / `ace_import_musicxml` / `ace_lyrics` / `ace_vocal_params`）+ **2 个宿主无关工具**（`write_notes`：音符块 → SV/IX/ACE 统一写入器 · `measure_tempo`：音频 → BPM 包络/点击轨/MIDI tempo 轨，**不需要任何宿主在线**）。⚠️ **ACE 不走我们的桥**，它走自己的 `acestudio-cli` 与 `.acep` 文件工具。
 
 > 概括：`sv_ping` 探宿主 → `sv_*_notes/lyrics` 读写选中 → 音频/乐谱类在本地做分析/生成 → 通过桥 `executeOp` 写入宿主。
 
@@ -18,7 +18,8 @@
 | 8 | 旋律/和声 | `sv_generate_melody`<br>`sv_generate_harmony`<br>`sv_run_script` |
 | 9 | 音频对轨 | `sv_align_audio`<br>`sv_apply_tempo` |
 | 10 | 声库/风格 | `sv_list_voice_styles`<br>`sv_list_voice_styles_detail`<br>`sv_combine_voice_styles`<br>`sv_style_create`<br>`sv_style_adjust` |
-| 11 | 和弦/乐谱 | `sv_analyze_chord`<br>`sv_write_chords`<br>`sv_import_musicxml` |
+| 11 | 和弦/乐谱 | `sv_analyze_chord`<br>`sv_write_chords`<br>`sv_import_musicxml`<br>`sv_omr_image` |
+| 12 | **ACE Studio**（⛔ 不走桥） | `ace_state`<br>`ace_cli`<br>`acep`<br>`ace_import_musicxml`<br>`ace_lyrics`<br>`ace_vocal_params` |
 
 ---
 
@@ -46,7 +47,7 @@
 | `sv_playback` | action, position?, host? | 控制 Synthesizer V Studio 的播放：play 播放 / pause 暂停 / stop 停止 / toggle 播放暂停切换 / seek 跳转到指定秒数（需 … |
 | `sv_separate_vocals` | input, model?, outDir? | 将音频文件（wav/mp3）分离为人声与伴奏，使用内置 MDX-Net 模型（Kim_Vocal_2，本地离线推理）。输入可为任意 mpg123 可解码格式，非 44.1kHz 会… |
 | `sv_separate_vocals_dual` | input, vocal?, accompaniment?, outDir? | 双模型分离人声与伴奏，两者都尽可能干净：人声用 Kim_Vocal_2（人声优先模型，取 vocal），伴奏 UVR-MDX-NET-Inst_HQ_3（乐器优先模型，取其 voc… |
-| `sv_convert_audio` | input, outPath?, maxSeconds? | 将音频文件（mp3/wav/m4a/其他 mpg123 可解码格式）转换 44.1kHz 立体 WAV。完全本地处理（mpg123-decoder WASM 解码 + 重采样），不… |
+| `sv_convert_audio` | input, outPath?, maxSeconds? | 将音频文件转成 44.1kHz 立体 WAV。**先嗅探容器再分派**：WAV 用我们自己的读取器（16/24/32-bit）、MP3 走内置 mpg123、其余（m4a/AAC、FLAC、Ogg…）交给 ffmpeg（有就用）。⛔ mpg123 **只认 MP3**（喂 AAC 只会出噪声）⇒ 非 MP3/WAV 而本机又没有 ffmpeg 时**明确拒绝**，并提示「让用户把文件拖进悬浮球，客户端会用 Chromium 先转成 WAV」。完全本地处理，不需 Synthesizer V 在线… |
 | `sv_analyze_audio` | input, startSec?, endSec?, bpm? | 分析音频文件（WAV）的特征：响 RMS、BPM、节拍序列、调性（key，Krumhansl）、频谱质心、音高中位数（Hz）。可指定时间窗口（startSec/endSec）分析局… |
 | `sv_analyze_emotion` | input, startSec?, endSec? | 分析音频文件（WAV）的情感：基于调性大/小调、BPM、RMS 能量、音高中位数，映射到四象限（Valence-Arousal）得情感标签（喜 宁静/愤 悲伤）。返 { valen… |
 | `sv_extract_notes` | input | 从干声（人声 WAV）提取音符块（音高+起止时间），基于 CREPE onnx 音高检测模型（本地推理，精度高）。返回 [{midi（C4=60  onsetSec, durati… |
@@ -67,6 +68,15 @@
 | `sv_write_texture` | （见 schema） | 按乐器铺织体（伴奏型）到当前宿主，主要给 IX 用，SV 侧同样可写。**和弦来源三种**：① notes（默认）＝从工程内音符按小节推和弦（与 IX 侧边栏「旋律和弦生成」同口径… |
 | `sv_apply_articulations` | （见 schema） | 按**旋律走向**自动标注 IX 技法（articulations），或做**段落级批量开关**。**默认 dry-run**（只出计划，不改工程）。 |
 | `sv_write_pit` | （见 schema） | 绘制/改写音高线（Pit，即 SV 的 pitch 曲线）。🆕 **默认只改算出来的重音音符**（`plan` 省略 ⇒ `accent`：按重音检测挑命中的少数音符，其余保持 … |
+| `sv_omr_image` | input, kind?, format?, outPath?, title? | 【**识谱（OMR）**】把五线谱/简谱**图片**（或客户端把 PDF 渲染出的 PNG）识别成 **MusicXML**（五线谱，Dolce OMR，MIT 许可）或简谱文本。⚠️ **MusicXML 是唯一中间格式**：识别结果再交 `sv_import_musicxml`（SV/IX）或 `ace_import_musicxml`（ACE）落到工程音符；不写工程时也给 MIDI 中间产物。 |
 | `sv_import_musicxml` | input, part?, groupName?, trackIndex?, lyrics?, host? | 解析 MusicXML（.musicxml/.xml）乐谱成音符并写入目标轨道。**默认只读预览**（`dryRun:false` 才写）—— 先给文件 SHA-256、可选声部清… |
 | `sv_apply_ornaments` | ornament, indices?, interval?, dir?, len?, headLen?, steps?, df?, style?, manual?, dryRun?, host? | 给音符加**装饰音**（八型）：前倚音 / 后倚音 / 向上尖尖 / 波音 / 回音 / 音尾音阶行进 —— 六个**拆音符**；反向预备 / 滑音 —— 两个只写**音符属性**（仅 SV1）。**默认 `dryRun`**；新音符默认自动音高（`manual:true` 才设手动）。 |
 | `sv_write_automation` | parameter, points[], dryRun?, host? | 写当前组的**参数自动化点**（张力/响度/气声/发声/性别/颤音包络/音高偏移/声线）。写前按取值域 **clamp**；回读只走 `Automation#get(b)` **单点采样**（`getPoints`/`getAllPoints`/`getLinear`/`getDefinition`/`remove(index)` 在已知缺陷 IX-001 的 crash 清单上，一律不调）。**默认 `dryRun`**。 |
+| `ace_state` | （无参数） | 【**ACE Studio**】开工自检（只读，先跑这个）：ACE 是否在线、当前工程名/路径/`dirty`/`isTempProject`（走 `project dirty` —— ⚠️ `project info` **没有** path/dirty 两个键）、`acestudio-cli` 的位置、6 个 `.acep` 技能脚本是否就位。⚠️ ACE **不走我们的桥**（Lua 桥只服务 SV/IX）。 |
+| `ace_cli` | args[], timeoutSec?, waitBusy? | 【**ACE Studio**】跑 `acestudio-cli`（首选路线）：参数按原样传**数组、不经 shell**（绕开 PowerShell 的引号/BOM/编码坑）；自动补 `--json` 并解析，**不替你加** `-y/--yes`。⚠️ 参数名 ≠ 文件字段（`dynamic`→`vocalControls.__dynamic`、`air`→`mambaBreathiness`）；花名册随引擎世代变，**每次现读 `vocalparam layers`**。 |
+| `ace_import_musicxml` | input, part?, trackIndex?, clipIndex?, bpm?, offsetQ?, dryRun?, confirmRights?, writeMidi?, midiPath? | 【**ACE Studio**】MusicXML → **ACE 音符块**：先**预览**音符数/落点/冲突并返回 `needConfirm`（问用户写哪条轨、哪个 clip），`dryRun:false` + `confirmRights:true` 才写；写入带 `--if-match` 指纹防覆盖。⚠️ ACE **音符不重叠**（重叠整笔拒写，见 `help note-exclusivity`）。 |
+| `acep` | script, args[], allowInPlace?, timeoutSec? | 【**ACE Studio**】跑 `.acep` **文件工具**（`skills/acep/scripts/*`：`acep`/`lane-report`/`tree-diff`/`lyric-tones`/`lane-poke`/`f0-contour`）。**只在 CLI 没开放的能力上用**（当前已知：人声音高线）。⛔ **写护栏**：`--in-place` 默认拒（技能纪律「只写副本」），显式允许后若 ACE 正打开该文件且 `dirty:true` 仍拒。 |
+| `ace_lyrics` | mode?, text?, trackIndex?, clipIndex?, clipUuid?, sentence?, noteUuids[], followNoteLanguage?, matchGraphemeLanguage?, alignLinesToSentences?, language?, allowIllegalText?, bpm?, timeSig?, dryRun?, saveFirst? | 【**ACE Studio**】歌词 **填 / 逐音对位 / 复核**：`mode:'fill'`（默认）＝句级填充（`lyric fill`，引擎切字/放延音/处理溢出）· `mode:'grapheme'`＝逐音精确（`note set-grapheme --lyrics`，词多/词少如实报）· `mode:'check'`＝倒字/谐音/韵脚/词格复核（复用 `sv_check_lyrics` 的宿主无关内核，**只列不改**）。⛔ 默认**不改语种**（走机制形态 `--filler tenuto-standby --follow-note-language=false`；`languageChanged` 逐行报出）；字母表外字符（数字/emoji）**默认拒写**（引擎会静默丢，`allowIllegalText:true` 才放行）；写前看 `project dirty`（脏则先 `project save`），写完**读回**并与写响应**分开报**（§3.6c）。 |
+| `ace_vocal_params` | param?, action?, layer?, values[], anchors[], scalarValue?, posBegin?, encoding?, rangeBegin?, rangeEnd?, ifMatch?, trackIndex?, clipIndex?, clipUuid?, dryRun?, saveFirst? | 【**ACE Studio**】人声参数曲线：不 `param` ⇒ **花名册**（`vocalparam layers`：`available`/`unavailableReason`/`scale`/`valueRange`/可写层与 `shape`）· 给 `param` ⇒ **读**（层 + 取样摘要；读**默认 `--encoding base64`** —— 整条 clip 的 dense JSON 回包实测 **39.4 MB**、base64 只要 2.3 MB，也可用 `rangeBegin`/`rangeEnd` 只取一段）· 给 `param`+`layer`+载荷 ⇒ **写**（`values` dense / `anchors` points / `scalarValue` scalar；**超过 2 KB 的载荷自动落临时文件**发 `--points @<file>`，用完即删 —— `--points` 是命令行参数，长曲线塞不进 argv）。⛔ **每次现读花名册**（层集合/尺度随引擎世代变）；**越界直接拒、绝不 clamp**（回合法区间 —— 与 `sv_write_automation` 的 clamp 故意相反）；dense 每段 run 需 ≥2 tick、`posBegin` 必填，points/scalar 不许给；`--layer` 必填、`effective` 不可写、`pitch` 在 CLI 上 `available:false`（音高线走 `acep`）；写完**读回**并与写响应分开报（按 f32 容差比）。 |
+| `write_notes` | notes[], target, trackIndex?, clipIndex?, groupName?, bpm?, offsetQ?, polyphonic?, title?, partName?, beats?, beatType?, fifths?, outPath?, dryRun?, confirmRights?, writeMidi?, midiPath? | 【**宿主无关**】**统一音符块写入器**：一串音符 → **MusicXML** → 落到 **SV / IX / ACE** 任一宿主（生成类：旋律/和声/和弦/织体的产物要进 ACE 时走它 —— ACE 没有别的写入端）。音符**两种口径都收**（`onsetQ`/`durQ` 四分音符 = 拍，或 `startBeat`/`durBeats`）；`offsetQ` 做整体时间偏移（多页谱分段导用）。产物**一定落盘**（`.musicxml`，同名不覆盖；`outPath` 必须绝对），默认 `dryRun`；写宿主必须 `dryRun:false` + `confirmRights:true`。⚠️ **ACE 默认压单声部**（`polyphonic:false`，Sing 轨不许重叠）——每次丢弃/截短都进 `warnings` 如实报。 |
+| `measure_tempo` | input, bpmHint?, tightness?, segmentBeats?, beatsPerBar?, startSec?, endSec?, smoothBeats?, snapToOnsets?, outDir?, writeArtifacts? | 【**宿主无关**】**BPM 包络（可变速度）测量** —— **完全不需要宿主在线**（不用 SV/IX/ACE）。给一段音频产出「时间 → BPM」曲线，专治像 **118–122 这种小幅浮动**（老路子只给一个 BPM，会把浮动拉直）。做法：`detect` 取初值 + **倍频纠正** → **Ellis 动态规划拍点跟踪**（rubato 自适应，可给 `bpmHint` / `tightness`）→ 拍点**吸附到 onset 峰**（细 hop）→ **局部线性回归**出包络（不是相邻两拍直接换算，那会被 ODF 帧量化抖死）→ 每 `segmentBeats` 拍合一个 tempo mark。**产物默认落盘**（与音频同目录）：`.tempo-envelope.csv` · **`.tempo-map.mid`（拖进任何 DAW 当速度轨）** · **`.click.wav`（点击轨：听一遍就知道准不准）** · `.json`。⚠️ 只收 **WAV**（先 `sv_convert_audio`）；`stats`（min/max/median/range/drift/jitter）与 `warnings` 必看 —— 倍频歧义/拍点太少/段间跳变/抖动都**如实报**。 |

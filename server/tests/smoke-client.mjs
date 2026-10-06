@@ -44,6 +44,10 @@ const expected = [
   "sv_transpose_selected_notes",
   "sv_set_selected_lyrics",
   "sv_playback",
+  // ACE 组（第三方宿主：不走桥，走它自己的 CLI + `.acep` 文件工具）
+  "ace_state",
+  "ace_cli",
+  "acep",
 ];
 const missing = expected.filter((n) => !names.includes(n));
 if (missing.length > 0) {
@@ -51,6 +55,19 @@ if (missing.length > 0) {
   process.exit(1);
 }
 console.log("all expected tools present ✔");
+
+// ACE 组真调一次（**只读**；ACE 没在线也应正常返回，`project.ok:false`）
+{
+  const r = await client.callTool({ name: "ace_state", arguments: {} });
+  const payload = JSON.parse(r.content[0].text);
+  console.log("ace_state →", JSON.stringify({ cli: payload.cli, project: payload.project }).slice(0, 300));
+  const scriptsOk = Object.values(payload.scripts).every((p) => !String(p).startsWith("✗"));
+  if (!payload.cli || !scriptsOk) {
+    console.error("ace_state 报的技能脚本没全部就位：", payload.scripts);
+    process.exit(1);
+  }
+  console.log("ace_state 自检通过（CLI 与 6 个技能脚本都就位）✔");
+}
 
 if (process.env.SMOKE_PING === "1") {
   console.log("calling sv_ping (expect timeout error since SV bridge is not running)...");

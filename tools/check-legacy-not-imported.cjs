@@ -24,8 +24,26 @@ const SCAN_DIRS = ['server/src', 'server/scripts', 'electron/src', 'sv', 'tools'
 const EXT = /\.(ts|cts|mts|js|cjs|mjs|ps1|lua)$/;
 const SKIP_DIR = /(^|[\\/])(node_modules|release|legacy|\.git)([\\/]|$)/;
 
-// 只关心"真的把 legacy 当模块引用"的写法
-const IMPORT_RE = /(require\s*\(\s*['"][^'"]*legacy[^'"]*['"]|from\s+['"][^'"]*legacy[^'"]*['"]|import\s*\(\s*['"][^'"]*legacy[^'"]*['"])/;
+// 只关心"真的把 **本仓库的** legacy/ 当模块引用"的写法。
+// ⚠️ 第三方包自己带的 legacy 目录（如 pdfjs-dist/legacy/build/pdf.mjs，见 server/src/omr/dolce.ts）
+//    不是本仓库那个已删除的 legacy/ ⇒ 只有**仓库内相对/绝对路径**（./ ../ \ / X:\）才算命中，
+//    裸包名（第三方）一律放行。保留 IMPORT_RE 这个名字，调用点（.test(code)）无需改动。
+const SPEC_RE = /(?:require\s*\(\s*['"]([^'"]+)['"]|from\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]|import\s+[^'"]*from\s*['"]([^'"]+)['"])/;
+/** 我们**自己落位的第三方构建**目录：形状上是"仓库内相对路径"，但里面是上游代码
+ *  （如 `electron/src/pdf-render.html` 的 `./vendor/pdfjs/legacy/build/pdf.min.mjs`）——
+ *  与"引用已删除的 `legacy/` 目录"是两回事。2026-10-06 复核指出：今天没误报**只是因为 EXT 不收 `.html`**，
+ *  谁把 `.html` 加进扫描面就会红 ⇒ 这里显式豁免（不改判据强度：仍只豁免**第三方落位目录**）。 */
+const VENDOR_SPEC = /(^|\/)(vendor\/pdfjs|vendor\/dolce-omr)\//;
+const IMPORT_RE = {
+  test(code) {
+    const m = SPEC_RE.exec(code);
+    if (!m) return false;
+    const spec = m[1] || m[2] || m[3] || m[4] || '';
+    if (!/legacy/.test(spec)) return false;
+    if (VENDOR_SPEC.test(spec)) return false;
+    return /^[./\\]/.test(spec) || /^[A-Za-z]:[\\/]/.test(spec);
+  },
+};
 
 const files = [];
 (function walk(dir) {

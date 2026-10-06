@@ -7,7 +7,7 @@
  */
 'use strict'
 
-const { HOSTS, HOST_TYPE, pickActiveHost, orderCandidates, typeOf } = require('../src/host-pick.js')
+const { HOSTS, HOST_TYPE, pickActiveHost, orderCandidates, typeOf, pickHostType, ACE_HOST_TYPE } = require('../src/host-pick.js')
 
 const checks = []
 const check = (name, got, want) => {
@@ -41,6 +41,20 @@ console.log('=== typeOf ===')
 check('sv ⇒ sv', typeOf('sv'), 'sv')
 check('ix ⇒ instrument-x', typeOf('ix'), 'instrument-x')
 check('未知 ⇒ null（调用方别切皮肤）', typeOf('nope'), null)
+
+/* ── 第三套皮肤：ACE Studio（2026-10-03 加）──
+ * 用户定的是**保守档**：ACE 只在 SV/IX 都不可用时才上（绝不遮住能干活的目标）；
+ * 没装/没开（aceOnline=false）时这套皮肤**等于不存在**（永远退回 sv/ix）。 */
+console.log('=== pickHostType（含 ACE 第三皮肤）===')
+check('ACE 在线 + 都没活动/没桥 ⇒ 上 ACE 皮肤', pickHostType({ aceOnline: true }), ACE_HOST_TYPE)
+check('ACE 不在 ⇒ 永不出现（兜底 sv）', pickHostType({ aceOnline: false }), 'sv')
+check('ACE 在线但 ix 桥活着 ⇒ ix（保守档：不遮能干活的目标）', pickHostType({ fresh: { ix: true }, aceOnline: true }), 'instrument-x')
+check('ACE 在线但 sv 桥活着 ⇒ sv', pickHostType({ fresh: { sv: true }, aceOnline: true }), 'sv')
+check('ACE 在线但 ix 有活动 ⇒ ix（活动优先）', pickHostType({ activity: { ix: 2000 }, aceOnline: true }), 'instrument-x')
+check('ACE 在线 + sv 桥死了但 ix 活 ⇒ ix', pickHostType({ fresh: { sv: false, ix: true }, aceOnline: true }), 'instrument-x')
+check('都没传参 ⇒ sv（不切皮肤）', pickHostType(), 'sv')
+check('ACE_HOST_TYPE 常量 = ace-studio', ACE_HOST_TYPE, 'ace-studio')
+check('ACE 不在 HOSTS 里（它不是桥宿主，不该被 pickActiveHost 选中）', HOSTS.includes('ace'), false)
 
 const failed = checks.filter((c) => !c.ok)
 console.log(`\n=== ${checks.length - failed.length}/${checks.length} 通过 ===`)

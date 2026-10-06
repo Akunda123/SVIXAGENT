@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 676.46 97.61">
+  <!-- ══ ACE 皮肤的 hover 文字图（#orb-label img，按 height:14px 显示）══
+       来源：**用户自绘**（2026-10-03 提供 `Downloads\SVG\SVG\资源 123.svg`，Illustrator 默认导出名）。
+       内容 = "ACE AI AGENT"；**第 1 个字母 A 是 #9087f6**（与 orb 标记里那个紫 a 同色），其余 9 个字白色 —— 照他原图的配色。
+       ⚠️ 字形几何**一笔未改**（10 条 d 原样搬运）。
+       ⚠️ 动画 = **SV/IX 同款**：逐字「描边描出 → 填充」，1s ease-in，延迟从 6ms 起每字 +7ms（原图 SV/IX 是 6/13/20ms）。
+           dasharray = **浏览器量出来的真实长度 ×1.05**（见下面每行的 len→dash 注释）；换素材/改缩放必须重量。
+           量法：把 path 塞进浏览器调 `path.getTotalLength()`（无头 Edge 截图读数字，见交接文档 §17.4）。
+       槽位契约：文件名 electron/src/aceagent-text.svg · viewBox 高度与 SV/IX 同量级（~100）· 显示时 height:14px、宽度自适应
+       ⚠️ XML 注释里**不许出现连续两个连字符**（踩过一次：整份 SVG 解析失败、图是空的）
+       自查：node tools/check-ace-status.cjs -->
+  <defs>
+    <style>
+      /* ⚠️ 基色写在类上（SV/IX 同款做法）：动画跑之前/之后、或降级时都不会掉回默认黑 */
+      .ace-letter { stroke-linejoin: round; stroke-linecap: round; stroke-width: 0.5px; }
+      .ace-violet { fill: #9087f6; stroke: #9087f6; }
+      .ace-white { fill: #fff; stroke: #fff; }
+
+      /*  0 "A" len=370 → dash=389 */
+      #t0{ animation: acet0 1s ease-in 0.006s forwards; }
+      @keyframes acet0 { 0% { fill: transparent; stroke: #9087f6; stroke-dasharray: 389px; stroke-dashoffset: 389px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #9087f6; fill: #9087f6; } 100% { stroke: #9087f6; fill: #9087f6; } }
+      /*  1 "C" len=316 → dash=332 */
+      #t1{ animation: acet1 1s ease-in 0.013s forwards; }
+      @keyframes acet1 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 332px; stroke-dashoffset: 332px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  2 "E" len=434 → dash=456 */
+      #t2{ animation: acet2 1s ease-in 0.020s forwards; }
+      @keyframes acet2 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 456px; stroke-dashoffset: 456px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  3 "A" len=370 → dash=389 */
+      #t3{ animation: acet3 1s ease-in 0.027s forwards; }
+      @keyframes acet3 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 389px; stroke-dashoffset: 389px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  4 "I" len=190 → dash=200 */
+      #t4{ animation: acet4 1s ease-in 0.034s forwards; }
+      @keyframes acet4 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 200px; stroke-dashoffset: 200px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  5 "A" len=370 → dash=389 */
+      #t5{ animation: acet5 1s ease-in 0.041s forwards; }
+      @keyframes acet5 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 389px; stroke-dashoffset: 389px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  6 "G" len=391 → dash=411 */
+      #t6{ animation: acet6 1s ease-in 0.048s forwards; }
+      @keyframes acet6 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 411px; stroke-dashoffset: 411px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  7 "E" len=308 → dash=324 */
+      #t7{ animation: acet7 1s ease-in 0.055s forwards; }
+      @keyframes acet7 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 324px; stroke-dashoffset: 324px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  8 "N" len=322 → dash=339 */
+      #t8{ animation: acet8 1s ease-in 0.062s forwards; }
+      @keyframes acet8 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 339px; stroke-dashoffset: 339px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /*  9 "T" len=227 → dash=239 */
+      #t9{ animation: acet9 1s ease-in 0.069s forwards; }
+      @keyframes acet9 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 239px; stroke-dashoffset: 239px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+    </style>
+  </defs>
+  <g>
+    <path id="t0" class="ace-letter ace-violet" d="M21.58,64.4l-4.1,14.8H0L25.2,1.71H44.09L69.29,79.2H51.9L47.8,64.4ZM24,52.1H44L34.08,15.48Z"/>
+    <path id="t1" class="ace-letter ace-white" d="M135.4,73.78a31.68,31.68,0,0,1-10,5.3,40.44,40.44,0,0,1-12.24,1.73A36.67,36.67,0,0,1,99,78.12a31,31,0,0,1-11.18-7.81,37.72,37.72,0,0,1-7.71-13.13,50.36,50.36,0,0,1-2.59-16.6A56,56,0,0,1,78.64,29,41.53,41.53,0,0,1,82,19.09,34.81,34.81,0,0,1,94.24,4.83,32.3,32.3,0,0,1,112,0a42.78,42.78,0,0,1,11.33,1.46,40.44,40.44,0,0,1,10.25,4.45v18A21,21,0,0,0,126,17.65a22.82,22.82,0,0,0-9.89-2.07q-9.47,0-15.18,6.76t-5.72,18q0,11.52,5.79,18.16t15.8,6.65a25.56,25.56,0,0,0,10.28-2,24.2,24.2,0,0,0,8.32-6.08Z"/>
+    <path id="t2" class="ace-letter ace-white" d="M151,79.2V1.71h58.88V17h-41.6V32h38.92V46.39H168.31V63.92h41.6V79.2Z"/>
+    <path id="t3" class="ace-letter ace-white" d="M271.29,64.4l-4.1,14.8H249.71L274.9,1.71h18.9L319,79.2H301.61l-4.1-14.8Zm2.39-12.3h20l-9.91-36.62Z"/>
+    <path id="t4" class="ace-letter ace-white" d="M334.42,79.2V1.71h17.29V79.2Z"/>
+    <path id="t5" class="ace-letter ace-white" d="M415.72,64.4l-4.1,14.8H394.14l25.2-77.49h18.89l25.2,77.49H446l-4.1-14.8Zm2.4-12.3h20l-9.91-36.62Z"/>
+    <path id="t6" class="ace-letter ace-white" d="M518.07,18.8V70.41q0,13.57-6.33,20.39t-18.92,6.81q-9,0-14.65-3.52a13.4,13.4,0,0,1-6.54-9.71H488a3.69,3.69,0,0,0,1.75,2.41,7.21,7.21,0,0,0,3.67.81c3.12,0,5.29-.95,6.49-2.83s1.81-6.08,1.81-12.55V65.38a17.37,17.37,0,0,1-5.23,7.52A12,12,0,0,1,489,75.39q-8.25,0-13.52-7.84t-5.27-20.43q0-13.14,5.37-21.07t14-7.93a13.11,13.11,0,0,1,9,3.49,22.81,22.81,0,0,1,6.13,9.88q-.58-3.36-.88-6.54c-.2-2.11-.29-4.17-.29-6.15Zm-23.54,43q3.81,0,6.06-4.11t2.24-11.13q0-7-2.24-11.13t-6-4.15q-3.76,0-6,4.12c-1.52,2.76-2.27,6.47-2.27,11.16s.75,8.4,2.24,11.13S492.06,61.82,494.53,61.82Z"/>
+    <path id="t7" class="ace-letter ace-white" d="M542.77,52.88v.73q0,6.95,2.76,11A8.56,8.56,0,0,0,553,68.7a7.79,7.79,0,0,0,5-1.76,12.35,12.35,0,0,0,3.56-5.12l13,5.66a23.06,23.06,0,0,1-8.81,9.86,24.74,24.74,0,0,1-13.11,3.47q-11.77,0-18.44-8.47t-6.66-23.46q0-14.66,6.59-23.17T552,17.19q12.25,0,18.44,8.37t6.17,24.93v2.39Zm.2-9.18h18.5q-.44-7.62-2.9-11.82c-1.65-2.79-3.78-4.19-6.42-4.19s-4.75,1.39-6.35,4.17S543.26,38.59,543,43.7Z"/>
+    <path id="t8" class="ace-letter ace-white" d="M617.19,79.2V43.8q0-8.25-1.22-10.52c-.82-1.52-2.31-2.27-4.5-2.27a6.69,6.69,0,0,0-6.59,4.29Q603,39.61,603,51.42V79.2H586.47V18.8h14.31c-.1,2.57-.24,5-.44,7.4s-.44,4.64-.73,6.86q2.88-7.67,7.42-11.53a16.07,16.07,0,0,1,10.74-3.85q7.66,0,11.75,5t4.07,14.5v42Z"/>
+    <path id="t9" class="ace-letter ace-white" d="M666.6,1.71V18.8h9.86V30.42H666.6V79.2h-16V30.42h-10V18.8h10V1.71Z"/>
+  </g>
+</svg>

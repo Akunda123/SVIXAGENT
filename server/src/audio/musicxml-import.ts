@@ -36,6 +36,10 @@ export interface ImportMusicXmlOptions {
   confirmRights?: boolean;
   allowPolyphony?: boolean;
   host?: "sv" | "ix";
+  /** 时间轴偏移（**拍** = 四分音符）：整份谱往后推。
+   *  用途：**多页谱分段导** —— 第 2 页要接在第 1 页之后（不给偏移就会叠在第一页上，看得见但听不出来）。
+   *  ⚠️ 只在这里加一次；调用方别再加（`write_notes` 是把偏移**烘进 MusicXML** 的）。 */
+  offsetQ?: number;
 }
 
 /**
@@ -102,9 +106,11 @@ export async function importMusicXml(opts: ImportMusicXmlOptions): Promise<Recor
   // 音符载荷（blick + 歌词 + 技法 + 力度 + tie）
   // ⚠️ 2026-09-21 复核修：此前本段被一次 PowerShell 文本往返事故揉成一行，`articulations`/`tieStart`
   //    落在 `//` 之后 ⇒ 技法映射算好了却**根本没发出去**（死代码）。现已逐项发送。
+  /* 时间轴偏移（多页谱分段导时把整份谱往后推）——**只在这里加一次**，见 `ImportMusicXmlOptions.offsetQ` 的说明。 */
+  const offQ = Number(opts.offsetQ) || 0;
   const notePayload = notes.map((n) => ({
     pitch: n.pitch,
-    onsetBlicks: Math.round(n.onset * QUARTER),
+    onsetBlicks: Math.round((n.onset + offQ) * QUARTER),
     durationBlicks: Math.max(1, Math.round(n.duration * QUARTER)),
     lyrics: n.lyrics || opts.lyrics || "",
     ...(n.dynamic !== undefined ? { dynamic: n.dynamic } : {}),
@@ -120,6 +126,8 @@ export async function importMusicXml(opts: ImportMusicXmlOptions): Promise<Recor
     file: g1.path,
     hash: fp.hash,
     bytes: fp.bytes,
+    /** 本次实际应用的偏移（拍）——预览里就看得见，免得"以为加了" */
+    offsetQuarters: offQ,
     partSummary,
     selectedPart: {
       index: score.parts.indexOf(mxPart) + 1,

@@ -197,6 +197,10 @@ if [[ -d "$APP" ]]; then
   chk "Lua 桥（assets/AKDAgentBridge.lua）" "[[ -f '$R/assets/AKDAgentBridge.lua' ]]"
   chk "侧栏面板（assets/AKDAgentPanel.js）" "[[ -f '$R/assets/AKDAgentPanel.js' ]]"
   chk "随包知识（knowledge/docs）"          "[[ -d '$R/knowledge/docs' ]]"
+  # 2026-10-06 加：客户端 PDF→PNG 渲染要的 pdfjs（asarUnpack 落实盘）。
+  #   为什么必须查：`mac-build.yml` 那步 rsync --delete 会把它从整包里删掉（checkout 里没有 vendor），
+  #   删了之后只有"用户拖 PDF 时渲染失败"这一种表现 —— 出包时查一次最省事。
+  chk "客户端 PDF 渲染资产（pdfjs min 版）" "[[ -f '$R/app.asar.unpacked/src/vendor/pdfjs/legacy/build/pdf.min.mjs' && -f '$R/app.asar.unpacked/src/vendor/pdfjs/legacy/build/pdf.worker.min.mjs' ]]"
   chk "darwin ONNX 动态库"                  "ls '$R/server/node_modules/onnxruntime-node/bin/napi-v6/darwin/$BUILD_ARCH/'*.dylib >/dev/null 2>&1"
   chk "ad-hoc 签名可校验"                   "codesign --verify --deep --strict '$APP' >/dev/null 2>&1"
   say "  app 体积：$(du -sh "$APP" | cut -f1)"

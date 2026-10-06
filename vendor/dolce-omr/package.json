@@ -1,0 +1,10 @@
+{
+  "name": "dolce-omr-vendor",
+  "private": true,
+  "type": "module",
+  "dolceRepo": "https://github.com/lodebar2026/dolce",
+  "dolceVersion": "0.8.1",
+  "dolceCommit": "912447d",
+  "dolceBuiltBy": "npm run build:cli (vite --ssr, target node20)",
+  "description": "悦谱 Dolce 五线谱识别内核（MIT）的 Node 产物 —— 加 type:module 让 Node 直接按 ESM 解析，免得每页重解析并刷 MODULE_TYPELESS_PACKAGE_JSON 警告"
+}

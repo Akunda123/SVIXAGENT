@@ -28,7 +28,7 @@ const WebSocket = require('ws')
 const sttModel = require('./stt-model.js')
 const { createPanelBridge } = require('./panel-bridge.js')
 const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge, probeBridgeHeartbeat } = require('./sv-bridge-client.js')
-const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf } = require('./host-pick.js')
+const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf, pickHostType, ACE_HOST_TYPE } = require('./host-pick.js')
 const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
@@ -88,6 +88,33 @@ let safeLogBroken = false
   process.on('unhandledRejection', (reason) =>
     emit('ERROR', ['[akdagent] unhandledRejection: ' + ((reason && reason.stack) || String(reason))]))
 })()
+
+/* ── 子进程输出的**分级转发**（2026-10-05，用户裁「6 做」）────────────────────────
+ * 以前 `child.stderr.on('data')` 一律 `console.error` ⇒ 日志里全是 ERROR，其中包括：
+ *   · `(node:29008) [MODULE_TYPELESS_PACKAGE_JSON] Warning: …`  ← Node 的无害警告
+ *   · `[stt] [stt-server] model loaded / listening on http://127.0.0.1:3190`  ← 正常启动
+ *   · `[akdagent] turn/end reason = {"kind":"aborted","reason":{"kind":"user"}}` ← 用户自己按了停
+ * 后果两条：① 用户翻日志以为坏了（当年"启动横幅被当 ERROR"就是这个坑，为此把横幅改成默认静音）；
+ * ② **真故障被淹**（401 / 宿主动模态框 / 凭据被拒 都埋在这一屏 ERROR 里）。
+ * 判据：Node 警告降 WARN、已知正常生命周期行降 INFO、**其余保持 ERROR**（真故障仍要显眼）。 */
+const CHILD_LINE_WARN = /\(node:\d+\)|Warning:|DeprecationWarning|ExperimentalWarning|MODULE_TYPELESS_PACKAGE_JSON/
+/* ⚠️ 前缀是**子进程自己打印**的 `[stt-server]`（`[stt]` 那个方括号是我们转发时加的 tag）——
+ *   第一版写成 `^\[stt\]` ⇒ 真实行匹配不上、`model loaded` 照样记 ERROR（是本守卫的样本表抓出来的）。 */
+const CHILD_LINE_INFO = /^\[stt(-server)?\][^\n]*\b(model loaded|listening on https?:\/\/127\.0\.0\.1:)/i
+/* ⚠️ 2026-10-05 实测补：Node 那条 `MODULE_TYPELESS_PACKAGE_JSON` 警告是**四行**的，只有第一行含 "Warning" ⇒
+ *   首行降 WARN 后，后三行（`Reparsing as ES module…` / `To eliminate this warning…` / `(Use \`node --trace-warnings…`）
+ *   仍是 ERROR，日志里看着还是"有错"。这行专门认这三句。 */
+const CHILD_LINE_WARN_CONT = /^Reparsing as ES module\b|^To eliminate this warning\b|^\(Use `node --trace-warnings/
+/** 把一段子进程输出按**逐行**分级写日志（`tag` 形如 `[dsh:err]` / `[stt]`） */
+function logChildOutput(tag, text) {
+  for (const raw of String(text).replace(/\s+$/, '').split('\n')) {
+    if (!raw.trim()) continue
+    const line = tag + ' ' + raw
+    if (CHILD_LINE_WARN.test(raw) || CHILD_LINE_WARN_CONT.test(raw)) console.warn(line)
+    else if (CHILD_LINE_INFO.test(raw)) console.log(line)
+    else console.error(line)
+  }
+}
 
 // ── 深色原生窗口外观（2026-09-19 用户要求：设置 / 密钥窗的白色标题栏要跟应用同风格）──
 //   ① **标题栏**：`nativeTheme.themeSource = 'dark'` ⇒ Windows 原生标题栏（应用名 + 最小化/关闭）走**深色**；
@@ -167,16 +194,23 @@ function writeSettings(obj) {
   // 保持紧凑但可读的 YAML（2 空格缩进）
   const out = yaml.dump(obj, { indent: 2, lineWidth: -1 })
   // 原子写（2026-09-27）：宿主 chokidar 守着这份文件，别让它在"已清空还没写完"的瞬间读到半截
-  if (!writeFileAtomic(OWNED_SETTINGS_PATH, out)) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + OWNED_SETTINGS_PATH)
+  /* 🆕 2026-10-05：**如实回报写盘结果**（返回 false = 没写进去）——
+   *   以前这里失败只 `console.error` 就往回走 ⇒ 每个写设置的 IPC 都回 `ok:true`，
+   *   而界面**早就准备好**显示错误了（settings.html 里多处 `if (!r || r.ok === false) alert(r.error || …)`）
+   *   ⇒ 于是"settings.yaml 只读 / 被杀软锁住 / 磁盘满"时用户被骗：明明改了默认模型、重启又变回去，
+   *     与当年那条「界面说配好了、宿主其实没 key」是同一类哑失败（H4）。 */
+  const wrote = writeFileAtomic(OWNED_SETTINGS_PATH, out)
+  if (!wrote) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + OWNED_SETTINGS_PATH)
   // ⛔ 不再镜像回 `~/.dsh`（源只读）：宿主读的就是上面这份
+  return wrote
 }
 
-/** 合并局部设置到 settings.yaml（只动给定路径，保留其他键） */
+/** 合并局部设置到 settings.yaml（只动给定路径，保留其他键）；**返回是否真的写进去了**（2026-10-05） */
 function patchSettings(patch) {
   const cur = readSettings()
   const next = { ...cur, ...patch }
-  writeSettings(next)
-  return readSettings()
+  const wrote = writeSettings(next)
+  return { settings: readSettings(), wrote }
 }
 
 // ── 路径解析 ────────────────────────────────────────────────────────
@@ -270,11 +304,14 @@ function saveHostRecord(port, pid, session) {
   try {
     /* `v` = **启动这个宿主的客户端版本**（2026-09-26 加）。复用判定要比它：老客户端起的宿主
      *  体内没有客户端侧的修复（凭据同步等），复用它 = 「升级了却还在跑旧逻辑」—— 本次事故
-     *  （装 1.0.1 仍报错、手工 copy 却好）就是这个：复用了 1.0.0 时期起的孤儿宿主。 */
+     *  （装 1.0.1 仍报错、手工 copy 却好）就是这个：复用了 1.0.0 时期起的孤儿宿主。
+     *
+     * 🆕 2026-10-05（用户裁「8 做」）：**只落 `tokenUrl`，不再落 `cookie`**。
+     *   0.1.5-rc.2 的复用确实要同一套会话凭据，但 `cookie` 可以用 `tokenUrl` **现换**（bringUpHost 里就是
+     *   这么做的）⇒ 没必要把一份 30 天有效的 `dsh-auth-…` 明文留在 %APPDATA% 里（它对"复用"不是必需的）。
+     *   老记录里的 `cookie` 字段被忽略、下次写盘即被清掉。 */
     const rec = { port, pid: pid || null, at: Date.now(), v: app.getVersion() }
-    // 0.1.5-rc.2：复用孤儿 host 时需要同一套会话凭据（token URL + cookie）才能调 /api/*
     if (session && session.tokenUrl) rec.tokenUrl = session.tokenUrl
-    if (session && session.cookie) rec.cookie = session.cookie
     fs.writeFileSync(hostRecordPath(), JSON.stringify(rec), 'utf8')
   }
   catch (e) { console.log('[akdagent] 内嵌 host 记录写入失败（不影响运行）：' + e.message) }
@@ -429,10 +466,22 @@ function ensureAkdagentDshHome() {
  * 如果那个 server 在用户机上起不来/握不上手，DSH 的**请求扩展准备**阶段就可能失败 ⇒
  * 用户侧表现是「**每条消息都 回合结束（error）**」，而客户端日志里只有反复刷的重连噪音
  * （`[dsh:err] [akdagent-mcp] server ready…`），根本定位不到。
- * 所以：**注册前先自检；不自检通过就不注册** —— 宁可少 44 个工具，也不能让聊天整轮失败。
+ * 所以：**注册前先自检；不自检通过就不注册** —— 宁可少 44 个 SV/IX 工具，也不能让聊天整轮失败。
  * 已存在的注册**一律不动**（只体检 + 留痕），避免把用户本来能用的配置改坏。
+ *
+ * 🆕 2026-10-05（用户裁「调大 + 失败重试一次」）：**预算 6s → 20s，且失败重试一次**。
+ *   起因：本机日志 2026-10-04T03:30 落过一次 `ok:false / why:'6000ms 内没跑完 initialize+tools/list'`，
+ *   而实测（`tools/measure-mcp-handshake.cjs`，官方 SDK 客户端）本机 `initialize+tools/list` 只要 **~0.5 s**
+ *   ⇒ 那次是"机器正忙"的环境性问题。但**干净机器第一次冷启动**要先过 Defender 扫 86 MB `node_modules`
+ *   + 240 MB `models`，而"自检不过 ⇒ 不写注册" ⇒ 一次偶发超时 = **用户一颗 mcp__sv__* 工具都没有**，
+ *   界面上还完全看不出来（球是绿的、聊天能用）。所以：预算放宽到 20s（≈40× 余量），且给第二次机会
+ *   （第二次基本命中文件缓存），并把**每次的 why 与第几次通过**都留痕到 `mcp-selftest.json`。
  */
-function mcpSelfTest(nodeBin, serverEntry, timeoutMs = 6000) {
+const MCP_SELFTEST_TIMEOUT_MS = 20000
+const MCP_SELFTEST_ATTEMPTS = 2
+
+/** 单次自检：真起一次 server，做 initialize + tools/list（超时/退出/空列表都算不过） */
+function mcpSelfTestOnce(nodeBin, serverEntry, timeoutMs = MCP_SELFTEST_TIMEOUT_MS) {
   return new Promise((resolve) => {
     let child = null
     let done = false
@@ -492,6 +541,27 @@ function mcpSelfTest(nodeBin, serverEntry, timeoutMs = 6000) {
 }
 
 /**
+ * 带重试的自检（2026-10-05，用户裁「调大 + 失败重试一次」）。
+ * 返回 `{ok, tools?, why?, attempts, tried[]}`：`attempts` = 第几次通过（或总共试了几次），
+ * `tried` = 每次失败的原因（落进 `mcp-selftest.json`，报障时一眼看出"是偶发还是真起不来"）。
+ */
+async function mcpSelfTest(nodeBin, serverEntry, timeoutMs = MCP_SELFTEST_TIMEOUT_MS, attempts = MCP_SELFTEST_ATTEMPTS) {
+  const tried = []
+  const n = Math.max(1, attempts | 0)
+  for (let i = 1; i <= n; i++) {
+    const r = await mcpSelfTestOnce(nodeBin, serverEntry, timeoutMs)
+    if (r.ok) {
+      if (i > 1) console.log(`[akdagent] MCP 自检第 ${i}/${n} 次通过（前 ${i - 1} 次：${tried.join(' / ')}）`)
+      return { ...r, attempts: i, tried }
+    }
+    tried.push(r.why)
+    /* 只有"还有下一次"时才报第几次 —— 最后一次不重复刷（下面 !ok 分支会统一报） */
+    if (i < n) console.error(`[akdagent] MCP 自检第 ${i}/${n} 次未通过：${r.why} ⇒ 立刻重试一次`)
+  }
+  return { ok: false, why: tried[tried.length - 1] || '自检失败', attempts: n, tried }
+}
+
+/**
  * 把「一轮失败」的 error 归类成一句人话（2026-09-26 加）。
  *
  * 为什么需要：用户机上"一发消息就 回合结束（error）"，我们手里只有一个 code（甚至只有一句话），
@@ -505,20 +575,86 @@ function turnErrorHint(e) {
   const code = String(e.code || '').toUpperCase()
   const status = Number(e.status || 0)
   const msg = String(e.message || '')
-  if (code === 'AUTH' || status === 401) return '提供方拒绝了密钥（401 / AUTH）：key 无效或过期，或者这把 key 不属于当前选中的提供方'
-  if (status === 402 || /balance|quota|欠费|insufficient/i.test(msg)) return '提供方账户额度/余额问题（402）：去提供方后台看余额与结算状态'
-  if (status === 429 || /rate.?limit|too many|限流/i.test(msg)) return '被限流，或该 key 没有这个模型的权限（429）：稍后重试，或换模型 / 换 key'
-  if (status === 403) return '提供方拒绝访问（403）：key 权限不足，或该模型未对这把 key 开放'
-  if (code === 'TRANSPORT' || /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|getaddrinfo|socket hang up/i.test(msg)) return '网络到提供方不通（TRANSPORT）：本机网络 / 代理 / DNS 的问题（可在浏览器里试试打不打得到提供方接口域名）'
-  if (code === 'REQUEST_EXTENSION') return 'DSH 在发请求前的「扩展准备」阶段失败（REQUEST_EXTENSION）：通常是 profile 里某条插件条目解析不了（看 akdagent.log 里 dsh-home 的体检日志）'
+  /* 🆕 2026-10-05（用户裁「i18n 走」）：这一层的文案**全部搬进字典**（`main.turnError.*` × 4 语）。
+   *   ⚠️ 两条纪律：① 这些行是 `textContent` 渲染 ⇒ 字典里**不许有 markdown**；
+   *   ② 判据仍是**抠出来真跑**（守卫 §⑨：14 条样本 + 实证原文），所以文案改了不会偷偷失效。 */
+  if (code === 'AUTH' || status === 401) return i18n.t('main.turnError.auth')
+  if (status === 402 || /balance|quota|欠费|insufficient/i.test(msg)) return i18n.t('main.turnError.balance')
+  if (status === 429 || /rate.?limit|too many|限流/i.test(msg)) return i18n.t('main.turnError.rateLimit')
+  if (status === 403) return i18n.t('main.turnError.forbidden')
+  if (code === 'TRANSPORT' || /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|getaddrinfo|socket hang up/i.test(msg)) return i18n.t('main.turnError.transport')
+  if (code === 'REQUEST_EXTENSION') return i18n.t('main.turnError.extension')
   /* 🆕 2026-09-27（用户现场实测）：宿主里没有可解析的默认模型时，每一轮都以这句结束 ——
    * 用户界面上只看到"回合结束（error）"，不可能知道要去配模型。这条映射就是给那一刻用的。 */
-  if (/has no provider\/model|no provider\/model/i.test(msg)) {
-    return '这个会话**没有可用的模型**（provider/model 没配、或模型已被从列表里删掉）：'
-      + '去「设置 → 模型设置」给当前提供方**添加并选中一个模型**；列表删空了就会出现这个错'
+  if (/has no provider\/model|no provider\/model/i.test(msg)) return i18n.t('main.turnError.noModel')
+  /* 🆕 2026-10-05（用户拿回的 `last-turn-error.json` 实证 · 1.0.3 报障的真因）：
+   *   **模型名写错**是"配置好之后还是 error"的第三张脸。实测原文：
+   *     `{code:'INVALID_REQUEST', status:400, message:'The supported API model names are deepseek-flash,
+   *      deepseek-v4-pro, but you passed DeepSeek-V4.1-Flash. (request_id: …)'}`
+   *   用户把**显示名**当 id 填了 —— DSH 内建目录里 `id:"deepseek-flash"` 的 `name` 恰好是
+   *   `DeepSeek-V41-Flash`（`@deepseek-ai/dsh-llm-deepseek/lib/index.js` 实测），跟 id 一点不像；
+   *   而 1.0.3 的设置页**看不到内置目录**、只能手打 id（见交接文档 §19 那条隐患）⇒ 必然踩。
+   *   ⇒ 这条映射**把提供方自己给的"支持哪些"解析出来**摆给用户，并指路"点选、别手打"。
+   *   ⚠️ "有名字/有清单"四种组合各有一条文案（占位符为空会让句子读不通，所以**由代码选键**）。 */
+  if (status === 400 && /model/i.test(msg)
+      && /supported API model names|but you passed|invalid model|model not found|does not exist/i.test(msg)) {
+    /* ⚠️ 模型名里**可以有点**（实证 `DeepSeek-V4.1-Flash`）⇒ 别把 `.` 当分隔符写进字符集，
+     *    否则捕获到一半（守卫 §⑨ 第一次跑就抓到 `DeepSeek-V4`）；改成"捕到空白/逗号为止，再削尾部标点"。 */
+    const passed = ((msg.match(/but you passed\s+([^\s,;)]+)/i) || [])[1] || '').replace(/[.,;:]+$/, '')
+    const sup = ((msg.match(/supported API model names are\s+(.+?)(?:,\s*but you passed|[.;]|$)/i) || [])[1] || '').trim()
+    if (passed && sup) return i18n.t('main.turnError.badModelFull', passed, sup)
+    if (passed) return i18n.t('main.turnError.badModelOnlyName', passed)
+    if (sup) return i18n.t('main.turnError.badModelOnlyList', sup)
+    return i18n.t('main.turnError.badModelBare')
   }
-  if (status >= 500) return '提供方服务端错误（5xx）：过一会儿再试'
-  return ''
+  if (status >= 500) return i18n.t('main.turnError.server')
+  /* 🆕 2026-10-05：**不再返回空串**（空串 = 用户什么也看不到）——交给 turnErrorRaw() 兜底。
+   *   旧行为：`return ''` ⇒ 调用点 `if (hint)` 不成立 ⇒ 界面只剩「回合结束（error）」。 */
+  return turnErrorRaw(e)
+}
+
+/**
+ * 兜底：映射翻不出来时，把**原始签名**摆到用户眼前（2026-10-05，用户裁「做」）。
+ *
+ * 起因：1.0.3 用户报「配置好之后对话还是直接输出 error」。那一刻的必然序列：
+ *   reason 的 code/message 不在上面那张映射表里 ⇒ 旧 `turnErrorHint()` 返回**空串** ⇒
+ *   ① 悬浮球那条提示**根本不推**（`if (hint)` 不成立）；② 对话里只剩 `orb.turn.end` 渲染的
+ *   「回合结束（error）」—— 用户没有线索，我们手里也没有（`last-turn-error.json` 他不会主动去找）。
+ * ⇒ 现在：code / HTTP status / message 各取一点（message 截 200 字），走 i18n 拼成一句话。
+ * ⚠️ 本函数**只依赖 i18n**、不碰本文件其它符号 —— `tools/check-turn-error-log.cjs` 会把它
+ *   连同 `turnErrorHint()` 一起抠出来真跑样本表（源码看着对 ≠ 真能出话）。
+ */
+function turnErrorRaw(e) {
+  if (!e || typeof e !== 'object') return ''
+  const bits = []
+  const code = String(e.code == null ? '' : e.code).trim()
+  const status = Number(e.status || 0)
+  const msg = String(e.message == null ? '' : e.message).replace(/\s+/g, ' ').trim()
+  if (code) bits.push(code)
+  if (status) bits.push('HTTP ' + status)
+  if (msg) bits.push(msg.length > 200 ? msg.slice(0, 200) + '…' : msg)
+  if (!bits.length) {
+    // 连 message/status/code 都没有（例如 reason 本身才是线索）⇒ 原样序列化，别交白卷
+    let s = ''
+    try { s = JSON.stringify(e) } catch { s = '' }
+    if (s && s !== '{}' && s !== 'null') bits.push(s.length > 200 ? s.slice(0, 200) + '…' : s)
+  }
+  if (!bits.length) return ''
+  return i18n.t('main.turnError.raw', bits.join(' · '))
+}
+
+/** 把"这一轮为什么失败"推给**所有**用户看得见的对话界面（2026-10-05）。
+ *  以前只推悬浮球（`notifyOrb`），两个侧栏面板一个字都没有；而且映射不中时连悬浮球也不推。
+ *  ⚠️ 调用方必须保证**顺序**：先把 `turn/end` 事件送进对话，再调本函数 ——
+ *     否则「⚠ 原因」会排在「回合结束（error）」**上面**，读起来像两条无关的消息。 */
+function pushTurnFailNotice(text) {
+  if (!text) return
+  notifyOrb('warn', text)
+  for (const h of HOSTS) {
+    const b = panelBridges[h]
+    if (!b || !b.status.ready) continue
+    try { b.pushOutput(text) } catch (e) { console.log(`[panel] 推失败原因异常（host=${h}）：` + e.message) }
+  }
 }
 
 /** 往悬浮球/面板推一条**用户可见**的提示（2026-09-27）。
@@ -554,14 +690,42 @@ function checkAgentModelConfigured() {
     if (!provider || !model) {
       why = i18n.t('main.model.notSet')
     } else if (provider === 'deepseek-official') {
-      ok = Array.isArray(dsModels) && dsModels.some((m) => m && m.id === model)
+      /* ⚠️ 2026-10-03 修（残留）：`llm-deepseek.models` 是**自定义 / 覆盖**列表 —— **空 ≠ 没有模型**：
+       *   空的时候宿主用**运行时内置目录**（deepseek-flash / deepseek-v4-flash / deepseek-v4-pro /
+       *   deepseek-v4-flash-vision-exp），产品文案也是这么写的（settings.json 的
+       *   `settings.model.emptyHintBuiltin`：空列表 ⇒ 用 DSH 内置目录）。
+       *   旧判据把空列表当成"模型列表为空"⇒ **每次启动都误报**
+       *   「默认模型「deepseek-flash」不在模型列表里（可能已被删掉）」并弹悬浮球
+       *   （现场：客户端日志 2026-09-27T09:58 与 2026-10-03T12:51 各一条），可模型其实是好的。
+       *   ⇒ 现在：空列表 ⇒ 交给内置目录（不判、不报）；只有**配了自定义列表**时才要求命中。 */
+      ok = !dsModels.length || dsModels.some((m) => m && m.id === model)
       if (!ok) why = i18n.t('main.model.notInList', model)
     } else {
       const p = piProviders[provider]
-      ok = !!(p && Array.isArray(p.models) && p.models.some((m) => m && m.id === model))
+      /* ⚠️ 2026-10-05（**与 deepseek 那条同一个坑，上次只修了 deepseek**）：
+       *   pi-ai 的 `providers.<route>.models` 同样是**覆写**列表 —— **空 = 删键回提供方内建目录**
+       *   （settings.html 的删除逻辑自带注释"空数组 ⇒ 删键（回内建目录）"，空列表时界面还专门显示
+       *     `settings.model.emptyHintPiAi` 提示）。旧判据要求"必须命中 p.models" ⇒
+       *   用户把列表删光（= 回内建）后，**每次启动都会误报**「默认模型不在模型列表里（可能已被删掉）」
+       *   并弹悬浮球，而模型其实是好的（与 2026-10-03 那条现场一模一样）。
+       *   ⇒ 规则对齐 deepseek：**提供方在、且没配自定义列表 ⇒ 不判**；配了列表才要求命中。
+       *   （提供方路由整个不存在 ⇒ 仍然报，那是真的没配。） */
+      const custom = p && Array.isArray(p.models) ? p.models : []
+      ok = !!p && (!custom.length || custom.some((m) => m && m.id === model))
       if (!ok) why = i18n.t('main.model.notInList', model)
     }
-    if (ok) return true
+    if (ok) {
+      /* 🆕 2026-10-05（1.0.3 报障 `but you passed DeepSeek-V4.1-Flash`）：上面那两条只判"在不在**用户列表**里"，
+       *   而用户把**显示名**当 id 填进去时，它**确实在列表里** ⇒ 一路绿灯，直到每轮 400 才发现。
+       *   ⇒ 再拿**宿主真目录**（`session/modelCatalog`）复核一次"这个 id 到底存不存在"。
+       *   ⚠️ 只在**没有自定义列表**时查：有自定义列表 ⇒ 以用户的列表为准（目录里查不到是正常的，
+       *      10-03 / 10-05 两次"空列表误报"的教训就在上面）。读不到目录（宿主没起）⇒ **不猜、不报**。 */
+      const custom = provider === 'deepseek-official'
+        ? (dsModels.length > 0)
+        : (() => { const p = piProviders[provider]; return !!(p && Array.isArray(p.models) && p.models.length) })()
+      if (!custom) checkAgentModelInCatalog(provider, model).catch(() => { /* 目录问题不打扰用户 */ })
+      return true
+    }
     console.log('[akdagent] ⚠ 默认模型不可用：' + why + '（聊天会每轮以 no provider/model 失败）')
     notifyOrb('warn', why)
     return false
@@ -571,8 +735,28 @@ function checkAgentModelConfigured() {
   }
 }
 
-async function ensureMcpRegistration() {
-  try {
+/**
+ * 拿**宿主真目录**复核默认模型（2026-10-05，1.0.3 报障 `but you passed DeepSeek-V4.1-Flash`）。
+ *
+ * 实证：用户把显示名当 id 用（宿主目录里 `id:"deepseek-flash"` 的 `name` 是 `DeepSeek-V41-Flash`），
+ * 而那一版设置页**看不到目录**、只能手打 ⇒ 每一轮 400 `INVALID_REQUEST`，界面上却只有「回合结束（error）」。
+ * 只判**没法自己发现**的那种情况（目录里查得到的提供方 + 目录非空 + id 不在其中）。
+ * 读不到目录 / 目录里没这个提供方 ⇒ **不猜、不报**（宁可少提醒，也别再造一次"空列表误报"）。
+ */
+async function checkAgentModelInCatalog(provider, model) {
+  let cat = null
+  try { cat = await readModelCatalog(false) } catch { return }
+  const groups = (cat && Array.isArray(cat.groups)) ? cat.groups : []
+  const g = groups.find((x) => x && x.id === provider)
+  const ids = (g && Array.isArray(g.models) ? g.models : []).map((m) => m && m.id).filter(Boolean)
+  if (!ids.length) return
+  if (ids.includes(model)) return
+  const hint = i18n.t('main.model.notInCatalog', model, ids.join(' / '))
+  console.error('[akdagent] ⚠ 默认模型不在宿主目录里：' + hint)
+  notifyOrb('warn', hint)
+}
+
+async function ensureMcpRegistration() {  try {
     const serverEntry = isPackaged
       ? path.join(process.resourcesPath, 'server', 'dist', 'index.js')
       : path.join(__dirname, '..', '..', 'server', 'dist', 'index.js')
@@ -597,18 +781,25 @@ async function ensureMcpRegistration() {
     try {
       fs.writeFileSync(
         path.join(app.getPath('userData'), 'mcp-selftest.json'),
-        JSON.stringify({ at: new Date().toISOString(), ok: st.ok, tools: st.tools || 0, why: st.why || '', serverEntry, nodeBin }, null, 2),
+        JSON.stringify({
+          at: new Date().toISOString(), ok: st.ok, tools: st.tools || 0, why: st.why || '',
+          /* 🆕 2026-10-05：把"第几次通过 / 每次为什么没过"也留痕 ——
+           *   报障时一句话分清"偶发超时（第 2 次过了）"与"真起不来（两次都失败）"。
+           *   预算也从 6s 放宽到 20s（见 mcpSelfTest 注释）。 */
+          attempts: st.attempts || 0, tried: st.tried || [], timeoutMs: MCP_SELFTEST_TIMEOUT_MS,
+          serverEntry, nodeBin,
+        }, null, 2),
         'utf8'
       )
     } catch { /* 写不了就算了，不影响注册逻辑 */ }
 
     if (!st.ok) {
-      console.error(`[akdagent] MCP 自检未通过：${st.why}`)
+      console.error(`[akdagent] MCP 自检未通过（试了 ${st.attempts} 次、每次 ${MCP_SELFTEST_TIMEOUT_MS}ms 预算）：${st.why}`)
       if (alreadyRegistered) {
         console.error('[akdagent] 注册已存在 ⇒ 保持不动（不动用户配置）。若"每条消息都 回合结束（error）"，'
           + '可把 profile 里 `id: mcp-akdagent` 那段整段注释掉再试 —— 只是没有 mcp__sv__* 工具，聊天照常')
       } else {
-        console.error('[akdagent] ⇒ 本次**不写入** MCP 注册（宁可少 44 个工具，也不能让每轮请求都失败）')
+        console.error('[akdagent] ⇒ 本次**不写入** MCP 注册（宁可少 44 个 SV/IX 工具，也不能让每轮请求都失败）')
       }
       return
     }
@@ -782,7 +973,7 @@ function spawnHost(port) {
   })
   child.stderr.on('data', (d) => {
     noteHostStderr(d)                       // 留一份现场（宿主异常退出时落 host-crash.json）
-    console.error('[dsh:err] ' + String(d).replace(/\s+$/, ''))
+    logChildOutput('[dsh:err]', d)          // 2026-10-05：分级转发（Node 警告 → WARN、正常行 → INFO、其余 ERROR）
   })
   child.on('error', (e) => {
     // spawn 本身失败（node.exe 路径不对 / 权限）：不处理会变成未捕获的 'error' 事件
@@ -867,7 +1058,19 @@ async function bringUpHost(attempt) {
     // 不能"因为端口有应答就复用"：新版裸请求一律 401，复用等于让 /api/* 全废。
     hostPort = prevHost.port
     hostTokenUrl = prevHost.tokenUrl || null
-    hostCookie = prevHost.cookie || null
+    /* 🆕 2026-10-05（用户裁「8 做」）：**记录里不再存 cookie**，改用它带回来的 `tokenUrl` **现换一次**会话。
+     *   以前这里直接 `hostCookie = prevHost.cookie`，而那份 `dsh-auth-…`（约 30 天有效）是**明文躺在
+     *   `%APPDATA%\AKDAgent\embedded-host.json` 里**的凭据；对"复用孤儿宿主"它并非必需 ——
+     *   `tokenUrl` 足够换回一个会话（`establishHostSession`，见下面 404 行处同一用法）。
+     *   兼容：老记录里可能还有 `cookie` 字段，读到也忽略（不再使用、也不再写回）。 */
+    hostCookie = null
+    if (hostTokenUrl) {
+      try {
+        hostCookie = await establishHostSession(hostTokenUrl)
+      } catch (e) {
+        console.log('[akdagent] 用记录里的 tokenUrl 换会话失败（' + ((e && e.message) || e) + '）⇒ 按"复用不了"处理')
+      }
+    }
     const alive = await httpGet(hostPort, '/', { cookie: hostCookie })
     /* 复用条件里再加一条**版本一致**（2026-09-26 热修 · 治本）：老客户端起的宿主体内没有
      *  本次的客户端侧修复，复用它 = "升级了但还在跑旧逻辑"。记录里**没有 `v`**（≤1.0.1 写的，
@@ -922,11 +1125,21 @@ let hostExitInfo = null
 const HOST_MAX_ATTEMPTS = 2
 const hostStderrTail = []
 const HOST_STDERR_TAIL_MAX = 60
-/** 落盘前把可能夹带的密钥抹掉（stderr 理论上不该有，但不能赌） */
+/* 🆕 2026-10-05：脱敏**补形状**。原来只认 `sk-…`（2026-09-27 加），于是
+ *   Google `AIza…` / HuggingFace `hf_…` / Groq `gsk_…` / xAI `xai-…` / GitHub `ghp_…`
+ *   这些**不以 sk- 开头**的密钥会被原样写进 `userData/host-crash.json` —— 而那份文件正是
+ *   用户报障时**回传给我们**的东西（§13 起就是这么用的）⇒ 等于把密钥交出去。
+ *   另外拦"带标签的赋值形态"（`api_key: xxx` / `token=xxx`），那是 stderr 里最可能出现的样子。 */
 function redactForCrash(s) {
   return String(s)
     .replace(/(sk-[A-Za-z0-9_\-]{6,})/g, 'sk-***')
+    .replace(/\b(AIza[0-9A-Za-z_\-]{10,})/g, 'AIza***')
+    .replace(/\b(hf_[A-Za-z0-9]{6,})/g, 'hf_***')
+    .replace(/\b(gsk_[A-Za-z0-9]{6,})/g, 'gsk_***')
+    .replace(/\b(xai-[A-Za-z0-9]{6,})/g, 'xai-***')
+    .replace(/\b(ghp_[A-Za-z0-9]{6,})/g, 'ghp_***')
     .replace(/(secret\s*:\s*)\S+/gi, '$1***')
+    .replace(/((?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|token)\s*[:=]\s*)([^\s,;'"]{6,})/gi, '$1***')
 }
 function noteHostStderr(text) {
   for (const raw of String(text).replace(/\s+$/, '').split('\n')) {
@@ -972,6 +1185,164 @@ let bridgePollTimer = null
 let bridgePill = { level: 'down', code: 'orb.bridge.hostDown', args: [] }
 let bridgePillKey = ''          // 推送去重：载荷没变就不重推给 orb
 let bridgeLogKey = ''           // 日志去重：只按"状态"（level+code）打，别每 5s 刷一行（心跳秒数会一直变）
+
+/* ══ ACE Studio 在线检测（2026-10-03 加；用户：「能检测 ace 是否开启吗」→「做进客户端状态显示」）══
+ * 为什么客户端要管这件事：ACE Studio 现在也是"能干活的目标"（4 个官方技能已随包，走 `acestudio-cli`），
+ *   但它**不走我们的桥** —— 它只有一个前置条件：**ACE 在跑 且 开了 External Agent Access**。
+ *   客户端便宜地看出这件事，用户/AI 就不用去猜"为什么命令报 bridge not reachable"。
+ *
+ * 判据（2026-10-03 真机实测开/关两态；依据 `acestudio-cli help interaction-model`）：
+ *   ① 桥握手文件 `%LOCALAPPDATA%\Timedomain\ACE Studio\mcp-bridge.json`
+ *      —— ACE **开了 External Agent Access** 时才写，CLI 与 MCP 都靠它找本地 socket + token；
+ *         ACE 关掉后它被删掉（实测：关掉即不存在）。⇒ 免费、且是**强条件**；
+ *         **盲点**：ACE 崩溃/被杀时可能残留 ⇒ 所以要有"文件在但 CLI 不可达 = 可疑"这一态。
+ *   ② CLI 探针 `acestudio-cli project info --json`：exit 0 = 在线；exit 3 = 桥不可达（实测 ~61ms）。
+ *      ⇒ 权威，但每次要 spawn 一个 ~10MB 进程 ⇒ **只在状态变化时 / 用户点按钮时才探**，不放进 5s 轮询。
+ *   ③ 进程名（`ACE Studio`）**故意不用**：它只说明 app 开着，不说明开关开着 —— 会把"读得到"判成"能干活"。
+ *
+ * 纪律：**只读**（不写 ACE 的任何文件/注册表），与"只写自己的家"一致。
+ * UI 口径（用户 2026-10-03 定）：**没装 ACE 的机器整行/整个点都隐藏**（不占位），
+ *   所以 `level=null` 表示"别显示"。 */
+const ACE_LOCAL_DIR = process.env.LOCALAPPDATA || path.join(HOME_DIR, 'AppData', 'Local')
+const ACE_BRIDGE_JSON = path.join(ACE_LOCAL_DIR, 'Timedomain', 'ACE Studio', 'mcp-bridge.json')
+const ACE_PROBE_TIMEOUT_MS = 4000
+
+/** ACE CLI 的候选位置 —— **不许写死绝对路径**（check-abs-paths 会拦；也要照顾自定义安装目录） */
+function aceCliCandidates() {
+  const out = []
+  const push = (p) => { if (p && !out.includes(p)) out.push(p) }
+  if (process.env.AKDAGENT_ACE_CLI) push(process.env.AKDAGENT_ACE_CLI)   // 测试/特殊安装用
+  const bases = [
+    [process.env.ProgramFiles, ['ACE Studio']],
+    [process.env['ProgramFiles(x86)'], ['ACE Studio']],
+    [process.env.LOCALAPPDATA, ['ACE Studio', path.join('Programs', 'ACE Studio')]],
+  ]
+  for (const [base, subs] of bases) {
+    if (!base) continue
+    for (const sub of subs) push(path.join(base, sub, 'acestudio-cli.exe'))
+  }
+  return out
+}
+function findAceCli() {
+  for (const p of aceCliCandidates()) {
+    try { if (fs.existsSync(p)) return p } catch { /* 试下一个 */ }
+  }
+  return null
+}
+function aceBridgeFileExists() {
+  try { return fs.existsSync(ACE_BRIDGE_JSON) } catch { return false }
+}
+
+/** 快判（免费，纯函数便于单测）：装没装 / 桥文件在不在 */
+function computeAceQuick(hasCli, hasBridgeFile) {
+  return { installed: !!(hasCli || hasBridgeFile), hasCli: !!hasCli, hasBridgeFile: !!hasBridgeFile }
+}
+/** 合判：快判 + 最近一次深探结果 ⇒ {level, code, args}（level=null ⇒ UI 不显示） */
+function computeAcePill(quick, deep) {
+  if (!quick || !quick.installed) return { level: null, code: null, args: [] }
+  if (!quick.hasBridgeFile) return { level: 'down', code: 'orb.ace.offline', args: [] }
+  /* 找不到 CLI（自定义安装 / 只留了桥文件）就没法复核 ⇒ **以桥文件为准判在线**，
+   * 否则会永远停在"检测中"（比误报还糟：用户以为一直在转圈） */
+  if (!quick.hasCli) return { level: 'ok', code: 'orb.ace.online', args: [] }
+  if (!deep) return { level: 'warn', code: 'orb.ace.unverified', args: [] }        // 文件在，但还没复核
+  if (deep.code === 0) return { level: 'ok', code: 'orb.ace.online', args: [] }
+  return { level: 'warn', code: 'orb.ace.suspect', args: [] }                      // 文件在但 CLI 不可达（多半残留）
+}
+
+let aceDeep = null                 // 最近一次 CLI 深探：{ code, at, note }
+let aceProbeRunning = false
+let aceQuickKey = ''
+let aceKey = ''
+let acePill = { level: null, code: null, args: [] }
+let aceLogKey = ''
+
+function aceStatusPayload() {
+  const quick = computeAceQuick(findAceCli(), aceBridgeFileExists())
+  const pill = computeAcePill(quick, aceDeep)
+  return {
+    installed: quick.installed,
+    hasCli: quick.hasCli,
+    hasBridgeFile: quick.hasBridgeFile,
+    cli: findAceCli() || '',
+    bridgeJson: ACE_BRIDGE_JSON,
+    level: pill.level,
+    code: pill.code,
+    probeCode: aceDeep ? aceDeep.code : null,
+    probedAt: aceDeep ? aceDeep.at : 0,
+  }
+}
+
+/** 重算 ACE 状态；**变了才推**给球（与桥状态各自独立变化） */
+function applyAceState(opts) {
+  const force = !!(opts && opts.force)
+  const quick = computeAceQuick(findAceCli(), aceBridgeFileExists())
+  const qk = (quick.installed ? '1' : '0') + (quick.hasBridgeFile ? '1' : '0')
+  if (qk !== aceQuickKey) {
+    aceQuickKey = qk
+    /* 文件刚出现/刚消失 ⇒ 之前那次深探结论作废，并按需复核一次 */
+    if (!quick.hasBridgeFile) aceDeep = null
+    if (quick.hasBridgeFile && !aceProbeRunning) probeAceCliDeep()
+  } else if (force && quick.hasBridgeFile && !aceProbeRunning) {
+    probeAceCliDeep()
+  }
+  const next = computeAcePill(quick, aceDeep)
+  const nk = String(next.level) + '|' + next.code
+  const changed = nk !== aceKey
+  if (changed) {
+    acePill = next
+    aceKey = nk
+    if (aceLogKey !== nk) {
+      aceLogKey = nk
+      console.log('[ace] 状态 → ' + String(next.level) + ' · ' + String(next.code) +
+        (quick.hasCli ? '（cli: ' + findAceCli() + '）' : '') +
+        (aceDeep ? ' 探针 exit=' + aceDeep.code : ''))
+    }
+    if (!(opts && opts.silent)) sendOrbStatus()
+    sendAceStatusToSettings()
+    /* ACE 在线状态一变，第三套皮肤可能该切（或该退回去）—— 异步刷新，失败不影响状态 */
+    try { refreshOrbHostType().catch(() => { /* 皮肤只是外观 */ }) } catch { /* 同上 */ }
+  }
+  return changed
+}
+
+function sendAceStatusToSettings() {
+  try {
+    if (settingsWin && !settingsWin.isDestroyed()) {
+      settingsWin.webContents.send('akdagent-ace-status-push', aceStatusPayload())
+    }
+  } catch { /* 窗口没了就算了 */ }
+}
+
+/** CLI 深探（**异步**，绝不阻塞主进程）：只问一句"桥可达吗" —— exit 0 = 在线 */
+function probeAceCliDeep() {
+  const cli = findAceCli()
+  if (!cli) { aceDeep = null; applyAceState({ silent: true }); return }
+  if (aceProbeRunning) return
+  aceProbeRunning = true
+  let settled = false
+  let child = null
+  let timer = null
+  const done = (code, note) => {
+    if (settled) return
+    settled = true
+    aceProbeRunning = false
+    if (timer) clearTimeout(timer)
+    aceDeep = { code, at: Date.now(), note: note || '' }
+    console.log('[ace] CLI 探针 project info → exit=' + code + (note ? '（' + note + '）' : '') +
+      (code === 0 ? '：ACE 在线' : '：桥不可达（ACE 没开 / 没开 External Agent Access / 文件残留）'))
+    applyAceState()
+  }
+  try {
+    child = spawn(cli, ['project', 'info', '--json'], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
+  } catch (e) { done(-1, e && e.message ? e.message : String(e)); return }
+  timer = setTimeout(() => { try { child.kill() } catch { /* 已退 */ } done(-2, 'timeout ' + ACE_PROBE_TIMEOUT_MS + 'ms') }, ACE_PROBE_TIMEOUT_MS)
+  if (child.on) {
+    child.on('error', (e) => done(-3, e && e.message ? e.message : String(e)))
+    child.on('close', (code) => done(typeof code === 'number' ? code : -4, ''))
+  }
+}
+
+/* ══ ACE 检测结束 ══ */
 
 /** 由两次心跳探针算出三态（纯函数，无副作用，便于单测） */
 function computeBridgePill(ready, sv, ix) {
@@ -1028,10 +1399,21 @@ function refreshBridgePill() {
   try { sv = probeBridgeHeartbeat('sv') } catch { /* 探针本身不抛，这里只兜底 */ }
   try { ix = probeBridgeHeartbeat('ix') } catch { /* 同上 */ }
   try { notifyFrozenBridges([sv, ix]) } catch { /* 提示失败不影响状态灯 */ }
-  const next = computeBridgePill(hostReady, sv, ix)
+  /* ACE 那一路状态（跟桥同一拍算；**不 spawn**，只在"快判变化/用户点按钮"时才深探） */
+  let aceChanged = false
+  try { aceChanged = applyAceState({ silent: true }) } catch { /* ACE 状态算不出来不影响桥三态 */ }
+  let next = computeBridgePill(hostReady, sv, ix)
+  /* 🆕 2026-10-03（用户：「检测到 ace 在线应该变绿才对」）：ACE 皮肤激活时用 **ACE 自己的在线判据**点灯 ——
+   *   ACE 没有我们的桥、没有心跳，若还按桥的三态算，在线也只会是"没跑过桥脚本"的黄灯。
+   *   在线 ⇒ 绿灯（orb.ace.online）；不在线 ⇒ 灰灯（皮肤很快会被 host-pick 切回去）。 */
+  if (lastOrbHostType === ACE_HOST_TYPE) {
+    next = acePill.level === 'ok'
+      ? { level: 'ok', code: 'orb.ace.online', args: [] }
+      : { level: 'down', code: 'orb.ace.offline', args: [] }
+  }
   const key = next.level + '|' + next.code + '|' + next.args.join(',')
   const stateKey = next.level + '|' + next.code
-  if (key !== bridgePillKey) {
+  if (key !== bridgePillKey || aceChanged) {
     bridgePill = next
     bridgePillKey = key
     sendOrbStatus()
@@ -1270,6 +1652,26 @@ function docHasApiKey(doc, name) {
 /** 检查 DeepSeek API key 是否已配置（**按宿主实际读的那份**判，见 effectiveCredentials） */
 function hasDeepSeekKey() {
   return docHasApiKey(effectiveCredentials().doc, 'DEEPSEEK_API_KEY')
+}
+
+/* ── 密钥"像不像密钥"：**非阻塞**提示（2026-10-05，用户裁「7 做」）──────────────────
+ * 以前只判"有没有非空字符串"（`docHasApiKey`）⇒ 界面显示"已配置"，可 6 个字符的占位串也一样算数
+ * （本机实测 `ANTHROPIC_API_KEY` 的值就只有 6 个字符）⇒ 用户以为配好了，直到 401 才发现。
+ * ⚠️ **只提示、不拦**：自定义提供方的 key 形状无法穷举，硬拒会挡住合法用法。 */
+const KEY_PREFIX_HINTS = {
+  DEEPSEEK_API_KEY: /^sk-/, OPENAI_API_KEY: /^sk-/, ANTHROPIC_API_KEY: /^sk-ant-/,
+  MOONSHOT_API_KEY: /^sk-/, OPENROUTER_API_KEY: /^sk-or-/, GOOGLE_API_KEY: /^AIza/,
+  GROQ_API_KEY: /^gsk_/, XAI_API_KEY: /^xai-/, HUGGINGFACE_API_KEY: /^hf_/,
+}
+function keyShapeWarning(name, value) {
+  const v = String(value || '')
+  if (!v) return ''
+  if (/^["'`]|["'`]$/.test(v.trim())) return i18n.t('main.key.warnQuotes')
+  if (/\s/.test(v.trim())) return i18n.t('main.key.warnWhitespace')
+  if (v.trim().length < 20) return i18n.t('main.key.warnTooShort', v.trim().length)
+  const want = KEY_PREFIX_HINTS[String(name).toUpperCase()]
+  if (want && !want.test(v.trim())) return i18n.t('main.key.warnPrefix', name)
+  return ''
 }
 
 /** 宿主是**继承客户端环境**拉起来的（`{...process.env}`）⇒ 环境里若有同名的 key，宿主可能优先用它。
@@ -1719,6 +2121,17 @@ ipcMain.on('akdagent-context-menu', () => showOrbContextMenu())
 // ── 设置窗口 IPC ──────────────────────────────────────────────────
 ipcMain.on('akdagent-request-status', () => { pushHostStatusToSettings() })
 
+/* ACE Studio 状态（设置页状态区那一行）：拉一次当前状态 + 按钮触发一次**真探针**（CLI，异步）。
+ * 为什么按钮才深探：CLI 是个 ~10MB 的进程，真跑一次要 spawn（实测 ~61ms，冷启动可能被 AV 拖慢）
+ * ⇒ 5s 轮询里只做免费的"桥文件在不在"，用户点按钮才去问一次"到底可不可达"。 */
+ipcMain.handle('akdagent-ace-status', () => {
+  try { probeAceCliDeep() } catch { /* 探针失败也先把当前状态回给界面 */ }
+  return aceStatusPayload()
+})
+ipcMain.on('akdagent-check-ace', () => {
+  try { probeAceCliDeep() } catch { /* 忽略：界面上会看到状态没变 */ }
+})
+
 /** 打开聊天（设置页按钮）：切到悬浮球文本面板 */
 ipcMain.on('akdagent-open-chat', () => toggleOrbPanel())
 
@@ -1877,7 +2290,7 @@ ipcMain.handle('akdagent-set-default-model', (_e, modelId) => {
   const adm = s['agent-default-model'] || {}
   adm.model = modelId
   s['agent-default-model'] = adm
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true, model: modelId }
 })
 
@@ -1885,7 +2298,7 @@ ipcMain.handle('akdagent-set-default-model', (_e, modelId) => {
 ipcMain.handle('akdagent-set-language', (_e, lang) => {
   const s = readSettings()
   s['locale'] = { ...(s['locale'] || {}), preference: lang }
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true, language: lang }
 })
 
@@ -1895,7 +2308,7 @@ ipcMain.handle('akdagent-set-reasoning-effort', (_e, level) => {
   const adm = s['agent-default-model'] || {}
   adm.reasoningEffort = level
   s['agent-default-model'] = adm
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true, reasoningEffort: level }
 })
 
@@ -1913,7 +2326,7 @@ function getSvConfig() {
 function setSvConfig(cfg) {
   const s = readSettings()
   s[SV_CONFIG_KEY] = cfg
-  writeSettings(s)
+  return writeSettings(s)          // 🆕 2026-10-05：把写盘结果回给调用方（IPC 那头据此报 ok/false）
 }
 
 /** 有没有配过任何 SV scripts 目录（读不到配置时返回 true —— 宁可少提醒，也别在异常时烦用户） */
@@ -2593,7 +3006,7 @@ ipcMain.handle('akdagent-add-model', (_e, m) => {
   else models.push(entry)
   llm.models = models
   s['llm-deepseek'] = llm
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true, model: entry, models }
 })
 
@@ -2609,7 +3022,7 @@ ipcMain.handle('akdagent-remove-model', (_e, id) => {
     adm.model = models.length > 0 ? models[0].id : ''
     s['agent-default-model'] = adm
   }
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   /* 🆕 2026-09-27：把"列表空了"明确回报给界面 —— 以前这里静默把 model 写成空串，
    * 宿主随后每一轮都 `no provider/model`，而用户只看到"回合结束（error）"。 */
   return { ok: true, defaultModel: adm.model || '', models, noModels: models.length === 0 }
@@ -2668,6 +3081,11 @@ ipcMain.handle('akdagent-get-providers', () => {
     kind: 'deepseek',
     apiKeyEnv: 'DEEPSEEK_API_KEY',
     hasKey: docHasApiKey(creds, 'DEEPSEEK_API_KEY'),
+    /* 🆕 2026-10-05（⑦ 的**展示侧**补齐）：**已存在**的密钥若有问题，也要在界面上说一句。
+     *   以前 `keyShapeWarning` 只在"点保存"那一刻提示 ⇒ 像本机那个 6 个字符的 `ANTHROPIC_API_KEY`
+     *   早就躺在文件里，界面照样显示"已配置"，直到 401 才发现。
+     *   ⚠️ 只回**提示文本**，绝不回密钥值（界面永远拿不到值）。 */
+    keyWarn: keyShapeWarning('DEEPSEEK_API_KEY', getCred(creds, 'DEEPSEEK_API_KEY') || ''),
     models: Array.isArray(llmDeepseek.models) ? llmDeepseek.models : [],
     defaultModel: adm.provider === 'deepseek-official' ? adm.model : '',
     isDefault: adm.provider === 'deepseek-official',
@@ -2684,6 +3102,7 @@ ipcMain.handle('akdagent-get-providers', () => {
       kind: 'pi-ai',
       apiKeyEnv: keyEnv,
       hasKey: !!keyEnv && docHasApiKey(creds, keyEnv),
+      keyWarn: keyEnv ? keyShapeWarning(keyEnv, getCred(creds, keyEnv) || '') : '',   // 🆕 ⑦ 展示侧（只回文本）
       models: Array.isArray(p.models) ? p.models : [],
       baseURL: p.baseURL || '',
       api: p.api || '',
@@ -2708,6 +3127,100 @@ ipcMain.handle('akdagent-get-providers', () => {
   }
 })
 
+/* ── 模型目录 / **会话模型**（2026-10-05，用户裁「4 做」「5 做」）────────────────────
+ * 背景：设置页的「默认模型」**只对"还没有会话级选择"的 Agent 生效**
+ *   （宿主 `dsh-agent-default-model` 的原话："Default model selection for an Agent **without a
+ *   session-specific selection**"）⇒ 用户在设置里改完，**当前会话可能还在用旧模型**，
+ *   而客户端此前**没有任何地方**能看出"这次会话实际用哪个模型"（`session/selectModel` 一次都没调过）。
+ *
+ * 真机形状（2026-10-05 用 `tools/measure-mcp-handshake.cjs` 同款隔离 host 实测，未猜）：
+ *   · `session/modelCatalog`（无参）→
+ *       `{ default:{provider,model,reasoningEffort?}, routableProviders:[providerId…],
+ *          groups:[{ id, name, models:[{ id, name, description?, reasoning:{ efforts:[{id,name,description}], defaultEffort } }] }],
+ *          failures:[…] }`
+ *   · `session/selectModel` → 请求 `{request:{sessionId, provider, model, reasoningEffort?}}`
+ *       → 回 `{selected:{provider, model, reasoningEffort}}`
+ *   · `session/list` → `items[].projections.values.modelSelection = { lastUsed, next:{provider,model,reasoningEffort} }`
+ *       ⇒ **会话模型直接从 `next` 读**（不必去追 `model/selection` 事件流）
+ */
+let modelCatalogCache = { at: 0, value: null }
+/** 读模型目录（默认 30s 缓存：它要问宿主，别每次点开设置都打一遍） */
+async function readModelCatalog(force = false) {
+  if (!force && modelCatalogCache.value && Date.now() - modelCatalogCache.at < 30000) return modelCatalogCache.value
+  const v = await dshCall('session/modelCatalog', {}, 15000)
+  modelCatalogCache = { at: Date.now(), value: v }
+  return v
+}
+ipcMain.handle('akdagent-model-catalog', async (_e, force) => {
+  try {
+    const v = await readModelCatalog(force === true)
+    return { ok: true, ...v }
+  } catch (e) {
+    return { ok: false, error: i18n.t('main.model.catalogFailed', (e && e.message) || String(e)) }
+  }
+})
+
+/** 读"本会话"的模型选择；`sessionId` 省略时用球当前绑的会话（再退到**同一 workspace** 里最近的会话） */
+async function readSessionModel(sessionId) {
+  const r = await dshCall('session/list', { _request: {} }, 15000)
+  const items = (r && r.items) || []
+  /* ⚠️ 2026-10-05 实测补：**会话库按 workspace(cwd) 分目录，而 `session/list` 把所有 workspace 的会话
+   *   一起返回**（本机三套：打包版 `…\Programs\AKDAgent\resources\dsh` · 开发 checkout
+   *   `Documents\SVAgent\dsh-runtime\dsh` · 一个**已删的旧 checkout**）。若不按 cwd 过滤，
+   *   `pool[0]`（= 最近的那条）很可能是**别的 workspace** 的会话 ⇒ 界面上就是"显示错值"。 */
+  let root = null
+  try { root = path.resolve(resolveDshRoot()).toLowerCase() } catch { root = null }
+  const sameWs = root ? items.filter((x) => x && typeof x.cwd === 'string' && path.resolve(x.cwd).toLowerCase() === root) : items
+  const pool = sameWs.length ? sameWs : items
+  const want = sessionId || orbSessionId
+  const exact = want ? pool.find((x) => x && x.sessionId === want) : null
+  const it = exact || pool[0] || null
+  const ms = it && it.projections && it.projections.values && it.projections.values.modelSelection
+  return {
+    sessionId: it ? it.sessionId : null,
+    next: (ms && ms.next) || null,
+    lastUsed: (ms && ms.lastUsed) || null,
+    /* 没找到"我们绑定的那个会话"（如球还没绑、或它属于别的 workspace）⇒ 这是"最近一个会话"的值，
+     * 界面应当照这个措辞显示，别冒充"本会话"。 */
+    fallback: !(exact && exact.sessionId === want),
+    workspaceFiltered: !!root && sameWs.length !== items.length,
+    sessionCount: items.length,
+  }
+}
+ipcMain.handle('akdagent-session-model', async (_e, sessionId) => {
+  try {
+    return { ok: true, ...(await readSessionModel(sessionId)) }
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) }
+  }
+})
+
+/** 切**本会话**的模型（Session-local，不动 agent-default-model） */
+ipcMain.handle('akdagent-select-session-model', async (_e, sessionId, provider, model, reasoningEffort) => {
+  const sid = sessionId || orbSessionId
+  if (!sid) return { ok: false, error: i18n.t('main.model.noSession') }
+  if (!provider || !model) return { ok: false, error: i18n.t('main.model.notSet') }
+  try {
+    const request = { sessionId: sid, provider, model }
+    if (reasoningEffort) request.reasoningEffort = reasoningEffort
+    const r = await dshCall('session/selectModel', { request }, 20000)
+    modelCatalogCache.at = 0                 // 目录里的 `default` 可能随选择变 ⇒ 下次重新读
+    const back = await readSessionModel(sid).catch(() => null)
+    const selected = (r && r.selected) || (back && back.next) || { provider, model }
+    /* 推给球与设置窗（两边都显示"本会话模型"） */
+    for (const w of [orbWin, settingsWin]) {
+      try { if (w && !w.isDestroyed()) w.webContents.send('akdagent-session-model', selected) } catch { /* 忽略 */ }
+    }
+    console.log(`[akdagent] 本会话模型已切换：${selected.provider}/${selected.model}` +
+      (back && back.lastUsed ? `（上一轮实际用：${back.lastUsed.provider}/${back.lastUsed.model}）` : ''))
+    return { ok: true, selected, sessionId: sid }
+  } catch (e) {
+    const msg = (e && e.message) || String(e)
+    const code = (e && e.code) || ''
+    return { ok: false, error: code ? `${msg}（${code}）` : msg }
+  }
+})
+
 /** 设置某个提供方为默认（agent-default-model.provider/model） */
 ipcMain.handle('akdagent-set-default-provider', (_e, providerId, modelId) => {
   const s = readSettings()
@@ -2716,7 +3229,7 @@ ipcMain.handle('akdagent-set-default-provider', (_e, providerId, modelId) => {
     provider: providerId,
     model: modelId || (s['agent-default-model'] || {}).model || '',
   }
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true, provider: providerId, model: modelId }
 })
 
@@ -2732,10 +3245,14 @@ ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) =
   }
   try {
     const creds = readCredentials()
-    if (keyValue && keyValue.trim()) setCred(creds, env, keyValue.trim())
-    else delCred(creds, env)
+    let warn = ''
+    if (keyValue && keyValue.trim()) {
+      const v = keyValue.trim()
+      warn = keyShapeWarning(env, v)          // 🆕 2026-10-05：形状提示（**不拦**，见函数注释）
+      setCred(creds, env, v)
+    } else delCred(creds, env)
     writeCredentials(creds)
-    return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env) }
+    return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env), warn }
   } catch (e) {
     // 以前这里异常会直接冒到渲染层（而且界面还没接住）⇒ 用户以为存好了；现在如实回报
     return { ok: false, error: '写入凭据失败：' + (e && e.message ? e.message : e) }
@@ -2757,7 +3274,7 @@ ipcMain.handle('akdagent-add-pi-provider', (_e, route, opts) => {
   providers[route] = profile
   piAi.providers = providers
   s['llm-pi-ai'] = piAi
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true }
 })
 
@@ -2775,7 +3292,7 @@ ipcMain.handle('akdagent-remove-pi-provider', (_e, route) => {
     adm.model = ''
     s['agent-default-model'] = adm
   }
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true }
 })
 
@@ -2790,7 +3307,7 @@ ipcMain.handle('akdagent-update-pi-models', (_e, route, models) => {
   providers[route] = p
   piAi.providers = providers
   s['llm-pi-ai'] = piAi
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true }
 })
 
@@ -2825,7 +3342,7 @@ ipcMain.handle('akdagent-set-pi-provider-fields', (_e, route, fields) => {
   providers[route] = next
   piAi.providers = providers
   s['llm-pi-ai'] = piAi
-  writeSettings(s)
+  if (!writeSettings(s)) return { ok: false }
   return { ok: true, applied, profile: next }
 })
 
@@ -3198,9 +3715,16 @@ function sendOrbHostType (type) {
   if (orbWin && !orbWin.isDestroyed()) orbWin.webContents.send('akdagent-host-type', type)
 }
 
-/** 刷新 orb 宿主皮肤：按候选顺序真 ping（哪台活着就是哪台），变了才推 */
+/** 刷新 orb 宿主皮肤：按候选顺序真 ping（哪台活着就是哪台），变了才推。
+ *  🆕 2026-10-03：皮肤判据抽到 host-pick.pickHostType —— 多了一套 **ACE Studio 第三皮肤**（紫）。
+ *  它没有桥/心跳/活动信号 ⇒ 用户定的是**保守档**：有活动或桥活着的 SV/IX 优先，
+ *  两者都没有、**ACE 在线**时才切 ACE；ACE 不在（没装/没开）时这套皮肤等于不存在。 */
 async function refreshOrbHostType (force) {
-  const type = await querySvHostType(orderCandidates(activeHost()))
+  const fresh = {}
+  for (const h of HOSTS) { try { fresh[h] = hostFresh(h) } catch { fresh[h] = false } }
+  const decided = pickHostType({ activity: hostActivity, fresh, aceOnline: acePill.level === 'ok' })
+  /* ACE 皮肤**不走 ping**（它没有我们的桥）⇒ 判成 ACE 就直接用；其余仍按老路真 ping 确认 */
+  const type = decided === ACE_HOST_TYPE ? decided : await querySvHostType(orderCandidates(activeHost()))
   if (!force && type === lastOrbHostType) return type
   lastOrbHostType = type
   sendOrbHostType(type)
@@ -3454,6 +3978,9 @@ function followBoundSession(sessionId) {
     onValue: (v) => {
       if (!v) return
       if (v.type === 'event') {
+        /* 🆕 2026-10-05：本轮失败的"人话原因"先攒在 `turnFail` 里，**等事件送进对话之后再推**
+         *   （顺序的理由见文件下方 `pushTurnFailNotice` 的注释）。 */
+        let turnFail = ''
         /* 一轮结束时把 reason 落日志（2026-09-26 新增）。
          * 旧版这里完全无痕：用户报「一发消息就 回合结束（error）」时，我们只有 UI 上那句话，
          * 定位不了（只有反复刷的 MCP 重连噪音）。console.* 已被顶部日志安全网接管 ⇒ 直接进 akdagent.log。 */
@@ -3462,13 +3989,20 @@ function followBoundSession(sessionId) {
           if (ev.type === 'turn/end') {
             const r = (ev.data && ev.data.reason) || ev.reason
             if (r && r.kind && r.kind !== 'completed') {
-              const hint = turnErrorHint(r.error)
+              /* 🆕 2026-10-05（用户裁「6 做」）：**用户主动中止不是故障** ——
+               *   以前它也走 console.error + 覆盖 `last-turn-error.json`（本机那份文件里就躺着
+               *   `{"kind":"aborted","reason":{"kind":"user"}}`）⇒ 日志一屏 ERROR、报障文件还被"中止"占着。
+               *   现在：中止只记 INFO、不写 last-turn-error.json、不推悬浮球；其它 reason 一律照旧（ERROR + 落盘）。 */
+              const userAbort = r.kind === 'aborted' && String((r.reason && r.reason.kind) || '') === 'user'
+              if (userAbort) {
+                console.log('[akdagent] turn/end = 用户主动中止（不是故障，只记 INFO）')
+              } else {
+              /* 🆕 2026-10-05：映射不中就兜底（旧版这里 `turnErrorHint()` 返回空串 ⇒ 什么都不推，
+               *   用户只看得到「回合结束（error）」）；`|| turnErrorRaw(r)` 再兜一层"连 error 字段都没有"的情况。 */
+              const hint = turnErrorHint(r.error) || turnErrorRaw(r.error) || turnErrorRaw(r)
+              turnFail = hint
               console.error('[akdagent] turn/end reason = ' + JSON.stringify(r).slice(0, 2000))
-              if (hint) {
-                console.error('[akdagent] ⇒ 可能的原因：' + hint)
-                // 🆕 2026-09-27：**同时推给悬浮球**（用户看得见的那个界面），别再让原因只躺在日志里
-                notifyOrb('warn', hint)
-              }
+              if (hint) console.error('[akdagent] ⇒ 可能的原因：' + hint)
               try {
                 fs.writeFileSync(
                   path.join(app.getPath('userData'), 'last-turn-error.json'),
@@ -3476,12 +4010,17 @@ function followBoundSession(sessionId) {
                   'utf8'
                 )
               } catch { /* 写不了就算了 */ }
+              }
             }
           }
         } catch { /* 记日志失败不影响主流程 */ }
         // 会话日志事件：形状与旧版一致（`{type,seq,time,data}`），原样给渲染层
-        return muxDeliver({ type: 'server-request', rpcId: null, payload: {
+        const delivered = muxDeliver({ type: 'server-request', rpcId: null, payload: {
           type: 'session/event', sessionId, event: v.event } })
+        /* 🆕 2026-10-05（用户裁「把失败原因直接写进对话」）：见 `pushTurnFailNotice` 的注释 ——
+         *   必须**在事件之后**推，否则对话里「⚠ 原因」排在「回合结束（error）」前面。 */
+        if (turnFail) pushTurnFailNotice(turnFail)
+        return delivered
       }
       if (v.type === 'assistant-stream') {
         // 新版把流式正文单列成 assistant-stream 帧；渲染层认 `assistant/live-chunk`
@@ -3507,6 +4046,150 @@ function followBoundSession(sessionId) {
     onError: (e) => console.log('[akdagent] follow 流错误：' + ((e && e.message) || JSON.stringify(e))),
     onEnd: () => { console.log('[akdagent] follow 流结束'); followStream = null },
   })
+}
+
+/* ───────── 客户端 PDF → PNG 渲染（识谱用；用户 2026-10-05 裁「① 客户端渲染」）─────────
+ * 为什么在客户端做：识谱引擎吃**位图**，而 FL Studio 导出的谱子 PDF **两条引擎路都读不出**
+ * （无内嵌位图 + 文字层是无 ToUnicode 自定义编码）；而用户手边最常有的就是 PDF。
+ * 客户端自带 Chromium（有真 canvas）⇒ 用隐藏窗把每页渲成 PNG，再把 **PNG 路径**当附件交给 `sv_omr_image`。
+ *
+ * ⚠️ 前置条件（打包时要做，见 `electron/src/pdf-render.html` 头部注释）：
+ *    `pdfjs-dist` 的 **min legacy 构建**（`pdf.min.mjs` + `pdf.worker.min.mjs`，共 ≈1.8 MB）要随包落到
+ *    `<app>/src/vendor/pdfjs/legacy/build/`（由 `node tools/stage-pdfjs.cjs` 落位；渲染页按这个相对路径 import）。
+ *    **别把 33 MB 全塞进包**；打包时 `asarUnpack` 要含 `src/vendor/pdfjs/**`（worker 从 asar 里读有坑）。
+ * ⚠️ 渲染页返回的是**字节数组**；落盘只在主进程做（路径纪律只有一处）。
+ */
+const OMR_RENDER_DIR = path.join(AKDAGENT_DSH_HOME, 'omr-render')
+
+/** PDF → 每页 PNG，落在 `OMR_RENDER_DIR`（`<AKDAGENT_DSH_HOME>/omr-render/<名字>-pNN.png`）；返回文件清单（**失败就抛，不静默**）。 */
+async function renderPdfToPngs(pdfPath, { dpi = 300, maxPages = 20 } = {}) {
+  if (!path.isAbsolute(String(pdfPath || ''))) throw new Error('只收**绝对**本地路径：' + String(pdfPath || ''))
+  const abs = path.resolve(String(pdfPath))
+  if (!fs.existsSync(abs)) throw new Error('读不到这个 PDF：' + abs)
+  if (path.extname(abs).toLowerCase() !== '.pdf') throw new Error('只认 .pdf：' + abs)
+  fs.mkdirSync(OMR_RENDER_DIR, { recursive: true })
+
+  const page = path.join(__dirname, 'pdf-render.html')
+  if (!fs.existsSync(page)) throw new Error('缺渲染页（打包漏了 src/pdf-render.html）：' + page)
+
+  /* 渲染资产**预检**：打包漏了 vendor 时，错误必须**能照做**。
+   * 实测（2026-10-06 复核）：html 在、pdfjs 不在时 `executeJavaScript` 只会 reject 一句
+   * 「Script failed to execute… Check the renderer console」（隐藏窗没有 devtools，用户无从下手），
+   * 而且下面那句"渲染没出图"的兜底文案还会把原因误指成「PDF 损坏 / 加密 / 空页」。 */
+  const vDir = path.join(__dirname, 'vendor', 'pdfjs', 'legacy', 'build')
+  for (const f of ['pdf.min.mjs', 'pdf.worker.min.mjs']) {
+    if (!fs.existsSync(path.join(vDir, f))) {
+      throw new Error('缺客户端 pdfjs 渲染资产（' + f + '）⇒ 打包漏了 src/vendor/pdfjs：' +
+        '出包前跑 `node tools/stage-pdfjs.cjs`，并确认 electron-builder 的 asarUnpack 含 `src/vendor/pdfjs/**`')
+    }
+  }
+
+  /* 隐藏窗 + **关掉后台节流**：隐藏窗默认会被节流（rAF/timer 变慢），把 pdfjs 的渲染循环拖死 ——
+   * 这条是 2026-10-05 截帮助页时踩过的同一类坑（隐藏窗里 rAF 被节流 ⇒ 调了也不动）。 */
+  const win = new BrowserWindow({
+    show: false, width: 1280, height: 900,
+    webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false, nodeIntegration: false },
+  })
+  try {
+    await win.loadFile(page)
+    const pages = await win.webContents.executeJavaScript(
+      `window.renderPdfToPngs(${JSON.stringify({ path: abs, dpi, maxPages })})`, true)
+    if (!Array.isArray(pages) || !pages.length) throw new Error('渲染没出图（PDF 损坏 / 加密 / 全是空页？）')
+    const base = path.basename(abs, path.extname(abs))
+    const out = []
+    for (const [i, p] of pages.entries()) {
+      const idx = Number(p && p.index) || i + 1
+      const file = path.join(OMR_RENDER_DIR, `${base}-p${String(idx).padStart(2, '0')}.png`)
+      fs.writeFileSync(file, Buffer.from(p.bytes))
+      out.push({ path: file, width: p.width, height: p.height, dpi: p.effectiveDpi })
+    }
+    console.log(`[akdagent] PDF 渲染：${out.length} 页 → ${OMR_RENDER_DIR}`)
+    return out
+  } finally {
+    try { win.destroy() } catch { /* 忽略 */ }
+  }
+}
+
+/* ───────── 客户端 音频 → WAV 解码（用户 2026-10-06 裁「走 C：Chromium 解码」）─────────
+ * 为什么在客户端做：内置解码器只有 mpg123（**只认 MP3**）+ 我们自己的 WAV 读取器；
+ * 用户从手机/DAW 拿来的是 **m4a(AAC)** ⇒ 喂 mpg123 出一段**噪声**（用户亲报「转换的 wav 是乱的」）。
+ * 客户端自带的 Chromium **本来就能解** AAC/ALAC/FLAC/Opus/Vorbis/WAV ⇒ **零新增字节**（包里的 `ffmpeg.dll` 2.79 MB 本来就在）。
+ *
+ * ✅ 正确性证据（2026-10-06，用户那份 11.8 MB `obj_*.m4a` 实测）：382.9 s · 48 kHz 立体声，
+ *   `decodeAudioData` **447 ms**；逐秒 RMS 与**真 ffmpeg** 出的 44.1k WAV 对照 = **平均差 0.002 dB · 相关系数 1.000000 · 时长差 0.003 s**。
+ * ⛔ 别再走 libav.js：`variant-default` **没有 AAC 解码器/MP4 解复用器**（上游变体表 + 实测 `Could not open source file`），
+ *   `variant-aac` 在 npm 不存在、官方 280 MB 全量 zip 的 168 个变体里也没有模块化 aac —— 只用自己 emscripten 现编。详见 `docs/待办.md` 2026-10-06 那条。
+ *
+ * 输出 = **源采样率的 16bit WAV**（不做重采样）：服务端 `prepareWav()` 本来就会读成 44.1k 立体声，少一处重采样少一处失真。
+ */
+const AUDIO_CONVERT_DIR = path.join(AKDAGENT_DSH_HOME, 'audio-convert')
+
+/** 哪些容器值得交给 Chromium 试一次（**提示性**白名单：服务端才是判官，这里只决定"值不值得试"）。
+ *  `.wav`/`.mp3` 故意**不在表里** —— 内置解码器本来就能用，不该多绕一圈。 */
+const AUDIO_DECODE_EXTS = new Set([
+  '.m4a', '.m4b', '.m4r', '.aac', '.mp4', '.mov', '.3gp',   // AAC / ALAC（MP4 家族）
+  '.flac', '.ogg', '.oga', '.opus', '.webm', '.weba',       // FLAC / Ogg / WebM
+  '.aif', '.aiff', '.aifc', '.caf', '.wma',                 // AIFF / CAF / WMA（能不能解看 Chromium，解不了会如实报）
+])
+
+/** 音频文件 → 16bit WAV，落在 `AUDIO_CONVERT_DIR`（`<AKDAGENT_DSH_HOME>/audio-convert/<名字>-<hash8>.wav`）。
+ *  hash 取"路径+大小+修改时间" ⇒ 同一个文件重复拖不会重复转（缓存命中直接覆盖同名产物）。
+ *  **失败就抛，不静默**（调用方把原因写进附件条）。 */
+async function decodeAudioToWav(srcPath, { maxSeconds = 1800, chunkBytes = 8 * 1024 * 1024 } = {}) {
+  if (!path.isAbsolute(String(srcPath || ''))) throw new Error('只收**绝对**本地路径：' + String(srcPath || ''))
+  const abs = path.resolve(String(srcPath))
+  if (!fs.existsSync(abs)) throw new Error('读不到这个音频：' + abs)
+  const st = fs.statSync(abs)
+  if (!st.isFile()) throw new Error('不是文件（目录？）：' + abs)
+
+  const page = path.join(__dirname, 'audio-decode.html')
+  if (!fs.existsSync(page)) throw new Error('缺解码页（打包漏了 src/audio-decode.html）：' + page)
+
+  fs.mkdirSync(AUDIO_CONVERT_DIR, { recursive: true })
+  const tag = crypto.createHash('sha1').update(`${abs}|${st.size}|${Math.round(st.mtimeMs)}`).digest('hex').slice(0, 8)
+  const out = path.join(AUDIO_CONVERT_DIR, `${path.basename(abs, path.extname(abs))}-${tag}.wav`)
+
+  /* 隐藏窗 + **关后台节流**（隐藏窗默认被节流；与 PDF 渲染同一条坑）。沙箱/无 node 即可：
+   * 解码页只走 fetch(file://) + Web Audio，不需要任何 Node 能力。 */
+  const win = new BrowserWindow({
+    show: false, width: 640, height: 480,
+    webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false, nodeIntegration: false },
+  })
+  try {
+    await win.loadFile(page)
+    const info = await win.webContents.executeJavaScript(
+      `window.akdAudioDecode(${JSON.stringify({ path: abs, maxSeconds })})`, true)
+    if (!info || !(info.bytes > 44)) throw new Error('解码没出数据（Chromium 认不出这个音频？）')
+
+    /* 分块拉（base64）后顺序落盘：一份 6.4 分钟的 m4a → WAV ≈73 MB，一次性从 executeJavaScript 返回会顶爆序列化。 */
+    const fd = fs.openSync(out, 'w')
+    try {
+      for (let off = 0; off < info.bytes; off += chunkBytes) {
+        const len = Math.min(chunkBytes, info.bytes - off)
+        const b64 = await win.webContents.executeJavaScript(`window.akdAudioChunk(${off}, ${len})`, true)
+        fs.writeSync(fd, Buffer.from(String(b64), 'base64'))
+      }
+    } finally { fs.closeSync(fd) }
+
+    // 产物自检：长度对 + 真 WAV（不给"解码说成功但其实空"留面）
+    const got = fs.statSync(out).size
+    if (got !== info.bytes) throw new Error(`写出长度不对：${got} ≠ ${info.bytes}（${out}）`)
+    const head = Buffer.alloc(12)
+    const hfd = fs.openSync(out, 'r')
+    try { fs.readSync(hfd, head, 0, 12, 0) } finally { fs.closeSync(hfd) }
+    if (head.toString('ascii', 0, 4) !== 'RIFF' || head.toString('ascii', 8, 12) !== 'WAVE') throw new Error('产物不是 WAV：' + out)
+
+    console.log(`[akdagent] 音频解码：${path.basename(abs)} → ${path.basename(out)}` +
+      `（${(got / 1048576).toFixed(1)} MB · 源 ${info.srcRate} Hz ${info.srcChannels}ch ${info.srcSeconds.toFixed(1)}s` +
+      `${info.truncated ? ' · **已截断**' : ''} · ${info.decodeMs} ms）`)
+    return {
+      path: out, dir: AUDIO_CONVERT_DIR, bytes: got, seconds: info.seconds,
+      srcRate: info.srcRate, srcChannels: info.srcChannels, srcSeconds: info.srcSeconds, truncated: !!info.truncated,
+    }
+  } finally {
+    try { await win.webContents.executeJavaScript('window.akdAudioRelease()', true) } catch { /* 忽略 */ }
+    try { win.destroy() } catch { /* 忽略 */ }
+  }
 }
 
 /** 收拾一次性会话（旧版靠 `session.archive`）。
@@ -3693,6 +4376,54 @@ ipcMain.handle('akdagent-panel-push', (_e, p) => {
   const kind = p && p.kind
   console.log('[panel] 收到渲染进程推送 kind=' + kind + '（已忽略：面板消息现由主进程镜像会话）')
   return { ok: false, ignored: true, reason: 'mirror-owned' }
+})
+
+/** 拖拽/粘贴进来的路径：只回「存在吗 / 是目录还是文件 / 多大 / 基名」——
+ *  **不读文件内容、不写盘**（附件只把绝对路径拼进消息，工具侧自己再走护栏）。
+ *  路径用 `path.resolve` 归一（粘贴来的可能是 `"C:\a\b.pdf"` 去掉引号后的相对/绝对混写）。 */
+/* PDF → PNG（识谱用）：把用户拖进来的 `.pdf` **换成 PNG 路径**再交给智能体。
+ * 为什么必须有这个口子：识谱引擎吃**位图**，而用户手边最常有的就是 PDF（见 renderPdfToPngs 的说明）。
+ * 失败**不静默**：返回 `{ ok:false, error }`，界面把它写进附件条提示（用户能看懂、能自己转图）。 */
+ipcMain.handle('akdagent-pdf-render', async (_e, p, opts) => {
+  try {
+    const files = await renderPdfToPngs(String(p || ''), {
+      dpi: (opts && opts.dpi) || 300,
+      maxPages: (opts && opts.maxPages) || 20,
+    })
+    return { ok: true, count: files.length, files, dir: OMR_RENDER_DIR }
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) }
+  }
+})
+
+/* 音频 → WAV（内置解码器只认 MP3/WAV；m4a/AAC、FLAC、Ogg 这些靠客户端 Chromium 解，见 decodeAudioToWav）。
+ * 只在这些扩展名上被前端调用（`.wav`/`.mp3` 不走这里）；失败**不静默**：`{ ok:false, error }` 会写进附件条。 */
+ipcMain.handle('akdagent-audio-decode', async (_e, p, opts) => {
+  try {
+    const r = await decodeAudioToWav(String(p || ''), { maxSeconds: (opts && opts.maxSeconds) || 1800 })
+    return {
+      ok: true, file: r.path, base: path.basename(r.path), dir: r.dir,
+      seconds: r.seconds, srcRate: r.srcRate, srcChannels: r.srcChannels, truncated: r.truncated,
+    }
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) }
+  }
+})
+
+ipcMain.handle('akdagent-file-stat', (_e, p) => {
+  try {
+    const full = path.resolve(String(p || '').trim())
+    const st = fs.statSync(full)
+    const ext = st.isDirectory() ? '' : path.extname(full).toLowerCase()
+    /* `audioConvertible`：这条路**只做判断、不读内容** —— 由主进程当"要不要转音频"的唯一权威
+     *（列表在 main.js 的 AUDIO_DECODE_EXTS；渲染层不再抄一份，免得两处清单各自腐烂）。 */
+    return {
+      ok: true, path: full, base: path.basename(full), isDir: st.isDirectory(), size: st.size,
+      ext, audioConvertible: !st.isDirectory() && AUDIO_DECODE_EXTS.has(ext),
+    }
+  } catch (e) {
+    return { ok: false, error: e && e.code ? e.code : String((e && e.message) || e) }
+  }
 })
 
 ipcMain.handle('akdagent-agent-send', async (_e, text) => {
@@ -4365,7 +5096,8 @@ function spawnSttServer(id) {
     child.stderr.on('data', (d) => {
       if (String(d).includes('EADDRINUSE')) addrInUse = true
       // 同 spawnHost：走 console（安全网接管），不直写 process.stderr（打包版 EPIPE）
-      console.error('[stt] ' + String(d).replace(/\s+$/, ''))
+      // 2026-10-05：分级 —— `model loaded` / `listening on` 是正常生命周期，记 INFO 而不是 ERROR
+      logChildOutput('[stt]', d)
     })
     // spawn 本身失败（找不到 node.exe 等）时 Node 会发 'error'；**不挂这个监听会直接崩主进程**
     child.on('error', (e) => {

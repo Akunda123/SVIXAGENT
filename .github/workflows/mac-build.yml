@@ -90,20 +90,42 @@ jobs:
           #   （2026-09-26 首次运行就栽在这：rsync 报 No such file or directory，exit 23）。
           # ⚠️ electron/src 与下面那几个**文件**必须一起覆盖：以前只覆盖目录 ⇒ mac 包用的是
           #    整包里那份旧客户端（版本号、凭据同步、诊断三件套全是旧的，2026-09-26 实测踩到）。
-          for d in electron/src electron/scripts tools sv skills; do
+          # ⚠️ 2026-10-05 补 `licenses`：1.1.0 新增了 `licenses/acestudio-skills.LICENSE`（ACE 技能随包分发），
+          #    而 `electron-builder.yml` 的 extraResources 里有 `../licenses` + `../THIRD-PARTY-NOTICES.md`
+          #    —— 整包是**冻住**的 release 资产，不同步就会打成"缺新许可证"的包（或直接因缺文件失败）。
+          for d in electron/src electron/scripts tools sv skills licenses; do
             if [ -d "$d" ]; then
-              rsync -a --delete "$d/" "$T/$d/"
+              # ⚠️ 2026-10-06（复核抓到）：`electron/src/vendor/**` 是**客户端 PDF→PNG 渲染**要的 pdfjs min 构建，
+              #    由 `tools/stage-pdfjs.cjs` 落位、被 `.gitignore` 挡住 ⇒ **仓库 checkout 里没有**。
+              #    而这一步是拿 checkout 覆盖整包，`--delete` 会把整包里那份**删掉** ⇒ mac 版拖 PDF 直接失败，
+              #    且链条上**没有任何检查会报红**。⇒ 同步 electron/src 时排除 vendor（保留整包里那份）。
+              if [ "$d" = "electron/src" ]; then
+                rsync -a --delete --exclude 'vendor/' "$d/" "$T/$d/"
+              else
+                rsync -a --delete "$d/" "$T/$d/"
+              fi
               echo "  ✓ 同步 $d"
             else
               echo "  · 跳过 ${d}（仓库里没有这个目录）"
             fi
           done
-          echo "覆盖后："
-          grep -c . "$T/mac-build.sh" | sed 's/^/  mac-build.sh 行数 /'
+          # 🆕 2026-10-05（ACE 技能随包分发的**真路径**）：App 启动时读的是 `<resources>/dsh/skills`
+          #   （main.js：`skillsDir = path.join(dshRoot, 'skills')` → `DSH_BUNDLED_SKILL_DIR`），
+          #   而 `dsh-runtime` 来自**冻住**的整包 ⇒ 不补这一步，ACE 那 7 个技能在 mac 包里**根本不存在**
+          #   （Windows 侧 `build-runtime.ps1` 有"把仓库 skills 拷进运行时"这一步，mac-build 脚本没有）。
+          #   ⚠️ 上面循环同步出来的 `$T/skills` **builder 并不读**（extraResources 只取 `../dsh-runtime/dsh`）。
+          if [ -d "$T/dsh-runtime/dsh/skills" ]; then
+            rsync -a --delete skills/ "$T/dsh-runtime/dsh/skills/"
+            echo "  ✓ skills → dsh-runtime/dsh/skills（$(find "$T/dsh-runtime/dsh/skills" -name SKILL.md | wc -l | tr -d ' ') 个技能）"
+          else
+            echo "  · 跳过 skills → dsh-runtime/dsh/skills（整包里没有这个目录）"
+          fi
+          echo "覆盖后："          grep -c . "$T/mac-build.sh" | sed 's/^/  mac-build.sh 行数 /'
           echo "  与仓库版一致？ $(shasum -a 256 < "$T/mac-build.sh" | cut -c1-16) vs $(shasum -a 256 < electron/scripts/mac-build-all.sh | cut -c1-16)"
           ls -la "$T/electron/scripts/"
           # 决定版本号与打包配置的文件也要覆盖（否则 mac 包会一直是旧版本）
-          for f in electron/package.json electron/package-lock.json electron/electron-builder.yml; do
+          # 🆕 2026-10-05 补 `THIRD-PARTY-NOTICES.md`：它是 extraResources 里的一项，1.1.0 改过内容。
+          for f in electron/package.json electron/package-lock.json electron/electron-builder.yml THIRD-PARTY-NOTICES.md; do
             if [ -f "$f" ]; then
               cp -f "$f" "$T/$f"
               echo "  ✓ 覆盖 $f"
@@ -131,6 +153,20 @@ jobs:
             fi
           done
           node -e "console.log('  server 版本 = ' + require('./server/package.json').version)"
+
+      - name: 重新生成随包文档（脱敏）—— 整包里那份是冻住的
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/tree"
+          # 🆕 2026-10-05：`electron-builder.yml` 的 extraResources 取 `../dist/knowledge`（脱敏副本），
+          #   而整包是**打包那天**的 release 资产 ⇒ 不重新生成，mac 包里带的离线文档/缺陷表就是旧版。
+          #   真源 = 仓库里的 `knowledge/docs` + `tools`（都随 checkout 拿到最新版）。
+          # ⚠️ 目标**直接指到树里**（`$T/dist/knowledge`）：既不必在 checkout 里落一份中间产物，
+          #   也不会踩 `tools/check-ci-workflow.cjs` 那条"CI 不许把仓库侧 `dist/` 当同步源"的红线
+          #   （它挡的正是 2026-09-26 那次 rsync exit 23 的真事故）。
+          # ⚠️ 必须 `--clean`：不清会留着上一次的幽灵副本，脚本只会**警告**、不会报错。
+          node tools/check-redaction.cjs --redact-to "$T/dist/knowledge" --clean
+          echo "  放进树里：$(find "$T/dist/knowledge" -type f | wc -l | tr -d ' ') 个文件"
 
       - name: 出包（bash mac-build.sh）
         run: |

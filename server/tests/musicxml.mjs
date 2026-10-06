@@ -179,6 +179,12 @@ console.log("== ④ 乐器（GM program / part-name → 实际已装库名） ==
     lib("V", 47).library === undefined && lib("V", 48).library === undefined, [lib("V", 47), lib("V", 48)]);
 
   // ③ part-name 优先（映射表 §6 的策略；MuseScore 中文界面导中文名）
+  // 🆕 2026-10-05：空 `<part-name>` 带属性 —— Dolce（五线谱识别）的产物就是这么写的，
+  //    老代码会把它读成 "[object Object]"（真机照出来的，见 docs/dolce-五线谱识别-验证-2026-10-05.md）
+  const attrOnly = `<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"><part-name print-object="no"></part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes>${note("C", 4, 1)}</measure></part></score-partwise>`;
+  const sAttr = parseMusicXML(attrOnly).parts[0];
+  ok("🆕 `<part-name print-object=\"no\"></part-name>` ⇒ 名字空串（不是 [object Object]）", sAttr.name === "", sAttr.name);
+  ok("🆕 且不影响取音符", sAttr.notes.length === 1 && sAttr.notes[0].pitch === 60, sAttr.notes.map((n) => n.pitch));
   ok("part-name「Violin」⇒ Violin（哪怕 GM 给的是别的）", lib("Violin", 74).library?.name === "Orchestral Violin 1" && lib("Violin", 74).source === "part-name", lib("Violin", 74));
   ok("part-name 中文「巴松」⇒ Bassoon", lib("巴松", 100).library?.name === "Orchestral Bassoon 1", lib("巴松", 100));
   ok("part-name「Double Bass」⇒ Contrabass（不是 Bassoon）", lib("Double Bass").library?.name === "Orchestral Contrabass 1", lib("Double Bass"));

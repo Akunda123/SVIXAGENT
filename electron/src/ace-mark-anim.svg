@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480">
+  <!-- ══ ACE 皮肤的 orb 标记（第三套皮肤）══
+       来源：**用户自绘**（2026-10-03 提供 `Downloads\SVG\资源 112312132.svg`，Illustrator 默认导出名）。
+       ⚠️ 按用户要求改造过（**字形几何一笔未改**，三条 d 属性原样搬运）：
+         · **去掉底**：黑方底、方框细边、a 的圆心点、2px 小点全删 ⇒ 只剩字母、背景**透明**
+           （a 的圆孔本来就画在字形路径里，去底后露出的是透明，形状照样正确）
+         · **字母白色填充**（c/e 显式 fill:#fff；他原图白字在白底上看不见，所以看着"没有颜色"）
+         · **字母 a 用 #9087f6 描边 + 填充**（stroke-width 2px，沿用他原图那份的量级）
+       ⚠️ **动画与 sv-monogram-anim / instrumentx-mark-anim 同款**（用户 2026-10-03：「动画也和 sv 一样」）：
+           逐条「描边描出 → 填充」，1s ease-in，延迟 6/13/20ms。
+           dasharray = **浏览器量出来的真实路径长 ×1.05**（a 780→820 / c 714→750 / e 770→809）——
+           ⚠️ 换素材/换缩放时**必须重量**（长度不够会画成虚线，太长则动画前段被吃掉）。
+           量法：把 path 塞进浏览器调 `path.getTotalLength()`（无头 Edge 截图读数字即可，见交接文档 §17.4）
+       ⚠️ 原始文件仍在 `Downloads\SVG\资源 112312132.svg`（要回去看底/边就翻它）
+       槽位契约（换图时保持）：文件名 electron/src/ace-mark-anim.svg · viewBox 正方形 · 球 56px 里按 width:36px 显示
+       ⚠️ XML 注释里**不许出现连续两个连字符**（踩过一次：整份 SVG 解析失败、图是空的）
+       自查：node tools/check-ace-status.cjs -->
+  <defs>
+    <style>
+      /* ⚠️ 基色写在类上（同 SV/IX）：动画延迟期/降级时也能出正确颜色 */
+      .ace-a { fill: #9087f6; stroke: #9087f6; stroke-linejoin: round; stroke-linecap: round; stroke-width: 2px; }
+      .ace-rest { fill: #fff; stroke: #fff; stroke-linejoin: round; stroke-linecap: round; stroke-width: 0.5px; }
+
+      /* 1. ace-a（字母 a）：路径长 780 → dash 820 */
+      #p1{ animation: ace1 1s ease-in 0.006s forwards; }
+      @keyframes ace1 { 0% { fill: transparent; stroke: #9087f6; stroke-dasharray: 820px; stroke-dashoffset: 820px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #9087f6; fill: #9087f6; } 100% { stroke: #9087f6; fill: #9087f6; } }
+      /* 2. ace-rest（字母 c）：路径长 714 → dash 750 */
+      #p2{ animation: ace2 1s ease-in 0.013s forwards; }
+      @keyframes ace2 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 750px; stroke-dashoffset: 750px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+      /* 3. ace-rest（字母 e）：路径长 770 → dash 809 */
+      #p3{ animation: ace3 1s ease-in 0.020s forwards; }
+      @keyframes ace3 { 0% { fill: transparent; stroke: #fff; stroke-dasharray: 809px; stroke-dashoffset: 809px; } 20% { stroke-dashoffset: 0; } 30% { fill: transparent; } 50% { stroke: #fff; fill: #fff; } 100% { stroke: #fff; fill: #fff; } }
+    </style>
+  </defs>
+  <g>
+    <path id="p1" class="ace-a" d="M228.24,172.13c0,10.31.15,20.62,0,30.92-.24,12.7-8.17,21.86-20.58,23.68A21.36,21.36,0,0,1,188.18,220c-2.37-2.53-4.16-2.83-7.25-1.33C133.48,241.59,76.7,215.2,64,163.24c-10.66-43.52,15.78-90.91,64-101.07A82.94,82.94,0,0,1,225.66,124a107.69,107.69,0,0,1,2.48,20.21c.42,9.29.11,18.61.11,27.91ZM145.06,180c20.43,0,36.11-15.95,36.05-36.57a36.27,36.27,0,0,0-72.53.38C108.6,164.15,124.57,180,145.06,180Z"/>
+    <path id="p2" class="ace-rest" d="M336.24,227.79c-41.8-.33-77.32-31.45-82.8-72.8a83.63,83.63,0,0,1,86-95c21.27.77,39.72,8.76,55.13,23.49,9.95,9.51,10.6,24.24,1.69,34.08s-23.65,10.52-33.94,1.12c-7.45-6.81-15.84-10.86-26-10.88a35.92,35.92,0,1,0,23.18,63.36c1.15-1,2.19-2,3.32-3a23.87,23.87,0,0,1,32.91,34.54A81.46,81.46,0,0,1,349.6,226.4C345.19,227.11,340.7,227.34,336.24,227.79Z"/>
+    <path id="p3" class="ace-rest" d="M170.39,310.07c-8.48-8.32-18.71-12.07-30.61-10.29a35.71,35.71,0,0,0-30.74,38c1.27,18.55,16.25,32.74,35.27,33.4,12.31.43,21.19,7.41,23.89,18.77a23.79,23.79,0,0,1-11.94,26.18,25.75,25.75,0,0,1-13,2.94c-38.14-.43-72.21-28.28-80.18-65.6-9.88-46.23,18.87-90.59,65-100.29,47.08-9.91,93.38,22.94,99.63,70.72a80.62,80.62,0,0,1,.81,11.91,23.47,23.47,0,0,1-22.75,23.26c-14,.36-27.92.39-41.87,0-12.86-.37-22.63-11.12-22.58-23.93a23.86,23.86,0,0,1,22.82-23.78c2-.09,4,0,5.92,0Z"/>
+  </g>
+</svg>

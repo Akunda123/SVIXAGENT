@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<title>AKDAgent · PDF → PNG 渲染（离屏）</title>
+<!--
+  ⭐ 这是什么：**客户端侧的 PDF → PNG 渲染器**（用户 2026-10-05 裁「① 客户端渲染」）。
+  为什么要它：识谱引擎（Dolce）吃**位图**；而 FL Studio 导出的谱子 PDF **两条引擎路都读不出**
+  （没有内嵌位图、文字层是无 ToUnicode 的自定义编码 ⇒ 矢量路 0 音符）。用户手边最常有的却是 PDF
+  ⇒ 客户端用**自带的 Chromium**（有真 canvas）把每页渲成 PNG，再把 PNG 路径当附件交给 sv_omr_image。
+
+  ⛔ 设计要点（别改成别的样子）：
+   · **离屏**：主进程用 `show:false` 的 BrowserWindow 加载本页 ⇒ 不抢焦点、不弹窗。
+   · **零新原生依赖**：只 import 随包分发的 `pdfjs-dist`（**min 版**：`legacy/build/pdf.min.mjs` + `pdf.worker.min.mjs`，共 ≈1.8 MB；由 `tools/stage-pdfjs.cjs` 落位），
+     不用 `@napi-rs/canvas`（那是服务端方案 ②，我们选了 ①）。
+   · **DPI 默认 300**：`scale = dpi / 72`。实测证据：921px 宽的截图就能让识谱到 F1 95%，
+     300 DPI 渲染同一页 ≈ 2500px 宽 ⇒ 每行谱像素翻倍多（**放大已有小图没用**，原生高清渲染才有用）。
+   · **上限**：页数与单页像素都要有闸（见下方 LIMITS），别一页渲出几百 MB 的位图。
+
+  📞 主进程接线（**已实现**，见 `electron/src/main.js` 的 `renderPdfToPngs()` 与 IPC `akdagent-pdf-render`）：
+   1) 隐藏窗 `new BrowserWindow({ show:false, webPreferences:{ contextIsolation:true, sandbox:true, backgroundThrottling:false } })`
+      —— ⚠️ **必须关后台节流**：隐藏窗默认被节流会把渲染循环拖死（实测踩过）
+   2) `await win.loadFile('src/pdf-render.html')`
+   3) `const out = await win.webContents.executeJavaScript(\`window.renderPdfToPngs(${JSON.stringify({path, dpi, maxPages})})\`)`
+      —— 返回 `[{ index, width, height, effectiveDpi, bytes: number[] }]`（PNG 字节数组，主进程 `fs.writeFileSync` 落盘）
+   4) 落盘到 `<AKDAGENT_DSH_HOME>/omr-render/<basename>-p<NN>.png`
+   5) 把**这些 PNG 的路径**放进附件（替换掉那个 PDF），并提示用户「PDF 已渲染成 N 张图」
+   6) `win.destroy()`
+   ⚠️ 主进程在加载本页**之前**会预检 `vendor/pdfjs/legacy/build/{pdf.min.mjs,pdf.worker.min.mjs}` 两个文件
+      —— 缺了就直接报"打包漏了 src/vendor/pdfjs"（否则用户只看到一句没有 devtools 可查的 Script failed）。
+-->
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; margin: 12px; color: #333 }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px }
+</style>
+</head>
+<body>
+<div id="status">就绪（等待主进程调用 <code>renderPdfToPngs</code>）</div>
+
+<script type="module">
+import * as pdfjs from './vendor/pdfjs/legacy/build/pdf.min.mjs';
+
+/* worker：显式指向随包分发的 **min** worker（`pdf.min.mjs` + `pdf.worker.min.mjs` 共 ≈1.8 MB，
+ * 非 min 版是 3.3 MB）。两个文件由 `tools/stage-pdfjs.cjs` 从 `pdfjs-dist@6.4.299` 落位。
+ * 拿不到 worker 时 pdfjs 会退到"假 worker"（主线程跑，慢但不崩）⇒ 不设也不致命，但设了更快。 */
+try {
+  pdfjs.GlobalWorkerOptions.workerSrc =
+    new URL('./vendor/pdfjs/legacy/build/pdf.worker.min.mjs', import.meta.url).href;
+} catch { /* 环境没有 URL/import.meta 就当没设，走假 worker */ }
+
+/* worker：优先用随包分发的 worker 文件；拿不到就退到"假 worker"（主线程跑，慢但不崩）。
+ * ⚠️ 这两条路径要与 electron-builder 的 files 列表一致（打包时把 pdfjs-dist 的 legacy/build 拷到
+ *    resources/src/vendor/pdfjs/legacy/build/）。 */
+const LIMITS = {
+  maxPages: 20,          // 单次最多渲几页（多页谱子请分批；别一次渲整本 300 页）
+  maxPixels: 40e6,       // 单页像素上限（≈ 40 MP ≈ 300 DPI 的 A4 两倍，够用且不爆内存）
+  minDpi: 72, maxDpi: 600,
+};
+
+function setStatus(t) { const el = document.getElementById('status'); if (el) el.textContent = t; }
+
+/** PDF 文件 → 每页 PNG（**返回字节数组，不落盘**：落盘由主进程做，路径纪律只有一处）。 */
+window.renderPdfToPngs = async function renderPdfToPngs(opts) {
+  const { path, dpi = 300, maxPages = LIMITS.maxPages } = opts || {};
+  if (!path) throw new Error('renderPdfToPngs: 少了 path');
+  const scale = Math.min(LIMITS.maxDpi, Math.max(LIMITS.minDpi, dpi)) / 72;
+
+  // ① 读文件：本页由主进程以 file:// 打开 ⇒ 用 fetch 读同源文件（相对路径由主进程传绝对路径）
+  //   ⚠️ 路径要**编码**：文件名里带 `#`（或 `?`）时原样拼 URL 会被当 fragment/query ⇒ 用户看到 `Failed to fetch`
+  //   （2026-10-06 复核实测：`谱#1 (a&b).pdf` 直接失败；中文/空格/`%` 本来就没事）。
+  //   `encodeURI` 负责非 ASCII 与空格；`#`/`?` 它**不转义**，所以另外补两刀。
+  const asFileUrl = (p) => encodeURI('file:///' + String(p).replace(/\\/g, '/').replace(/^\//, ''))
+    .replace(/#/g, '%23').replace(/\?/g, '%3F');
+  const url = path.startsWith('file://') ? path : asFileUrl(path);
+  const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+
+  // ② 打开（Electron 里可以不给 workerSrc：拿不到 worker 时 pdfjs 退到假 worker）
+  let doc;
+  try {
+    doc = await pdfjs.getDocument({ data: buf, isEvalSupported: false }).promise;
+  } catch (e) {
+    throw new Error('pdfjs 打不开这份 PDF：' + (e && e.message ? e.message : e));
+  }
+
+  const total = doc.numPages;
+  const n = Math.min(maxPages | 0, total);
+  const out = [];
+  for (let i = 1; i <= n; i++) {
+    setStatus(`渲染第 ${i}/${n} 页…`);
+    const page = await doc.getPage(i);
+    const vp0 = page.getViewport({ scale: 1 });
+    // 像素闸：按面积压 scale（宁可略降 DPI，也不要渲出爆内存的巨图）
+    const px = vp0.width * scale * vp0.height * scale;
+    const s = px > LIMITS.maxPixels ? scale * Math.sqrt(LIMITS.maxPixels / px) : scale;
+    const vp = page.getViewport({ scale: s });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(vp.width));
+    canvas.height = Math.max(1, Math.round(vp.height));
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.fillStyle = '#fff';                       // 透明底会干扰二值化 ⇒ 强制白底
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    // PNG（无损）：识谱对 PNG 走纯 JS 解码器也逐字节一致（实测）
+    const dataUrl = canvas.toDataURL('image/png');
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const bin = atob(b64);
+    const bytes = new Array(bin.length);
+    for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k) & 0xff;
+    out.push({ index: i, width: canvas.width, height: canvas.height, effectiveDpi: Math.round(s * 72), bytes });
+    canvas.width = canvas.height = 0;             // 尽早释放
+  }
+  setStatus(`完成：${out.length} 页（共 ${total} 页）`);
+  return out;
+};
+</script>
+</body>
+</html>

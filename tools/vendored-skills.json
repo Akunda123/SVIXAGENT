@@ -1,0 +1,36 @@
+{
+  "note": "第三方 Agent 技能：**原样内置、一个字都不改**（便于将来整目录对比上游升级）。\n因为它们不是我们的内容，所以**不要求 frontmatter 里有 version:**（那是我们自研技能的规矩）；\n改用下面的 treeHash 钉住：真源 skills/<name>/ 一变，check-skill-versions.cjs 就会红。\n升级流程：改 upstreamCommit → 用上游新内容覆盖 skills/<name>/ → node tools/gen-vendored-skills.cjs --commit <新sha>\n         → node tools/check-skill-versions.cjs --sync（同步镜像）→ 许可若有变化，同步 THIRD-PARTY-NOTICES.md。\ntreeHash 算法：按路径排序，每行 \"<相对路径> <文件SHA-256>\"，对整块（\\n 连接）取 SHA-256。",
+  "upstream": "https://github.com/BeatMagic/acestudio_agent_plugin",
+  "license": "MIT (Copyright (c) 2026 Timedomain Inc.) — 全文见 licenses/acestudio-skills.LICENSE",
+  "upstreamCommit": "ca4bab84bd4ffae7e776d91204d7b89f91cc4f82",
+  "skills": [
+    {
+      "name": "ace-studio-audio-plugins",
+      "what": "ACE Studio 官方技能：音频插件（VST3/AU + 内置效果）怎么驱动",
+      "files": 2,
+      "treeHash": "be17dc8cbfd2ecdf10a60b3ee3218d0378ae69f23c22570929b745cd637f81c6",
+      "upstreamCommit": "ca4bab84bd4ffae7e776d91204d7b89f91cc4f82"
+    },
+    {
+      "name": "ace-studio-features",
+      "what": "ACE Studio 官方技能：有哪些功能、什么时候用哪个",
+      "files": 1,
+      "treeHash": "2fb80616d30f33025166f7bfef32bcbc09eb4e472174122e1bbc6f9998cc3721",
+      "upstreamCommit": "ca4bab84bd4ffae7e776d91204d7b89f91cc4f82"
+    },
+    {
+      "name": "ace-studio-setup",
+      "what": "ACE Studio 官方技能：连不上时怎么指路（CLI / MCP）",
+      "files": 1,
+      "treeHash": "4ab0fd0dccfe6d99c6c1a09167c2a21ee289a0da1f70f65af0b0c3f1cb5f0540",
+      "upstreamCommit": "ca4bab84bd4ffae7e776d91204d7b89f91cc4f82"
+    },
+    {
+      "name": "ace-studio-workflows",
+      "what": "ACE Studio 官方技能：端到端工作流的顺序",
+      "files": 1,
+      "treeHash": "1c6e0de030908b04ee303e33e3b8f23698b45f1bf7bb88a798d23f4d5175df5b",
+      "upstreamCommit": "ca4bab84bd4ffae7e776d91204d7b89f91cc4f82"
+    }
+  ]
+}

@@ -23,9 +23,22 @@
 | `ndarray-fft` | MIT | FFT | scijs/ndarray-fft |
 | `onnxruntime-node` | MIT | ONNX 推理运行时 | microsoft/onnxruntime |
 | `zod` | MIT | 参数校验 | colinhacks/zod |
+| `pdfjs-dist` | Apache-2.0 | PDF 解析 / 渲染（识谱链） | mozilla/pdfjs-dist |
+| `sharp`（含 `@img/sharp-*`） | Apache-2.0 | 位图解码 / 缩放（识谱链；JPEG 走 wasm 变体） | lovell/sharp |
 
 > **MIT 许可证**：允许自由使用/修改/再分发（含商用），**需保留版权声明与许可文本**。各包 LICENSE 见其
 > `node_modules/<pkg>/LICENSE`（多数已随包分发）。
+
+### vendored：悦谱 Dolce（内置识谱引擎，MIT）
+
+| 组件 | 许可证 | 用途 | 来源 / 证据 |
+|---|---|---|---|
+| `vendor/dolce-omr`（`dist-cli/*.js` + `rasterglyphs.json`） | MIT | **谱子图片 → MusicXML**（MCP 工具 `sv_omr_image`） | lodebar2026/dolce @ `912447d`（v0.8.1），见 `vendor/dolce-omr/SOURCE.md` |
+
+> · LICENSE 正文已随附：`licenses/dolce.LICENSE`（1434 字节，与上游 `vendor/dolce-omr/LICENSE` 相同）。
+> · 随包分发：构建时由 `tools/build-server-runtime.cjs` 复制进 `server/dist/**/dolce-omr`（**排除** `node_modules` 与符号链接）。
+> · 其中的 PP-OCR 检测/识别模型（`vendor/dolce-omr/models/*.onnx`）**随上游仓库分发**，本仓库不改其许可声明；
+>   模型许可以上游为准（见 `vendor/dolce-omr/SOURCE.md`），发行前若需再分发请自行核对。
 
 ### electron（桌面客户端）依赖
 
@@ -68,13 +81,37 @@
 
 ---
 
+## 二·B、随包分发的第三方 Agent 技能（ACE Studio 官方技能，MIT）
+
+> 2026-10-03 起，AKDAgent **随包内置 4 个 ACE Studio 官方 Agent 技能**（连上 ACE Studio 后即可用
+> `acestudio-cli` 干活，不需要用户自己装技能）。
+> 它们是**第三方内容、原样内置**：真源 `skills/ace-studio-*/` 与上游**逐字节一致**，由
+> `tools/check-skill-versions.cjs` 按 `tools/vendored-skills.json` 里登记的 `treeHash` 钉住（改动即报红）。
+
+| 技能目录 | 说明 |
+|---|---|
+| `skills/ace-studio-setup/` | 连不上 ACE Studio 时怎么指路（CLI / MCP） |
+| `skills/ace-studio-features/` | ACE Studio 有哪些功能、什么时候用哪个 |
+| `skills/ace-studio-workflows/` | 端到端工作流的顺序（生成整首歌 / 从音频返工 / 出谱） |
+| `skills/ace-studio-audio-plugins/` | 音频插件（第三方 VST3/AU 与内置效果）怎么驱动（含 `references/`） |
+
+- 来源仓库：<https://github.com/BeatMagic/acestudio_agent_plugin>（取用 commit `ca4bab84bd4ffae7e776d91204d7b89f91cc4f82`）
+- 许可证：**MIT**，Copyright (c) 2026 **Timedomain Inc.**，全文随附于 `licenses/acestudio-skills.LICENSE`
+- 升级流程写在 `tools/vendored-skills.json` 的 `note` 里（换 commit → 覆盖内容 →
+  `node tools/gen-vendored-skills.cjs --commit <新 sha>` → `node tools/check-skill-versions.cjs --sync`）
+- ⚠️ 这些技能只给**用法说明**；真正连 ACE Studio 是用户侧的事（ACE Studio 里开 Agent 连接 / 装 ACE Studio），
+  与本仓库的代码许可无关。
+
+---
+
 ## 三、分发合规要求（清单）
 
 | 项 | 要求 | 状态 |
 |---|---|---|
 | MIT 库版权声明 | 保留各包 LICENSE（随 `node_modules` 或汇总 NOTICE）| 建议随发行提供 |
-| Apache-2.0（sherpa-onnx）| 保留 NOTICE + 指向 Apache-2.0 全文 | ✅ 本文件已列 |
+| Apache-2.0（sherpa-onnx · **pdfjs-dist** · **sharp**）| 保留 NOTICE + **随发行提供 Apache-2.0 全文** | ✅ 全文已随附：`licenses/pdfjs-dist.LICENSE` · `licenses/sharp.LICENSE`（2026-10-06 补；pdfjs 自 1.1.0 起**真随包分发**：服务端识谱 + 客户端 PDF→PNG 渲染） |
 | **模型（CREPE/MDX）** | **逐模型确认许可**；商用留意非商用限制 | ⚠️ 需逐一核对 |
+| **ACE Studio 官方技能（MIT）** | 保留版权声明与许可文本 | ✅ 见 `licenses/acestudio-skills.LICENSE`（§二·B） |
 | 本 NOTICE | 随安装包/发行版随附 | ✅ 本文件 |
 
 ### 已随附的 LICENSE 文件（`licenses/` 目录）
@@ -88,7 +125,11 @@ licenses/
 ├── ndarray-fft.LICENSE     # ndarray-fft (MIT)
 ├── sdk.LICENSE             # @modelcontextprotocol/sdk (MIT)
 ├── ws.LICENSE              # ws (MIT)
-└── zod.LICENSE             # zod (MIT)
+├── zod.LICENSE             # zod (MIT)
+├── acestudio-skills.LICENSE  # ACE Studio 官方 Agent 技能 (MIT, Timedomain Inc.) —— 见 §二·B
+├── dolce.LICENSE           # 悦谱 Dolce (MIT) —— 内置识谱引擎，见 §一「vendored」
+├── pdfjs-dist.LICENSE      # pdfjs-dist (**Apache-2.0 全文**) —— 识谱解析 PDF + 客户端 PDF→PNG 渲染
+└── sharp.LICENSE           # sharp (**Apache-2.0 全文**) —— 位图解码/缩放（识谱链）
 ```
 
 > **下述包为 MIT 但 node_modules 未随附独立 LICENSE 文件**（许可声明在各自 package.json `license` 字段）：
@@ -102,4 +143,6 @@ licenses/
    （若含 `CC BY-NC` 等非商用条款，需在发行前处理）。
 2. **补全各 MIT 库的 LICENSE 正文**：可将 `node_modules/<pkg>/LICENSE` 汇总到 `licenses/` 目录随发行
    （已尽量收集，见上）。
-3. **Apache-2.0 全文**：若严格合规，附上 Apache-2.0 的完整文本并链接 sherpa-onnx 上游 NOTICE。
+3. ~~**Apache-2.0 全文**~~ **已完成（2026-10-06）**：`pdfjs-dist` 与 `sharp` 的 Apache-2.0 全文已随附到 `licenses/`。
+   它们从 1.1.0 起**真随包分发**（识谱用 pdfjs 解析 PDF；客户端 PDF→PNG 渲染用的是同一份 min 构建）⇒
+   Apache-2.0 §4 要求的"随发行提供许可证副本"必须满足。sherpa-onnx 的上游 NOTICE 仍待核对。

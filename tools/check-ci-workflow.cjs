@@ -53,10 +53,20 @@ function tracked(rel) {
 // 从一行命令里抠出"仓库侧"的路径 token（跳过选项与含 $ 的变量）
 function pathTokens(line) {
   const out = [];
-  for (let tok of line.trim().split(/\s+/)) {
-    tok = tok.replace(/^["']|["']$/g, '');
+  const raw = line.trim().split(/\s+/);
+  for (let i = 0; i < raw.length; i++) {
+    let tok = raw[i].replace(/^["']|["']$/g, '');
     if (!tok) continue;
-    if (tok.startsWith('-')) continue;          // 选项
+    if (tok.startsWith('-')) {
+      /* ⚠️ 2026-10-06：`--exclude` / `--include` / `--filter` 的**下一个 token 是"模式"、不是源路径**
+       *   —— 它的语义正是"**不要**同步这个路径"（我们就是靠 `--exclude 'vendor/'` 保住整包里那份
+       *   不进 git 的 pdfjs 落位产物）。原先照 token 判 ⇒ 报「vendor 没被 git 跟踪」的**假失败**。 */
+      if (/^--(exclude|include|filter)(=|$)/.test(tok)) {
+        // `--exclude=pat` 形式：本 token 已带模式，跳过；`--exclude pat` 形式：连下一个一起跳
+        if (!tok.includes('=')) i++;
+      }
+      continue;
+    }
     if (tok.includes('$')) continue;            // 变量（含 $T / $d 之类）
     if (/^(rsync|cp|sudo|echo|ls|test|if|then|fi|do|done)$/.test(tok)) continue;
     if (/[;|&<>]/.test(tok)) continue;
