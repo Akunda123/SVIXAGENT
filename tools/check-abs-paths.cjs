@@ -48,6 +48,11 @@ const REDACTED = ['tools', 'knowledge/docs'];
 const DEV = ['docs', 'scripts', 'assets', 'dsh-plugin', 'feedback', 'licenses', 'server'];
 
 const SKIP_DIR = /[\\/](node_modules|release|dist|out|out-|coverage|\.git|dsh-runtime|win-unpacked|\.cache)[\\/]/;
+/* 第三方**落位产物**（`electron/src/vendor/**`：`tools/stage-pdfjs.cjs` 从 pdfjs-dist 复制的 min 版构建，
+ *  不进版本库）：min 版代码里的 `\\n` / `\\t` 这类正则转义会被下面的 UNC 判据误判成 `\\server\share`
+ *  —— 2026-10-05 实测 **68 处全是误报**。与 node_modules 同等对待：**不看**。
+ *  ⚠️ 只跳 `electron/src/vendor`：根目录 `vendor/`（悦谱 Dolce，SOURCE.md 是我们写的）**仍要扫**。 */
+const SKIP_VENDOR = /[\\/]electron[\\/]src[\\/]vendor[\\/]/;
 const TEXT_EXT = new Set(['.js', '.cjs', '.mjs', '.ts', '.tsx', '.ps1', '.py', '.lua', '.json',
   '.yml', '.yaml', '.md', '.html', '.css', '.txt', '.patch', '.cmd', '.bat']);
 
@@ -66,7 +71,7 @@ function walk(dir, out) {
   try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of ents) {
     const abs = path.join(dir, e.name);
-    if (SKIP_DIR.test(abs + path.sep)) continue;
+    if (SKIP_DIR.test(abs + path.sep) || SKIP_VENDOR.test(abs + path.sep)) continue;
     if (e.isSymbolicLink()) continue;
     if (e.isDirectory()) walk(abs, out);
     else if (TEXT_EXT.has(path.extname(e.name).toLowerCase())) out.push(abs);
@@ -120,7 +125,7 @@ function main() {
     if (st.isFile()) files.push(abs);
     else walk(abs, files);
   }
-  for (const f of ['README.md', 'README-发布版草案.md', 'THIRD-PARTY-NOTICES.md']) {
+  for (const f of ['README.md', 'README-发布版草案-v2.md', 'THIRD-PARTY-NOTICES.md']) {
     const abs = path.join(ROOT, f);
     if (fs.existsSync(abs)) files.push(abs);
   }
@@ -167,7 +172,7 @@ function main() {
     }
   };
 
-  console.log(`扫描 ${uniq.length} 个文本文件（已跳过 node_modules / release / dist / dsh-runtime）`);
+  console.log(`扫描 ${uniq.length} 个文本文件（已跳过 node_modules / release / dist / dsh-runtime / electron/src/vendor）`);
   show('❌ 未脱敏就进包 + 项目外绝对路径（**这是发布包泄漏 / 启动失败源头**）', fails, '·');
   show('⚠️ 走脱敏后进包（产物里会变 <USER>，但仍可能机器绑定）', redactedWarn, '·');
   if (showAll) {

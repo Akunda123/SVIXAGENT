@@ -229,6 +229,18 @@
     <h1 data-i18n="settings.model.title">模型</h1>
     <div class="sub" data-i18n="settings.model.sub">填入各提供方的 API 密钥即可使用其模型。</div>
 
+    <!-- 🆕 2026-10-05（用户裁「3 做」）：**凭据来自哪个家**。
+         当年最贵那条 bug（一发消息就 回合结束）本质就是"用户以为配好了、宿主读的不是那份"，
+         而这件事只有读代码才知道 ⇒ 摆到界面上（主机端 akdagent-get-providers 一直在回这几个字段）。 -->
+    <div id="cred-source" class="key-hint cred-source"></div>
+
+    <!-- 🆕 2026-10-05（用户裁「5 做」）：**本会话模型**（与下面的「默认模型」是两回事：
+         默认只对**新会话**生效；这里改的是**当前这次会话**） -->
+    <div class="key-hint session-model">
+      <span id="session-model-text"></span>
+      <select id="session-model-select" style="display:none"></select>
+    </div>
+
     <!-- 提供方卡片动态渲染 -->
     <section id="codex-settings" aria-label="OpenAI Codex"></section>
     <div id="provider-list"></div>
@@ -446,6 +458,16 @@
         </div>
         <span class="badge" id="bridge-badge"><span class="dot"></span><span id="bridge-text" data-i18n="settings.status.unknown">未知</span></span>
       </div>
+      <!-- ACE Studio（第三方宿主，走它自己的 CLI，不是我们的桥）。
+           ⚠️ 默认整行隐藏：**没装 ACE 的机器上不显示**（用户 2026-10-03 口径"界面更干净"）
+           —— 装没装由主进程判（见 akdagent-ace-status），页加载时按 installed 决定 display。 -->
+      <div class="row" id="ace-row" style="display:none">
+        <div>
+          <div class="label" data-i18n="settings.status.ace">ACE Studio</div>
+          <div class="hint" id="ace-hint" data-i18n="settings.status.aceHint">第三方宿主：ACE Studio 开着且启用了 External Agent Access 时，AI 可以直接用 acestudio-cli 操作它（技能已随包）</div>
+        </div>
+        <span class="badge" id="ace-badge"><span class="dot"></span><span id="ace-text" data-i18n="settings.status.unknown">未知</span></span>
+      </div>
     </section>
 
     <section>
@@ -453,6 +475,7 @@
       <div class="actions">
         <button id="btn-open-chat" data-i18n="settings.status.openChat">打开聊天面板</button>
         <button id="btn-check-bridge" data-i18n="settings.status.checkBridge">检查桥连接</button>
+        <button id="btn-check-ace" style="display:none" data-i18n="settings.status.checkAce">检查 ACE 连接</button>
       </div>
     </section>
 
@@ -558,8 +581,92 @@
 
   async function loadProviders() {
     providersData = await window.svsettings.getProviders()
+    renderCredSource()
     renderProviders()
     renderPresets()
+    renderSessionModel()
+  }
+
+  /* ── 🆕 2026-10-05（⑤）：**本会话模型**：读 `session/list` 的 modelSelection，用宿主目录做选择器 ── */
+  let modelCatalog = null
+  async function loadModelCatalog(force) {
+    if (modelCatalog && !force) return modelCatalog
+    try {
+      const r = await window.svsettings.getModelCatalog(force === true)
+      modelCatalog = (r && r.ok !== false) ? r : null
+    } catch {
+      /* ⚠️ 务必吞掉：宿主没起、或**跑在没有这些 IPC 的宿主里**（如 i18n 测试的桩、别的宿主拉起设置页）时，
+       *    这里会抛 "No handler registered for 'akdagent-model-catalog'" ⇒ 未捕获 rejection 会污染页面报错。
+       *    目录读不到就**不显示选择器**，其余功能照常。 */
+      modelCatalog = null
+    }
+    return modelCatalog
+  }
+  async function renderSessionModel() {
+    const textEl = $('session-model-text')
+    const sel = $('session-model-select')
+    if (!textEl || !sel) return
+    let cur = null
+    try { cur = await window.svsettings.getSessionModel() } catch { /* 同上：宿主没起/无此 IPC */ }
+    const next = cur && cur.next
+    const used = cur && cur.lastUsed
+    /* 🆕 2026-10-05：没绑到"我们那个会话"时（`fallback`）显示的其实是**最近一个会话**的值 ⇒
+     *   措辞必须跟着变，别冒充"本会话"（会话库按 workspace 分目录，最近那条可能是别的 workspace 的）。 */
+    const labelKey = (cur && cur.fallback) ? 'settings.model.recentModel' : 'settings.model.sessionModel'
+    textEl.textContent = cur && cur.ok !== false
+      ? I.t(labelKey, next ? `${next.provider} / ${next.model}` : I.t('settings.model.sessionUnknown')) +
+        (used && next && (used.provider !== next.provider || used.model !== next.model)
+          ? '　' + I.t('settings.model.sessionLastUsed', `${used.provider} / ${used.model}`) : '')
+      : I.t('main.model.catalogFailed', (cur && cur.error) || '')
+    /* 选择器：宿主目录里的**全部**可选模型（按提供方分组） */
+    const cat = await loadModelCatalog(false)
+    if (!cat || !Array.isArray(cat.groups) || !cat.groups.length) { sel.style.display = 'none'; return }
+    sel.innerHTML = ''
+    for (const g of cat.groups) {
+      const og = document.createElement('optgroup')
+      og.label = g.name || g.id
+      for (const m of g.models || []) {
+        const o = document.createElement('option')
+        o.value = g.id + '\u0000' + m.id
+        o.textContent = m.name || m.id
+        if (next && next.provider === g.id && next.model === m.id) o.selected = true
+        og.appendChild(o)
+      }
+      sel.appendChild(og)
+    }
+    sel.style.display = ''
+    sel.onchange = async () => {
+      const [provider, model] = String(sel.value).split('\u0000')
+      const r = await window.svsettings.selectSessionModel(null, provider, model)
+      if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.saveFailed')); renderSessionModel(); return }
+      textEl.textContent = I.t('settings.model.sessionSwitched', `${provider} / ${model}`)
+      /* ⚠️ 2026-10-05 实测（对运行中的宿主直接打端点验的）：`session/selectModel` **会连带更新
+       *   `agent-default-model`**（宿主自己把它记为默认）⇒ 本页上面那些"默认模型"显示必须重取，
+       *   否则界面会自相矛盾（会话已是新模型，默认还显示旧值）。 */
+      await loadProviders()
+    }
+  }
+  /* 主进程推来的变化（切模型后 / 换会话后） */
+  if (window.svsettings.onSessionModel) {
+    window.svsettings.onSessionModel((p) => {
+      const el = $('session-model-text')
+      if (el && p && p.provider) el.textContent = I.t('settings.model.sessionModel', `${p.provider} / ${p.model}`)
+    })
+  }
+
+  /** 🆕 2026-10-05（③）：把"这份凭据住在哪个家"显示出来（只显示**键名**，永不显示值） */
+  function renderCredSource() {
+    const el = $('cred-source')
+    if (!el || !providersData) return
+    const d = providersData
+    const names = (d.credentialKeys || []).map((k) => k.key).filter(Boolean)
+    const parts = []
+    if (d.credentialReadable === false) parts.push(I.t('main.credSource.unreadable'))
+    else if (d.credentialSource === 'source') parts.push(I.t('main.credSource.source'))
+    else parts.push(I.t('main.credSource.isolated'))
+    if (names.length) parts.push(I.t('settings.model.keyConfigured', names.join(', ')))
+    el.textContent = parts.join(' · ')
+    el.style.display = ''
   }
 
   function renderProviders() {
@@ -568,6 +675,63 @@
     for (const p of providersData.providers) {
       list.appendChild(buildProviderCard(p))
     }
+  }
+
+  /** 🆕 2026-10-05（④）：把宿主目录里**这个提供方**的模型列成可选 chip（点了 = 选中为默认；
+   *  只在自定义列表为空时用 —— 有自定义列表时以用户的列表为准）。目录读不到就**静默不显示**。 */
+  async function renderCatalogChips(container, p, onPick) {
+    const cat = await loadModelCatalog(false)
+    if (!cat || !Array.isArray(cat.groups)) return
+    const g = cat.groups.find((x) => x.id === p.id)
+    if (!g || !Array.isArray(g.models) || !g.models.length) return
+    const wrap = document.createElement('div')
+    wrap.className = 'model-check-grid'
+    const label = document.createElement('div')
+    label.className = 'key-hint'
+    label.textContent = I.t('settings.model.catalogHint', cat.default ? `${cat.default.provider} / ${cat.default.model}` : '')
+    container.appendChild(label)
+    for (const m of g.models) {
+      const chip = document.createElement('label')
+      chip.className = 'model-check'
+      const cb = document.createElement('input')
+      cb.type = 'radio'
+      cb.name = 'catalog-' + p.id
+      chip.appendChild(cb)
+      const span = document.createElement('span')
+      span.textContent = (m.name && m.name !== m.id) ? `${m.name}（${m.id}）` : m.id
+      chip.appendChild(span)
+      cb.addEventListener('change', () => {
+        wrap.querySelectorAll('.model-check').forEach((c) => c.classList.remove('selected'))
+        chip.classList.add('selected')
+        onPick(m.id)
+      })
+      wrap.appendChild(chip)
+    }
+    container.appendChild(wrap)
+  }
+
+  /* 🆕 2026-10-05（**真机报障的入口侧护栏**）：用户会把**显示名**当模型 ID 填进来。
+   *   实证（用户回传的 `last-turn-error.json`）：
+   *     `{code:'INVALID_REQUEST', status:400, message:'The supported API model names are
+   *      deepseek-flash, deepseek-v4-pro, but you passed DeepSeek-V4.1-Flash.'}`
+   *   而宿主目录里 `id:"deepseek-flash"` 的 **name** 恰好是 `DeepSeek-V41-Flash`（跟 id 毫无相似），
+   *   1.0.3 的设置页又**看不到目录**、只能手打 ⇒ 用户照着看到的字填就必错，且**每轮 400**。
+   *   ⇒ 比较时**忽略大小写与标点**（`DeepSeek-V4.1-Flash` 与 `DeepSeek-V41-Flash` 同键），
+   *     命中就把输入框换成真 id 并当场说明；**不静默改、不拦死**（不点"添加"一个字都不写）。 */
+  function normalizeModelKey(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '')
+  }
+  async function suggestModelIdFix(providerId, typed) {
+    const cat = await loadModelCatalog(false)
+    if (!cat || !Array.isArray(cat.groups)) return null
+    const g = cat.groups.find((x) => x.id === providerId)
+    if (!g || !Array.isArray(g.models) || !g.models.length) return null
+    if (g.models.some((m) => m && m.id === typed)) return null          // 本来就是真 id ⇒ 不打扰
+    const k = normalizeModelKey(typed)
+    if (!k) return null
+    const hit = g.models.find((m) => m && normalizeModelKey(m.name) === k)
+      || g.models.find((m) => m && normalizeModelKey(m.id) === k)
+    return hit && hit.id !== typed ? hit.id : null
   }
 
   function buildProviderCard(p) {
@@ -588,6 +752,14 @@
       ? I.t('settings.model.keyConfigured', p.apiKeyEnv)
       : I.t('settings.model.keyNotConfigured')
     info.appendChild(sub)
+    /* 🆕 2026-10-05（⑦ 展示侧）：**已存在**的密钥看起来不对时也要说一句（以前只在保存那一刻提示）
+     *   —— 只显示后端给的提示文本，界面拿不到密钥值。 */
+    if (p.keyWarn) {
+      const warn = document.createElement('div')
+      warn.className = 'provider-sub key-warn'
+      warn.textContent = '⚠ ' + p.keyWarn
+      info.appendChild(warn)
+    }
     head.appendChild(info)
     const headRight = document.createElement('div')
     headRight.style.cssText = 'display:flex;align-items:center;gap:10px'
@@ -693,6 +865,10 @@
           ? I.t('settings.model.emptyHintBuiltin')
           : I.t('settings.model.emptyHintPiAi')
         body.appendChild(empty)
+        /* 🆕 2026-10-05（用户裁「4 做」）：把**宿主真实目录**列出来（以前只给一句提示、要用户手打 id）。
+         *   点了就把 `selectedModel` 设为该 id（保存时由 setDefaultProvider 写进 agent-default-model）。
+         *   这是**只读展示**：我们不去写 llm-deepseek/llm-pi-ai 的覆写列表（那是"覆写"，语义不同）。 */
+        renderCatalogChips(body, p, (id) => { selectedModel = id })
       }
       if (canEdit) {
         const addRow = document.createElement('div')
@@ -717,9 +893,22 @@
         const addBtn = document.createElement('button')
         addBtn.type = 'button'
         addBtn.textContent = I.t('settings.model.addModel')
+        /* 🆕 2026-10-05：填了"显示名"当场纠正（见 suggestModelIdFix 的注释） */
+        const addWarn = document.createElement('div')
+        addWarn.className = 'key-hint'
+        addWarn.style.display = 'none'
         addBtn.addEventListener('click', async () => {
           const id = idIn.value.trim()
           if (!id) { idIn.focus(); return }
+          const fix = await suggestModelIdFix(p.id, id)
+          if (fix) {
+            idIn.value = fix
+            addWarn.textContent = I.t('settings.model.idLooksLikeName', id, fix)
+            addWarn.style.display = ''
+            idIn.focus()
+            return                                   // ⚠️ 先不添加：让用户看清"改成什么了"再点一次
+          }
+          addWarn.style.display = 'none'
           const model = { id, name: nameIn.value.trim(), description: descIn.value.trim(), supportsImage: imgCb.checked }
           if (isPiAi) {
             const r = await window.svsettings.setPiProviderFields(p.id, { models: [...(p.models || []), model] })
@@ -735,6 +924,7 @@
         addRow.appendChild(descIn)
         addRow.appendChild(imgWrap)
         addRow.appendChild(addBtn)
+        addRow.appendChild(addWarn)
         body.appendChild(addRow)
       }
 
@@ -777,6 +967,11 @@
       keyInput.value = p.hasKey ? '********' : ''
       keyRow.appendChild(keyInput)
       body.appendChild(keyRow)
+      /* 🆕 2026-10-05（用户裁「7 做」）：密钥形状的**非阻塞**提示行（保存后由后端 `warn` 填） */
+      const keyWarnEl = document.createElement('div')
+      keyWarnEl.className = 'key-hint key-warn'
+      keyWarnEl.style.display = 'none'
+      body.appendChild(keyWarnEl)
 
       // 操作
       const actions = document.createElement('div')
@@ -792,6 +987,9 @@
            * 用户会以为"明明配好了"（2026-09-27 事故的观感就来自这类哑失败）。照下面 pi-ai 那段的写法。 */
           const r = await window.svsettings.setProviderKey(p.id, p.apiKeyEnv, v)
           if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.saveFailed')); return }
+          /* 形状提示（非阻塞）：只显示一行"看起来不像完整密钥"，不打断保存 */
+          keyWarnEl.textContent = (r && r.warn) ? '⚠ ' + r.warn : ''
+          keyWarnEl.style.display = (r && r.warn) ? '' : 'none'
         }
         // ⚠️ `selectedModel` 为空（模型列表为空）时传 undefined ⇒ 后端只切提供方、**不动 model 字段**
         //   （`setDefaultProvider` 的 `modelId || 原有值`）——别把空串写进去。
@@ -945,6 +1143,39 @@
     setBadge($('bridge-badge'), I.t('settings.status.checking'), false)
     $('bridge-hint').textContent = I.t('settings.status.checkingHint')
     window.svsettings.checkBridge()
+  }
+
+  /* ── ACE Studio 状态（第三方宿主；2026-10-03 加）──────────────────────────
+   *  判据在主进程：桥文件在不在（免费）+ CLI 探针（真问一次"可达吗"，异步 ~60ms）。
+   *  ⚠️ 没装 ⇒ installed=false ⇒ **整行 + 按钮都隐藏**（用户口径：界面更干净）。 */
+  const ACE_TEXT = {
+    ok: 'settings.status.aceOnline',
+    warn: 'settings.status.aceSuspect',
+    down: 'settings.status.aceOffline',
+  }
+  function renderAceStatus(st) {
+    if (!st || typeof st !== 'object') return
+    const installed = !!st.installed
+    $('ace-row').style.display = installed ? '' : 'none'
+    $('btn-check-ace').style.display = installed ? '' : 'none'
+    if (!installed) return
+    if (st.level === 'ok') setBadge($('ace-badge'), I.t('settings.status.aceOnline'), true)
+    else if (st.level === 'down') setBadge($('ace-badge'), I.t('settings.status.aceOffline'), false)
+    else setBadge($('ace-badge'), I.t(st.probeCode === null ? 'settings.status.aceUnverified' : 'settings.status.aceSuspect'), false)
+    const bits = []
+    if (st.cli) bits.push('acestudio-cli: ' + st.cli)
+    if (st.bridgeJson) bits.push('mcp-bridge.json: ' + (st.hasBridgeFile ? '✓' : '✗'))
+    if (typeof st.probeCode === 'number') bits.push('probe exit=' + st.probeCode)
+    $('ace-badge').title = bits.join('  ·  ')
+  }
+  $('btn-check-ace').addEventListener('click', () => {
+    setBadge($('ace-badge'), I.t('settings.status.aceUnverified'), false)
+    /* send（不是 invoke）：主进程探完会走推送回来，页不用等 */
+    window.svsettings.checkAce()
+  })
+  if (window.svsettings.onAceStatus) window.svsettings.onAceStatus((st) => renderAceStatus(st))
+  if (window.svsettings.getAceStatus) {
+    window.svsettings.getAceStatus().then((st) => renderAceStatus(st)).catch(() => { /* 读不到就不显示 */ })
   }
 
   $('btn-open-chat').addEventListener('click', () => window.svsettings.openChat())
@@ -1682,6 +1913,8 @@
     safeRedraw('flatStatus', renderFlatStatus)
     safeRedraw('flatCopy', renderCopySources)
     safeRedraw('stt', () => { if (sttData) renderStt(sttData) })
+    safeRedraw('credSource', renderCredSource)          // 🆕 ③：凭据来源（组合文案，必须重排）
+    safeRedraw('sessionModel', () => { renderSessionModel().catch(() => {}) })   // 🆕 ⑤：本会话模型
   })
 </script>
 </body>

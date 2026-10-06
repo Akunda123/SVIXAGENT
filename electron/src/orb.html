@@ -23,6 +23,21 @@
     --dot: #00AEFF;
     --dot-warn: #f0b429;
   }
+  /* 第三套皮肤：ACE Studio（第三方宿主，走它自己的 CLI）。
+     配色**从 ACE 界面截图采样**（用户 2026-10-03 提供的截图，2545×664）：
+       主背景 #111111（57%）· 面板/轨道头 #222226（36%）· 分隔 #333344 / #334444 / #666677
+       **强调色（"和声" chip / 播放头）= #0044FF**（横扫 x=197..232 全为此色）· 深一档 #0033EE · 文字 #FFFFFF
+     ⚠️ 只覆盖 **IX 也覆盖的那 6 个变量**；共同的东西（球底、标签底、灰阶、黄点…）一律不动 —— 用户 2026-10-03 口径。 */
+  body[data-host="ace-studio"] {
+    --theme: #0044FF;
+    --theme-rgb: 0,68,255;
+    --theme-btn-fg: #ffffff;
+    --theme-soft: rgb(120,160,255);
+    /* ⚠️ 状态点用**绿**（用户 2026-10-03：「检测到 ace 在线应该变绿」）——
+       绿点语义 = "在线/可用"，不该被品牌色顶掉；黄点仍是共用的 #f0b429。 */
+    --dot: #3ddc84;
+    --dot-warn: #f0b429;
+  }
 
   /* ── 悬浮球 + label 组合（右侧；右端贴窗口右缘，避免 64px 窗口裁切） ── */
   #orb-zone {
@@ -101,16 +116,34 @@
     display:flex; align-items:center; gap:6px;
     margin:8px 12px 0; padding:7px 10px; border-radius:8px;
     background:rgba(255,255,255,.05); font-size:11px; color:rgb(140,140,140);
-    transition:opacity .5s ease;
+    /* ⚠️ 淡出后**必须把高度也收掉**：只写 `opacity:0` 会留一条 ~37px 的**隐形空带**
+     *    （标题栏与"模型"行之间的空隙，2026-10-06 用户截图「空隙还是大了」就是它）
+     *    ⇒ 这里把 max-height / margin / padding 一起过渡到 0。 */
+    max-height:60px; overflow:hidden;
+    transition:opacity .5s ease, max-height .35s ease, margin .35s ease, padding .35s ease;
   }
   #conn-banner.connected { color:var(--theme); background:rgba(var(--theme-rgb),.1); }
-  #conn-banner.hidden { opacity:0; pointer-events:none; }
+  #conn-banner.hidden { opacity:0; pointer-events:none; max-height:0; margin-top:0; padding-top:0; padding-bottom:0; }
   #conn-banner .spin {
     width:9px; height:9px; border-radius:50%; flex-shrink:0;
     border:2px solid rgba(140,140,140,.3); border-top-color:rgb(179,179,179);
     animation:think-spin .9s linear infinite;
   }
   #conn-banner.connected .spin { display:none; }
+  /* 🆕 2026-10-05（⑤）：本会话模型行（紧贴连接横幅下方，一行：标签 + 选择器 + 状态） */
+  #model-row {
+    display:flex; align-items:center; gap:6px;
+    margin:6px 12px 0; padding:4px 8px; border-radius:8px;
+    background:rgba(255,255,255,.04); font-size:11px; color:rgb(150,150,150);
+  }
+  #model-row #model-label { flex-shrink:0; }
+  #model-row #model-select {
+    flex:1; min-width:0; max-width:100%;
+    background:transparent; color:rgb(200,200,200); border:none; outline:none;
+    font-size:11px; cursor:pointer;
+  }
+  #model-row #model-select option, #model-row #model-select optgroup { background:#2b2b2b; color:rgb(210,210,210); }
+  #model-row #model-state { flex-shrink:0; color:var(--theme); }
   .chat-body {
     flex:1; overflow-y:auto; padding:14px 16px;
     display:flex; flex-direction:column; gap:8px;
@@ -162,6 +195,12 @@
   .tool-line.done .tl-state { color:var(--theme); }
   .tool-line.err { color:rgb(229,72,77); }
   .tool-line.err .tl-state { color:rgb(229,72,77); }
+  /* 🆕 2026-10-05（用户：「这一块空隙太大了」）：工具行原本落在一个 `align-self:flex-start` 的
+   * **按内容收缩**气泡里 ⇒ 只装工具行时气泡缩成一条窄带（≈「mcp__sv__ace_cli 完成」那么宽），
+   * 右边留一大片空白。⇒ ① 工具/思考块自己拉满；② **只在真出现过工具行时**把气泡也拉满
+   * （普通短消息仍是收缩的小气泡，观感不变）。 */
+  .tool-area, .think-row { width:100%; min-width:0; align-self:stretch; }
+  .msg.assistant:has(.tool-area:not(:empty)) { align-self:stretch; max-width:100%; }
   .out-text { white-space:pre-wrap; word-break:break-all; overflow-wrap:anywhere; }
   .out-text .cursor {
     display:inline-block; width:6px; height:13px; background:rgb(179,179,179);
@@ -253,6 +292,26 @@
     animation:mic-pulse 1.2s ease-in-out infinite;
   }
   @keyframes mic-pulse { 0%,100% { opacity:1 } 50% { opacity:.55 } }
+  /* ── 附件条（拖拽/粘贴进来的**绝对路径**）────────────────────────────
+   *  面板打开且有附件时才出现（`.on`）。高度上限 72px 且内部滚动 ——
+   *  `.chat-body` 是 flex:1，这一条不能把对话区挤没。
+   *  ⚠️ 只承载"路径"这件事：不读文件内容、不落盘（见 docs/orb附件-拖拽与粘贴.md）。 */
+  #chat-files {
+    display:none; flex-wrap:wrap; gap:6px; padding:8px 12px 0;
+    max-height:72px; overflow-y:auto;
+  }
+  #chat-files.on { display:flex; }
+  #chat-files.warn { animation:files-warn .45s ease 2; }
+  @keyframes files-warn { 50% { background:rgba(229,72,77,.16) } }
+  .chat-file {
+    display:inline-flex; align-items:center; gap:6px; max-width:100%;
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
+    border-radius:7px; padding:3px 5px 3px 8px; font-size:11px; color:rgb(200,200,200);
+  }
+  .chat-file b { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:210px; }
+  .chat-file i { font-style:normal; opacity:.6; }
+  .chat-file button { background:transparent; border:none; color:rgb(150,150,150); cursor:pointer; font-size:12px; line-height:1; padding:0 2px; }
+  .chat-file button:hover { color:#e5484d; }
 </style>
 </head>
 <body>
@@ -282,8 +341,22 @@
     </div>
     <!-- 初始文案由 data-i18n 给（I.apply()）；之后 setText 会带 data-i18n-key 由 redrawDynamic() 重排 -->
     <div id="conn-banner"><span class="spin"></span><span id="conn-text" data-i18n="orb.status.connecting">正在连接 DSH…</span></div>
+    <!-- 🆕 2026-10-05（用户裁「5 做」）：**本会话模型**。
+         为什么要有它：设置里的「默认模型」**只对新会话生效**（宿主 `dsh-agent-default-model` 原话：
+         "…for an Agent without a session-specific selection"），而以前界面上**任何地方**都看不出
+         "这次会话实际用哪个模型" ⇒ 用户改完默认模型回来看聊天"像没生效"。
+         这里读宿主 `session/list` 的 `modelSelection`，选择器用 `session/modelCatalog` 的真目录；
+         切它只调 `session/selectModel`（**不动默认模型**）。 -->
+    <div id="model-row">
+      <span id="model-label" data-i18n="orb.model.label">模型</span>
+      <select id="model-select" title="" data-i18n-title="orb.model.title"></select>
+      <span id="model-state"></span>
+    </div>
     <div class="chat-body" id="chat-body">
     </div>
+    <!-- 附件条：拖拽文件 / 粘贴路径进来的**绝对路径**（我们所有重活工具都是路径入参；
+         sv_import_musicxml 甚至只收绝对本地路径）。只显示路径与增删，不读内容。 -->
+    <div id="chat-files"></div>
     <div class="chat-input">
       <!-- 麦克风的 title / aria-label 由脚本 renderMicButton() 按状态 + 语种设置（不挂 data-i18n-title，避免与状态文案打架） -->
       <button id="chat-mic" title="语音输入" aria-label="语音输入" style="display:none">
@@ -914,12 +987,83 @@
       banner.classList.remove('hidden')
       setText(text, 'orb.status.connected')
       connHideTimer = setTimeout(() => banner.classList.add('hidden'), 2500)
+      refreshSessionModel().catch(() => { /* 🆕 防御：宿主没起 / 无这些 IPC 时不许冒未捕获 rejection */ })                 // 🆕 ⑤：就绪即刷新"本会话模型"
     } else {
       banner.classList.remove('connected')
       banner.classList.remove('hidden')
       setText(text, 'orb.status.connecting')
     }
     setSendEnabled()
+  }
+
+  /* ── 🆕 2026-10-05（⑤）：**本会话模型**行 ──────────────────────────────────────
+   * 读：主进程 `akdagent-session-model` → `session/list` 的 `modelSelection.next`（会话实际选择）
+   *     + `lastUsed`（上一轮真用了哪个）—— 两者不一致时值得显示（正是"改了默认没生效"的那一刻）。
+   * 写：`akdagent-select-session-model` → `session/selectModel`（Session-local，不动默认模型）。
+   * 目录：`akdagent-model-catalog` → 按提供方分组的真目录（<optgroup>）。 */
+  let modelCatalogCache = null
+  async function refreshSessionModel() {
+    const sel = document.getElementById('model-select')
+    const state = document.getElementById('model-state')
+    if (!sel || !window.akdagent.getSessionModel) return
+    try {
+      await refreshSessionModelInner(sel, state)
+    } catch {
+      /* 宿主没起 / 无这些 IPC（别的宿主拉起球时）⇒ 静默隐藏这一行，别冒未捕获 rejection */
+      sel.style.display = 'none'
+      if (state) state.textContent = ''
+    }
+  }
+  async function refreshSessionModelInner(sel, state) {
+    let cur = null
+    try { cur = await window.akdagent.getSessionModel() } catch { /* 宿主没起 */ }
+    const next = cur && cur.next
+    const used = cur && cur.lastUsed
+    if (state) {
+      const parts = []
+      /* 🆕 2026-10-05：`fallback` = 没找到"我们绑定的那个会话"（球还没绑 / 它属于别的 workspace）
+       *   ⇒ 明确标一句"最近会话"，别让用户以为这就是当前会话。 */
+      if (cur && cur.fallback) parts.push(I.t('orb.model.recent'))
+      if (used && next && (used.provider !== next.provider || used.model !== next.model)) {
+        parts.push(I.t('orb.model.lastUsed', `${used.provider}/${used.model}`))
+      }
+      state.textContent = parts.join('　')
+    }
+    if (!modelCatalogCache) {
+      try { modelCatalogCache = await window.akdagent.getModelCatalog(false) } catch { modelCatalogCache = null }
+    }
+    const cat = modelCatalogCache
+    if (!cat || cat.ok === false || !Array.isArray(cat.groups) || !cat.groups.length) {
+      sel.style.display = 'none'
+      return
+    }
+    sel.innerHTML = ''
+    for (const g of cat.groups) {
+      const og = document.createElement('optgroup')
+      og.label = g.name || g.id
+      for (const m of g.models || []) {
+        const o = document.createElement('option')
+        o.value = g.id + '\u0000' + m.id
+        o.textContent = m.name || m.id
+        if (next && next.provider === g.id && next.model === m.id) o.selected = true
+        og.appendChild(o)
+      }
+      sel.appendChild(og)
+    }
+    sel.style.display = ''
+    sel.title = I.t('orb.model.title', cat.default ? `${cat.default.provider}/${cat.default.model}` : '')
+    sel.onchange = async () => {
+      const parts = String(sel.value).split('\u0000')
+      if (state) state.textContent = I.t('orb.model.switching')
+      const r = await window.akdagent.selectSessionModel(null, parts[0], parts[1])
+      if (!r || r.ok === false) {
+        if (state) state.textContent = I.t('orb.model.switchFailed', (r && r.error) || '')
+        return
+      }
+      modelCatalogCache = null                       // default 可能变了 ⇒ 下次重取
+      if (state) state.textContent = I.t('orb.model.switched')
+      setTimeout(() => { const s = document.getElementById('model-state'); if (s) s.textContent = '' }, 2500)
+    }
   }
 
   /* 组合区状态 —— **唯一出口**（发送按钮 + 停止按钮都从这里同步）。
@@ -939,6 +1083,8 @@
 
   function sendMsg() {
     const t = chatText.value.trim()
+    // 拖了文件却没打字：**不静默返回**（否则用户以为发出去了）—— 聚焦输入框 + 闪一下附件条
+    if (!t && attach.length) { chatText.focus(); flashAttach(); return }
     // 只防"同一次提交被重复触发"（agentSessionState 的 await 窗口）；**不再因轮次在跑而拒收**
     if (!t || sending) return
     if (!agentReady) {
@@ -950,6 +1096,8 @@
       return
     }
     const interject = busy          // 轮次进行中 ⇒ 这是插话（排队语义）
+    // 附件块随消息一起发：发出去的是**绝对路径**（工具侧只认路径，见上面的附件模块注释）
+    const payload = attach.length ? t + '\n\n' + attachBlock() : t
     sending = true
     // 发送前**不再清空面板**（2026-09-13 新语义：全量时间线 + 工程分隔线，切工程不丢内容）。
     // 只刷新一下当前段/工程显示，然后照常发送。
@@ -958,8 +1106,8 @@
         if (st.project) projectLabel = st.project
         if (st.segId) curSegId = st.segId
       }
-      doSend(t, interject)
-    }).catch(() => doSend(t, interject))
+      doSend(payload, interject)
+    }).catch(() => doSend(payload, interject))
   }
 
   function doSend(t, interject) {
@@ -975,6 +1123,7 @@
       .then((r) => {
         if (r.ok) {
           mySessionId = r.sessionId || mySessionId
+          clearAttach()                  // 发送成功才清附件；失败保留，用户可直接重发
         } else {
           appendErr('orb.err.send', r.error || '')
           // ⚠️ 插话失败时**不能清 busy** —— 那个轮次还在跑，停了会把"停止"按钮也藏掉
@@ -988,6 +1137,182 @@
         setSendEnabled()
       })
   }
+
+  /* ── 附件：拖拽文件 / 粘贴路径 → **绝对路径**交给智能体 ───────────────────
+   *  设计口径（2026-10-05 与用户定）：**只做"把路径交出去"这一件事**。
+   *   · 我们所有重活工具都是路径入参（`sv_import_musicxml` 甚至**只收绝对本地路径**）⇒ 拖拽产生的
+   *     就是绝对路径，零转换。
+   *   · **不读文件内容、不落盘、不绕过护栏**：路径只是拼进消息文本；预览 / `confirmRights` /
+   *     512 音符上限 / 拒 DTD 那些仍由工具侧把关。
+   *  ⚠️ Electron 32+ 已移除 `File.path` ⇒ 路径必须经 preload 的 `akdagent.pathFor`
+   *     （主进程侧 `webUtils.getPathForFile`）。
+   *  ⛔ **截图 / 图像模型故意不做**（用户计划跟随多协作 JUCE 壳那条路，将来直接截 JUCE 宿主内容）
+   *     —— 口子见 docs/orb附件-拖拽与粘贴.md。 */
+  const filesRow = document.getElementById('chat-files')
+  const ATTACH_MAX = 20
+  let attach = []                       // [{ path, base, note }]
+
+  function renderAttach() {
+    filesRow.textContent = ''
+    filesRow.classList.toggle('on', attach.length > 0)
+    attach.forEach((f, i) => {
+      const chip = document.createElement('span')
+      chip.className = 'chat-file'
+      const name = document.createElement('b')
+      name.textContent = f.base
+      name.title = f.path                // 完整路径悬停可见（消息里发的是它）
+      chip.appendChild(name)
+      if (f.note) {
+        const note = document.createElement('i')
+        note.textContent = f.note
+        chip.appendChild(note)
+      }
+      const del = document.createElement('button')
+      del.type = 'button'
+      del.textContent = '×'
+      // title 不走 setText（那会写 textContent，把 × 换掉）⇒ 直接用 I.t()；切语种由下面 I.onChange 重排
+      del.title = I.t('orb.files.removeTitle') + '：' + f.path
+      del.addEventListener('click', () => { attach.splice(i, 1); renderAttach() })
+      chip.appendChild(del)
+      filesRow.appendChild(chip)
+    })
+  }
+
+  /** 路径 → 附件（去重、查存在性；不存在的路径直接忽略并提示）。 */
+  function addPaths(paths) {
+    const list = []
+    for (const p of paths) {
+      const s = String(p || '').trim()
+      if (!s) continue
+      if (attach.some((f) => f.path.toLowerCase() === s.toLowerCase())) continue
+      if (list.some((f) => f.path.toLowerCase() === s.toLowerCase())) continue
+      list.push(s)
+    }
+    if (!list.length) return
+    Promise.all(list.map((p) => window.akdagent.fileStat(p))).then(async (rows) => {
+      let ignored = 0
+      for (const st of rows) {
+        if (!st || !st.ok) { ignored++; continue }
+        if (attach.length >= ATTACH_MAX) { ignored++; continue }
+        /* `.pdf`：识谱引擎吃**位图** ⇒ 先渲染成 PNG，再把 **PNG 路径**当附件（替换掉那个 PDF）。
+         * 渲染在主进程（隐藏窗 + Chromium canvas，300 DPI）；失败**不静默**：保留 PDF 并在附件条写明原因。 */
+        if (/\.pdf$/i.test(st.path) && window.akdagent.pdfRender) {
+          const row = { path: st.path, base: st.base, note: I.t('orb.files.pdfRendering') }
+          attach.push(row)
+          renderAttach()
+          const room = Math.max(1, ATTACH_MAX - attach.length + 1)   // 减去 row 自己占的那格
+          let r = null
+          try {
+            r = await window.akdagent.pdfRender(st.path, { maxPages: Math.min(20, room) })
+          } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
+          if (r && r.ok && Array.isArray(r.files) && r.files.length) {
+            const pngs = r.files.map((f, k) => ({
+              path: f.path,
+              base: String(f.path).split(/[\\/]/).pop(),
+              note: k === 0 ? I.t('orb.files.pdfRendered', [String(r.files.length)]) : '',
+            }))
+            const i = attach.indexOf(row)
+            if (i >= 0) attach.splice(i, 1, ...pngs); else attach.push(...pngs)
+          } else {
+            row.note = I.t('orb.files.pdfFailed', [(r && r.error) || I.t('orb.err.unknown')])
+          }
+          renderAttach()
+          continue
+        }
+        /* 非 MP3/WAV 的音频（m4a/AAC、FLAC、Ogg…）：内置解码器**只认 MP3/WAV**（把 AAC 喂 mpg123 出的是噪声）
+         * ⇒ 先在客户端用 Chromium 解成 16bit WAV，再把 **WAV 路径**当附件。
+         * 要不要转由主进程判（`st.audioConvertible`，清单只有一处）；失败**不静默**：保留原文件并在附件条写明原因。 */
+        if (st.audioConvertible && window.akdagent.audioDecode) {
+          const row = { path: st.path, base: st.base, note: I.t('orb.files.audioConverting') }
+          attach.push(row)
+          renderAttach()
+          let r = null
+          try { r = await window.akdagent.audioDecode(st.path) } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
+          if (r && r.ok && r.file) {
+            row.path = r.file
+            row.base = r.base || String(r.file).split(/[\\/]/).pop()
+            row.note = I.t('orb.files.audioConverted') + (r.truncated
+              ? I.t('orb.files.audioTruncated', [String(Math.max(1, Math.round((r.seconds || 0) / 60)))])
+              : '')
+          } else {
+            row.note = I.t('orb.files.audioFailed', [(r && r.error) || I.t('orb.err.unknown')])
+          }
+          renderAttach()
+          continue
+        }
+        attach.push({ path: st.path, base: st.base, note: st.isDir ? I.t('orb.files.dir') : '' })
+      }
+      renderAttach()
+      if (ignored) flashAttach()
+    }).catch(() => { /* 查不动就当没拖过：不打断对话 */ })
+  }
+
+  function flashAttach() {
+    filesRow.classList.add('warn')
+    setTimeout(() => filesRow.classList.remove('warn'), 1000)
+  }
+
+  /** 拖拽悬停：把附件条当提示条用（不引入新的浮层/定位，零布局风险）。 */
+  let dropHinting = false
+  function showDropHint(on) {
+    if (on === dropHinting) return
+    dropHinting = on
+    if (on) {
+      if (!attach.length) {
+        filesRow.textContent = ''
+        const hint = document.createElement('span')
+        hint.className = 'chat-file'
+        setText(hint, 'orb.files.dropHint')
+        filesRow.appendChild(hint)
+      }
+      filesRow.classList.add('on')
+    } else {
+      renderAttach()
+    }
+  }
+
+  window.addEventListener('dragover', (e) => {
+    const dt = e.dataTransfer
+    if (!dt || !Array.from(dt.types || []).includes('Files')) return
+    e.preventDefault()                   // 不拦的话浏览器会直接打开这个文件
+    dt.dropEffect = 'copy'
+    setIgnore(false)                     // 穿透模式下先让本窗口可交互，否则收不到 drop
+    showDropHint(true)
+  })
+  window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) showDropHint(false) })
+  window.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer
+    if (!dt) return
+    e.preventDefault()
+    showDropHint(false)
+    const paths = Array.from(dt.files || []).map((f) => {
+      try { return window.akdagent.pathFor(f) } catch { return '' }
+    }).filter(Boolean)
+    if (paths.length) addPaths(paths)
+    // 真拖了文件却一个路径都没拿到（理论上不该发生：沙箱 preload 也有 webUtils）⇒ **不静默**，闪一下让用户知道
+    else if (Array.from(dt.files || []).length) { console.warn('[orb] 拖进来但没拿到路径（webUtils 不可用？）'); flashAttach() }
+  })
+
+  /* 粘贴路径：Explorer「复制为路径」会给 `"C:\a\b.pdf"`（带引号）。
+   * 只有"单行 + 查得到这个路径"才当附件；否则**照常插进输入框**（不吞用户的粘贴）。 */
+  chatText.addEventListener('paste', (e) => {
+    const cd = e.clipboardData
+    const raw = cd ? cd.getData('text/plain') : ''
+    if (!raw || /\n/.test(raw.trim())) return
+    const bare = raw.trim().replace(/^"([\s\S]*)"$/, '$1')
+    if (!bare) return
+    e.preventDefault()
+    const put = () => chatText.setRangeText(raw, chatText.selectionStart, chatText.selectionEnd, 'end')
+    window.akdagent.fileStat(bare).then((st) => { if (st && st.ok) addPaths([st.path]); else put() }).catch(put)
+  })
+
+  /** 拼进消息的附件块（i18n 模板 `orb.files.sendBlock` = "…：\n{0}"）。 */
+  function attachBlock() {
+    const lines = attach.map((f, i) => (i + 1) + '. ' + f.path).join('\n')
+    return I.t('orb.files.sendBlock', lines)
+  }
+
+  function clearAttach() { attach = []; renderAttach() }
 
   /* 「停止本轮」—— 用户 2026-09-19 反馈的第②件（悬浮球没有中断）。
    * 后端早就齐：preload `agentCancel` → 主进程 `akdagent-agent-cancel` → `dshCall('session/cancel')`；
@@ -1070,7 +1395,7 @@
   // 「停止本轮」：只在 busy 时可见（可见性由 setSendEnabled 统一管）；aria-label 跟 title 同源
   chatStop.addEventListener('click', stopTurn)
   chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle'))
-  I.onChange(() => chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle')))
+  I.onChange(() => { renderAttach(); chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle')) })
   chatText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMsg() })
   window.akdagent.onAgentEvent(onAgentEvent)
   /* 会话绑定由主进程下发（唯一权威）——球全靠 mySessionId 过滤帧：
@@ -1084,6 +1409,9 @@
       mySessionId = id
       console.log('[orb] 会话绑定 -> ' + id)
       if (first && chatBody.children.length === 0) { historyLoaded = false; loadHistory() }
+      /* 🆕 2026-10-05（⑤ 补齐）：**换会话（换段/新会话）必须重取模型行** ——
+       *   否则那个下拉还停在上一个会话的模型上（会话级的模型是逐会话的，不刷新就是**显示错值**）。 */
+      refreshSessionModel().catch(() => { /* 宿主没起/无此 IPC：静默 */ })
     })
   }
   // 桥推送的工程切换/收编：**只追加分隔线，不清空面板**（2026-09-13 新语义）
@@ -1094,12 +1422,22 @@
       if (obj.segId && obj.segId === curSegId) return // 同一段（仅改名）⇒ 不重复画
       curSegId = obj.segId || curSegId
       appendSegSeparator({ kind: obj.kind || 'project', projectKey: null, projectName: obj.project, gen: obj.gen })
+      /* 🆕 2026-10-05（⑤ 补齐）：工程/段切了 ⇒ 会话多半也换了 ⇒ 模型行同样要重取。 */
+      refreshSessionModel().catch(() => { /* 同上 */ })
     })
   }
   window.akdagent.onAgentReady(setConnState)
   /* 🆕 2026-09-27：主进程推来的**用户可见提示**（"这一轮为什么错、去哪儿配"）——
    * 以前这类原因只写进 akdagent.log，用户界面上永远只有一句"回合结束（error）"。 */
   window.akdagent.onNotice((p) => { if (p && p.text) appendErr('orb.notice.warn', p.text) })
+  /* 🆕 2026-10-05（⑤）：主进程推来的"本会话模型已变"（切模型后 / 换会话后）——
+   * 直接更新那一行，不必等下一次就绪。 */
+  if (window.akdagent.onSessionModel) {
+    window.akdagent.onSessionModel((p) => {
+      const state = document.getElementById('model-state')
+      if (state && p && p.provider) state.textContent = `${p.provider}/${p.model}`
+    })
+  }
   // 初始查询一次连接状态（防止加载时错过推送）
   window.akdagent.agentReadyQuery().then(setConnState)
 
@@ -1237,7 +1575,7 @@
     orb.classList.toggle('ready', orbPill.level !== 'down')  // 绿、黄都算"亮"；灰=host 未就绪
     orb.classList.toggle('warn', warn)
     const tip = I.t(orbPill.code, ...(orbPill.args || []))
-    // tooltip = 桥状态 + 应用名（应用名沿用面板标题，onHostType 会把它改成 Instrument X）
+    // tooltip = 桥状态 + 应用名（应用名沿用面板标题，onHostType 会把它改成 Instrument X / ACE Studio）
     const titleEl = document.getElementById('chat-title')
     const appName = (titleEl && titleEl.textContent) || ''
     const full = appName ? tip + ' · ' + appName : tip
@@ -1259,20 +1597,27 @@
     renderOrbPill()
   })
 
-  /* ── 宿主类型：SV 用 SV 标志，Instrument X 切换为 IX logo ── */
+  /* ── 宿主类型：SV 用 SV 标志，Instrument X 切 IX logo，ACE Studio 切**第三套**（紫）──
+     第三套只在 ACE **在线**时由主进程推过来（判据在 host-pick.pickHostType）；没装 ACE = 永不出现。 */
   const SV_LOGO = 'sv-monogram-anim.svg'
   const IX_LOGO = 'instrumentx-mark-anim.svg'
+  const ACE_LOGO = 'ace-mark-anim.svg'
+  const ACE_TEXT = 'aceagent-text.svg'
   window.akdagent.onHostType((type) => {
     const isIX = type === 'instrument-x'
-    // 切主题色：IX 蓝 / SV 绿（body 属性触发 CSS 变量覆盖）
-    document.body.dataset.host = isIX ? 'instrument-x' : 'sv'
-    // 面板标题：默认 SV，检测到 Instrument X 时切换
+    const isAce = type === 'ace-studio'
+    // 切主题色：IX 蓝 / ACE 紫 / SV 绿（body 属性触发 CSS 变量覆盖）
+    document.body.dataset.host = isAce ? 'ace-studio' : (isIX ? 'instrument-x' : 'sv')
+    // 面板标题：默认 SV，检测到 Instrument X / ACE Studio 时切换
     const title = document.getElementById('chat-title')
-    if (title) title.textContent = (isIX ? 'Instrument X  AI Agent' : 'Synthesizer V  AI Agent')
-    // hover label 文字图：IX 用 ixagent-text（X 蓝 + 灰字），SV 用 akdagent-text
+    if (title) {
+      title.textContent = isAce ? 'ACE Studio  AI Agent'
+        : (isIX ? 'Instrument X  AI Agent' : 'Synthesizer V  AI Agent')
+    }
+    // hover label 文字图：ACE 用 aceagent-text（紫 ACE + 灰 Agent），IX 用 ixagent-text，SV 用 akdagent-text
     const labelImg = document.querySelector('#orb-label img')
     if (labelImg) {
-      const wantText = isIX ? 'ixagent-text.svg' : 'akdagent-text.svg'
+      const wantText = isAce ? ACE_TEXT : (isIX ? 'ixagent-text.svg' : 'akdagent-text.svg')
       if (labelImg.dataset.hostType !== wantText) {
         labelImg.dataset.hostType = wantText
         labelImg.src = wantText + '?v=' + Date.now()
@@ -1280,13 +1625,13 @@
     }
     const logo = document.querySelector('#orb .logo')
     if (!logo) return
-    const want = isIX ? IX_LOGO : SV_LOGO
+    const want = isAce ? ACE_LOGO : (isIX ? IX_LOGO : SV_LOGO)
     // 避免重复设置导致动画重放（restartLabelAnim 用 ?v= 刷新）
     if (logo.dataset.hostType !== want) {
       logo.dataset.hostType = want
       logo.src = want + '?v=' + Date.now()
-      // IX 图形是白色+蓝方块，深色球上清晰；SV 动画是绿色调，无需额外样式
-      logo.style.width = (isIX ? '30px' : '44px')
+      // IX 图形是白色+蓝方块；ACE 是**用户自绘**的字标（用户 2026-10-03「图标再大点」⇒ 36→44px），SV 是绿色调
+      logo.style.width = isAce ? '44px' : (isIX ? '30px' : '44px')
     }
   })
   // 启动时主动查询一次宿主类型（setOrbStatus 会推送，防错过）

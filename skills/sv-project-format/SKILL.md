@@ -1,7 +1,7 @@
 ---
 name: sv-project-format
 description: AKDAgent 工程/项目文件结构参考：.svp（Synthesizer V）与 .ixp（Instrument X）的 JSON 结构、时间单位（blick）、音符/音符组/自动化/音频轨的存储格式、安全读写姿势。触发：需要读/解析/生成/编辑 SV 或 IX 工程文件、理解 ixp/svp 顶层结构、加音频轨、写 automation、单位换算等。
-version: 1.0.0
+version: 1.0.1
 ---
 
 # AKDAgent 工程文件结构（.svp / .ixp）
@@ -595,6 +595,13 @@ SV1 的组引用（含 `mainRef`）用 **`blickOffset` / `blickAbsoluteBegin` / 
     **不能靠"量化到小节线"解决**，必须真的移 onset。
 
 ### 🆕 变速：把工程做成「BPM 包络曲线」（2026-09-17 用户给定流程）
+
+> ⛔ **先问速度范围再做**（2026-10-06 用户要求，见 `akdagent-playbook` §0.4b）：
+> 节拍有**度量层次歧义** —— 同一段音频可落在 `78 / 117 / 156`（= 1× / ×1.5 / ×2，×1.5 是附点/6-8 拍感）。
+> 实测教训：一首真实 **78 BPM** 的歌被测成 **117**，据此做出来的工程整个错层。
+> ⇒ 测之前问一句"大概多少 BPM（范围）"，用 `measure_tempo` 的 `bpmMin`/`bpmMax` 锁住；
+> **纯文件也能直接生成工程**：`tools/svp-write-tempo.cjs`（写 `time.tempo[]`）+ `tools/svp-inject-audio.cjs`（挂音频轨），
+> 全程不需要宿主。下面这套 API 路线适合**已经在 SV 里开着工程**时用。
 
 **什么时候做**（两条任一成立）：
 1. **`beatLocations` 相邻间隔差距较大** —— 判据：`dt_k = beatLocations[k+1] − beatLocations[k]`，

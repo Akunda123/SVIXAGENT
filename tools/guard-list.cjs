@@ -44,6 +44,30 @@ const TESTS = [
   ['离线自测（织体）', 'server/tests/texture.mjs'],
   ['离线自测（MusicXML）', 'server/tests/musicxml.mjs'],
   ['离线自测（音素）', 'server/tests/phoneme.mjs'],
+  // 2026-10-05 加：orb 附件（拖拽 / 粘贴路径）接线 + 消息契约（真机拖拽仍需人工，见 docs/orb附件-拖拽与粘贴.md）
+  ['离线自测（orb 附件）', 'tools/test-orb-attach.cjs'],
+  // 2026-10-05 加：`.acep` 工具面离线回归（**自己造合成 ACEP2 夹具**，不碰 ACE、不碰用户工程）
+  ['离线自测（acep 工具）', 'tools/test-acep.cjs'],
+  // 2026-10-05 加：ACE 工具组（`ace_state`/`ace_cli`/`acep`）—— 重点是**写护栏**（`--in-place` 默认拒 + 拒时文件字节不动）
+  ['离线自测（ACE MCP 工具）', 'server/tests/ace.mjs'],
+  // 2026-10-05 加：设置页「默认模型可用吗」的判据（**把函数抠出来真跑**：deepseek 与 pi-ai 两条空列表规则）
+  //   —— 这条测试 2026-10-03 抓到过 deepseek 的误报、2026-10-05 又抓到 pi-ai 的同款误报
+  ['离线自测（设置页模型判据）', 'tools/test-settings-model-ui.cjs'],
+  // 2026-10-05 加：客户端 PDF→PNG（识谱入口）——**要真 electron**（隐藏窗 + Chromium canvas + 随包 pdfjs）：
+  //   跑法 `cd electron && npx electron dev/test-pdf-render.cjs`；接线本身由 check-pdf-render-wiring.cjs 静态钉住
+  ['真机自测（PDF→PNG 渲染，需 electron）', 'electron/dev/test-pdf-render.cjs'],
+  // 2026-10-06 加：识谱（OMR）**质量闸门** —— 把临时件 server/omr-compare.mjs 收进 tools/ 当正式件。
+  //   ⚠️ 它**默认不跑**（F1 必须有真值 MIDI；合成夹具没有真值，用户版权谱不许当夹具）：
+  //      不传 --truth 时只解释用法、退出 0；判据是 `--truth <真值.mid> [--min-f1 N]`。
+  //      "文件齐 / 来源对得上 / 能 import / 能真跑一张图" 那四条在 `tools/check-dolce-vendor.cjs` 里，默认就跑。
+  ['离线自测（识谱 F1 质量闸门，需真值 MIDI，默认不跑）', 'tools/omr-quality.cjs'],
+  // 2026-10-06 加：识谱链的**宿主无关**两件（写出端 + 统一写入器）—— 纯 node，也在 server 的 `npm test` 里跑
+  ['离线自测（音符→MusicXML 写出端）', 'server/tests/musicxml-writer.mjs'],
+  ['离线自测（统一写入器 write_notes）', 'server/tests/write-notes.mjs'],
+  // 2026-10-06 加：**BPM 包络**（可变速度测量，完全不依赖宿主）—— 用户点名要的那件
+  ['离线自测（BPM 包络 measure_tempo）', 'server/tests/tempo-map.mjs'],
+  // 2026-10-06 加：音频转码的**静默垃圾**判据（m4a/AAC 喂给 mpg123 会出噪声；非 44.1k WAV 同病）
+  ['离线自测（音频转码 convert_audio）', 'server/tests/convert-audio.mjs'],
 ];
 for (const [kind, rel] of TESTS) if (fs.existsSync(path.join(ROOT, rel))) guards.push({ kind, file: rel });
 

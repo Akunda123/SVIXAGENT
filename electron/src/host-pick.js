@@ -26,6 +26,12 @@ const HOSTS = ['sv', 'ix']
 /** 宿主 id → 推给 orb 的宿主类型（orb 用它切皮肤；见 orb.html 的 onHostType） */
 const HOST_TYPE = { sv: 'sv', ix: 'instrument-x' }
 
+/** 第三套皮肤：ACE Studio（2026-10-03 加）。
+ *  它**不是我们的桥宿主** —— 走它自己的 `acestudio-cli`、没有心跳文件、没有面板，
+ *  所以它**不在 HOSTS 里**（pickActiveHost/orderCandidates 都不该看见它），只在下面
+ *  `pickHostType` 里当"最后的备选皮肤"。 */
+const ACE_HOST_TYPE = 'ace-studio'
+
 /**
  * 选"当前宿主"。
  * @param {Record<string, number>} [activity] 宿主 → 最近活动时间戳（ms）；没活动写 0/省略
@@ -50,9 +56,36 @@ function orderCandidates (active) {
   return [a].concat(HOSTS.filter((h) => h !== a))
 }
 
+/**
+ * 决定 orb 该用**哪套皮肤**（2026-10-03 加，第三套是 ACE Studio）。
+ *
+ * 为什么单列一个函数：皮肤判据与"当前宿主"**不完全一样** —— ACE 没有活动/心跳信号，
+ * 用户定的口径是**保守档**：「ACE 只在 SV/IX 都不可用时才上」，绝不遮住能干活的目标。
+ * @param {{activity?:Record<string,number>, fresh?:Record<string,boolean>, aceOnline?:boolean}} [s]
+ * @returns {'sv'|'instrument-x'|'ace-studio'}
+ *   ① 有活动 ⇒ 最近活动那台（agent 正在那儿干活）
+ *   ② 否则桥心跳活着的那台
+ *   ③ 否则 **ACE 在线** ⇒ ACE 第三套皮肤（没装/没开时 aceOnline=false ⇒ 永不出现）
+ *   ④ 都没有 ⇒ 兜底 sv（不切皮肤）
+ */
+function pickHostType (s = {}) {
+  const activity = s.activity || {}
+  const fresh = s.fresh || {}
+  let best = null
+  let bestAt = 0
+  for (const h of HOSTS) {
+    const at = Number(activity[h]) || 0
+    if (at > bestAt) { bestAt = at; best = h }
+  }
+  if (best) return HOST_TYPE[best]
+  for (const h of HOSTS) if (fresh[h]) return HOST_TYPE[h]
+  if (s.aceOnline) return ACE_HOST_TYPE
+  return HOST_TYPE[HOSTS[0]]
+}
+
 /** 宿主 id → orb 宿主类型（未知宿主返回 null ⇒ 调用方别推、别切皮肤） */
 function typeOf (host) {
   return HOST_TYPE[host] || null
 }
 
-module.exports = { HOSTS, HOST_TYPE, pickActiveHost, orderCandidates, typeOf }
+module.exports = { HOSTS, HOST_TYPE, ACE_HOST_TYPE, pickActiveHost, orderCandidates, typeOf, pickHostType }

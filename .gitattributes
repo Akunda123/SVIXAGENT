@@ -1,0 +1,20 @@
+# 统一换行：仓库里一律 LF（Windows 上 clone 也不再变 CRLF）
+#
+# 为什么需要（2026-10-05 加，交接文档 §16.3 的遗留）：
+#   本机与系统级 git 都是 `core.autocrlf=true`，HEAD 里存的是 LF，而 **checkout 到 Windows 工作区会变 CRLF**；
+#   偏偏有守卫的正则是**只认 LF** 的（`tools/check-package-assets.cjs` 里
+#   `/function createKeyPromptWindow\(\)[\s\S]*?\n}\n/` 与 `/async function querySvHostType[\s\S]*?\n}\n/`）
+#   ⇒ **任何人在 Windows 上全新 clone 后跑守卫都会红**（而不是代码有问题）。
+#   `eol=lf` 让 git 在 checkout 时也写 LF ⇒ 这个坑从根上消失（新写的守卫也不必再惦记 CRLF）。
+#
+# ⚠️ 加了这个文件之后，若某台机器的工作区里已经有 CRLF 文件，需要一次性重新规范化：
+#     git add --renormalize .
+#     git commit -m "统一换行：按 .gitattributes 重新规范化（LF）"
+#   （本机工作区本来就是 LF，加完 `git status` 应当干净。）
+#
+# 例外：Windows 批处理/脚本对 CRLF 更友好，若将来加 `.bat` / `.cmd` / `.ps1` 需要 CRLF，按下面注释掉的写法放行。
+* text=auto eol=lf
+
+# *.bat text eol=crlf
+# *.cmd text eol=crlf
+# *.ps1 text eol=crlf

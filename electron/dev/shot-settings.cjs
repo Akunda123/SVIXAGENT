@@ -33,7 +33,30 @@ const MESSAGES = {
   'bridge-short': '桥不在线',
 }
 
+/* 🆕 2026-10-05：**给截图工具接上真字典**。
+ *   以前桩 preload 里 `sendSync('akdagent-i18n-sync')` 没人应答 ⇒ 退化成"显示 key"，
+ *   于是截图里全是 `settings.model.title` 这种键名（样式能看、**文案看不出**，等于验收不了中文排版）。
+ *   这里把 `src/i18n/*.json` 按 common 打底 + settings 覆盖合并（与 `i18n/index.js` 的 dictFor 同口径），
+ *   并支持 `AKDAGENT_SHOT_LOCALE` 选语种（默认 zh-Hans）。 */
+const I18N_DIR = path.join(__dirname, '..', 'src', 'i18n')
+function buildDict(locale) {
+  const dict = {}
+  for (const ns of ['common', 'settings', 'orb', 'keyPrompt', 'svSetup']) {
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(I18N_DIR, ns + '.json'), 'utf8'))
+      Object.assign(dict, j[locale] || {})
+    } catch { /* 缺文件就跳过 */ }
+  }
+  return dict
+}
+const LOCALE = process.env.AKDAGENT_SHOT_LOCALE || 'zh-Hans'
+const DICT = buildDict(LOCALE)
+console.log(`[shot] locale=${LOCALE} · 字典 ${Object.keys(DICT).length} 键`)
+
 app.whenReady().then(async () => {
+  // 桩 preload 会 sendSync 这个通道（真 preload 也走它）⇒ 假主进程在这里应答，页面才有真文案
+  const { ipcMain } = require('electron')
+  ipcMain.on('akdagent-i18n-sync', (e) => { e.returnValue = { locale: LOCALE, dict: DICT } })
   const win = new BrowserWindow({
     width,
     height,
@@ -55,6 +78,24 @@ app.whenReady().then(async () => {
     const ok = variant === 'bridge-on'
     await js(`window.svsettings.__emitBridge(${ok}, ${JSON.stringify(MESSAGES[variant] || variant)})`)
     await new Promise((r) => setTimeout(r, 200))
+  }
+
+  /* 🆕 2026-10-05：`variant === 'expanded'` ⇒ **展开第一张提供方卡片**再截图。
+   *   为什么需要：模型页的卡片默认是折叠的，而"自定义列表为空 ⇒ 列宿主真目录"那组 chip
+   *   （`renderCatalogChips`）长在卡片体里 ⇒ 不展开就永远看不到（第一次截图就吃了这个亏）。 */
+  if (page === 'model' && variant === 'expanded') {
+    const clicked = await js(`
+      (() => {
+        const cards = Array.from(document.querySelectorAll('#provider-list .provider-card'));
+        for (const c of cards) {
+          const btn = Array.from(c.querySelectorAll('button')).find((b) => /编辑|edit/i.test(b.textContent || ''));
+          if (btn) { btn.click(); return true; }
+        }
+        return false;
+      })()
+    `)
+    console.log('[shot] 展开卡片：' + clicked)
+    await new Promise((r) => setTimeout(r, 400))
   }
 
   // 顺带把关键盒模型量出来（截图看形状，数字看是否溢出/挤压）

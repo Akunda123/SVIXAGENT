@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<title>AKDAgent · 音频 → WAV 解码（离屏）</title>
+<!--
+  ⭐ 这是什么：**客户端侧的"任意音频 → 16bit WAV"解码器**（用户 2026-10-06 裁「走 C：Chromium 解码」）。
+  为什么要它：内置解码器只有 mpg123（**只认 MP3**）+ 我们自己的 WAV 读取器；用户从手机/DAW 拿到的是
+  **m4a(AAC)**，喂给 mpg123 会解出一段**噪声**（用户 2026-10-06 亲报「转换的 wav 是乱的」）。
+  而客户端自带的 Chromium **本来就能解** AAC/ALAC/FLAC/Opus/Vorbis/WAV ⇒ **零新增字节**。
+
+  ⛔ 为什么不用 libav.js（2026-10-06 我推错、当场证伪，别再走回去）：
+   · 上游变体表写明 `@libav.js/variant-default` = *"Opus, FLAC, and wav in ogg, WebM, FLAC, and wav containers"*
+     —— **没有 AAC 解码器、也没有 MP4/MOV 解复用器**；实测 `ff_init_demuxer_file()` 直接 `Could not open source file`。
+   · `@libav.js/variant-aac` 在 npm **不存在**；官方 release 的 280 MB 全量 zip 里 168 个变体名**全是具名变体，没有模块化的 aac**。
+   ⇒ 想用 libav.js 做 AAC 只能自己 emscripten 现编（`configs/configs/aac`）。**别再从"wasm 里 grep 到 aac 字符串"推断能力**。
+
+  ✅ 正确性证据（2026-10-06 用用户那份 11.8 MB `obj_*.m4a` 实测）：
+   382.9 s · 48 kHz 立体声，本页 `decodeAudioData` **447 ms** 解完；逐秒 RMS 与**真 ffmpeg** 解出的 44.1k WAV 对照 =
+   **最大差 0.54 dB（仅第 380 秒边界）· 平均 0.002 dB · 相关系数 1.000000 · 时长差 0.003 s**。
+
+  ⛔ 设计要点（别改成别的样子）：
+   · **离屏**：主进程用 `show:false` 的 BrowserWindow 加载本页 ⇒ 不抢焦点、不弹窗；**必须关后台节流**
+     （隐藏窗默认被节流；这是截帮助页时踩过的坑）。
+   · **输出采样率 = 源采样率**：这里**不做重采样**。服务端的 `prepareWav()` 本来就会把任意 WAV
+     （16/24/32-bit、任意采样率、单声道）读成 44.1k 立体声 ⇒ 客户端只负责"换个容器"，少一处重采样就少一处失真与代码。
+   · **不落盘**：本页只把 WAV 字节留在内存里，主进程**分块**取走再落盘（路径纪律只有一处）。
+     为什么要分块：一份 6.4 分钟的 m4a → WAV ≈ **73 MB**，一次性从 `executeJavaScript` 返回会顶爆序列化。
+   · **有闸**：见 LIMITS（超长只转前 N 秒并**如实回传 `truncated`**，绝不假装转完了）。
+-->
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; margin: 12px; color: #333 }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px }
+</style>
+</head>
+<body>
+<div id="status">就绪（等待主进程调用 <code>akdAudioDecode</code>）</div>
+
+<script>
+const LIMITS = {
+  /* 最长只转 30 分钟（超了截断并置 truncated，界面要如实说）。
+   * 为什么是 30 分钟而不是"随便"：这份音频要**整个进内存** —— AudioBuffer 是 float32
+   * （30 分钟立体声 48k ≈ **691 MB**）+ 产出的 16bit WAV（≈**345 MB**）⇒ 峰值 ≈1 GB。
+   * 再长会顶着隐藏窗的内存上限（渲染进程 OOM 时用户只看到一句没头没脑的 Script failed，
+   * 与 PDF 渲染那条坑同类）⇒ 宁可**明确截断并告知**，不要崩。 */
+  maxSeconds: 1800,
+  maxChannels: 2,         // 只留前两个声道（服务端也只吃立体声）
+};
+
+function setStatus(t) { const el = document.getElementById('status'); if (el) el.textContent = t; }
+
+/* 解码结果留在页面内存里：`wav` = 完整 WAV 字节（44 字节头 + PCM），主进程用 akdAudioChunk 分块拉。 */
+let wavBytes = null;
+
+/* ⚠️ 路径要**编码**：文件名里带 `#` 或 `?` 时原样拼 URL 会被当 fragment/query ⇒ `Failed to fetch`
+ *   （2026-10-06 在 PDF 那条路上实测过：`谱#1 (a&b).pdf` 直接失败；中文/空格/`%` 本来就没事）。
+ *   `encodeURI` 管非 ASCII 与空格；`#`/`?` 它**不转义** ⇒ 另外补两刀。 */
+function asFileUrl(p) {
+  return encodeURI('file:///' + String(p).replace(/\\/g, '/').replace(/^\//, ''))
+    .replace(/#/g, '%23').replace(/\?/g, '%3F');
+}
+
+/** 音频文件 → 16bit WAV（**源采样率、源声道数（≤2）**）。返回摘要；字节留在内存里等 `akdAudioChunk`。 */
+window.akdAudioDecode = async function akdAudioDecode(opts) {
+  const { path, maxSeconds = LIMITS.maxSeconds } = opts || {};
+  if (!path) throw new Error('akdAudioDecode: 少了 path');
+  const capSeconds = Math.min(LIMITS.maxSeconds, Math.max(0.1, Number(maxSeconds) || LIMITS.maxSeconds));
+  wavBytes = null;
+
+  // ① 读文件：本页由主进程以 file:// 打开 ⇒ 用 fetch 读同源文件（绝对路径由主进程传进来）
+  const url = String(path).startsWith('file://') ? String(path) : asFileUrl(path);
+  let ab;
+  try {
+    ab = await (await fetch(url)).arrayBuffer();
+  } catch (e) {
+    throw new Error('读不到这个文件：' + (e && e.message ? e.message : e));
+  }
+
+  // ② 交给 Chromium 解（AAC/ALAC/FLAC/Opus/Vorbis/WAV…）
+  const ac = new AudioContext();
+  let audio;
+  const t0 = Date.now();
+  try {
+    audio = await ac.decodeAudioData(ab);
+  } catch (e) {
+    try { await ac.close(); } catch { /* 忽略 */ }
+    throw new Error('Chromium 认不出这个音频（格式不支持 / 文件损坏 / 加密）：' + (e && e.message ? e.message : e));
+  }
+  const decodeMs = Date.now() - t0;
+  try { await ac.close(); } catch { /* 忽略 */ }
+
+  const srcRate = audio.sampleRate;
+  const srcChannels = audio.numberOfChannels;
+  const srcSeconds = audio.duration;
+  if (!(srcRate > 0) || !(srcSeconds > 0) || !srcChannels) throw new Error('这份音频解出来是空的（时长/采样率为 0）');
+
+  const outChannels = Math.min(LIMITS.maxChannels, srcChannels);
+  const frames = Math.min(audio.length, Math.floor(capSeconds * srcRate));
+  const truncated = audio.length > frames;
+
+  // ③ 拼 16bit WAV（44 字节头 + 交错 PCM）。一次分配，避免几百万个元素的小数组。
+  const dataBytes = frames * outChannels * 2;
+  const buf = new ArrayBuffer(44 + dataBytes);
+  const dv = new DataView(buf);
+  const u8 = new Uint8Array(buf);
+  const ascii = (o, s) => { for (let i = 0; i < s.length; i++) u8[o + i] = s.charCodeAt(i); };
+  ascii(0, 'RIFF'); dv.setUint32(4, 36 + dataBytes, true); ascii(8, 'WAVE');
+  ascii(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, outChannels, true);
+  dv.setUint32(24, srcRate, true); dv.setUint32(28, srcRate * outChannels * 2, true);
+  dv.setUint16(32, outChannels * 2, true); dv.setUint16(34, 16, true);
+  ascii(36, 'data'); dv.setUint32(40, dataBytes, true);
+
+  const chans = [];
+  for (let c = 0; c < outChannels; c++) chans.push(audio.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < frames; i++) {
+    for (let c = 0; c < outChannels; c++) {
+      const v = chans[c][i];
+      const s = v <= -1 ? -32768 : v >= 1 ? 32767 : Math.round(v * 32767);
+      dv.setInt16(o, s, true);
+      o += 2;
+    }
+  }
+  wavBytes = u8;
+  setStatus(`完成：${frames} 帧 @ ${srcRate} Hz · ${outChannels} ch · ${(dataBytes / 1048576).toFixed(1)} MB`);
+
+  return { srcRate, srcChannels, srcSeconds, outChannels, frames, seconds: frames / srcRate, truncated, decodeMs, bytes: buf.byteLength };
+};
+
+/** 分块取 WAV 字节（base64）：主进程循环调用。base64 是**故意**的 ——
+ *  跨 `executeJavaScript` 传二进制（Uint8Array）在版本间行为不一，base64 字符串一定稳。 */
+window.akdAudioChunk = function akdAudioChunk(offset, length) {
+  if (!wavBytes) throw new Error('akdAudioChunk: 还没解码（先调 akdAudioDecode）');
+  const s = wavBytes.subarray(offset, Math.min(wavBytes.length, offset + length));
+  let bin = '';
+  const STEP = 0x8000;                       // 分小段喂 fromCharCode，别一次展开几十万个参数
+  for (let i = 0; i < s.length; i += STEP) bin += String.fromCharCode.apply(null, s.subarray(i, i + STEP));
+  return btoa(bin);
+};
+
+/** 用完释放（主进程 finally 里调）。 */
+window.akdAudioRelease = function akdAudioRelease() { wavBytes = null; return true; };
+</script>
+</body>
+</html>

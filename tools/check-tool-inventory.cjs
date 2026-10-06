@@ -5,7 +5,7 @@
  * 起因：README / MCP工具清单 / dist 三方对"到底几个工具"说法不一（19 / 30 / 13 op…），
  * 而**数字全靠手写记忆**必然漂。
  *
- * 本脚本以 `server/src/tools.ts` 为**唯一真源**：
+ * 本脚本以**注册工具的文件**为真源（`server/src/tools.ts` + `server/src/ace/tool-import.ts`）：
  *   ① 抽出全部 `server.tool("name", ...)` 的名字
  *   ② 与 `knowledge/docs/MCP工具清单.md` 的表格行对照 → 报「文档缺哪些 / 文档多哪些」
  *   ③ 与 `server/dist/tools.js` 对照 → 报「dist 是否已重新构建」
@@ -26,21 +26,47 @@ let luaOps = 0;         // Lua 桥的 op 数（README 里 Lua 那句要单独比
 let luaOpNames = [];
 const say = (s) => console.log(s);
 
-// —— ① 真源：src/tools.ts
-const src = read('server/src/tools.ts');
+// —— ① 真源：**`server/src` 下所有文件**里的 `server.tool("name", …)`
+//    ⚠️ 别再写"文件清单"：2026-10-06 先漏了 `ace/tool-import.ts`（ACE 工具用**单引号**注册 ⇒ 正则也没认出来），
+//    后来又漏了新增的 `write-notes.ts` —— 两次都让**文档里正确的名字**被误报成「文档多」。扫目录才不会再犯。
+function walkFiles(dir, ext, out = []) {
+  let ents = [];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of ents) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      if (/(^|[\\/])(node_modules|tests|\.git)([\\/]|$)/.test(p)) continue;
+      walkFiles(p, ext, out);
+    } else if (ext.test(e.name)) out.push(p);
+  }
+  return out;
+}
+
+const SRC_FILES = walkFiles(path.join(root, 'server', 'src'), /\.ts$/);
 const names = [];
-const re = /server\.tool\(\s*"([A-Za-z0-9_]+)"/g;
-let m;
-while ((m = re.exec(src)) !== null) names.push(m[1]);
-say(`【真源】server/src/tools.ts 定义工具 **${names.length}** 个`);
+const re = /server\.tool\(\s*['"]([A-Za-z0-9_]+)['"]/g;
+for (const f of SRC_FILES) {
+  // ⚠️ 本文件的 `read()` **没有 try**（抛异常而不是返回 null）⇒ 自己兜一层
+  let src = '';
+  try { src = fs.readFileSync(f, 'utf8'); } catch { continue; }
+  re.lastIndex = 0;
+  let m;
+  while ((m = re.exec(src)) !== null) names.push(m[1]);
+}
+say(`【真源】server/src 下 ${SRC_FILES.length} 个 .ts 里定义工具 **${names.length}** 个`);
 
 // —— ② dist 是否同步
 let distNames = [];
 try {
-  const dist = read('server/dist/tools.js');
-  const rd = /\.tool\(\s*"([A-Za-z0-9_]+)"/g;
-  let d;
-  while ((d = rd.exec(dist)) !== null) distNames.push(d[1]);
+  const DIST_FILES = walkFiles(path.join(root, 'server', 'dist'), /\.js$/);
+  const rd = /\.tool\(\s*['"]([A-Za-z0-9_]+)['"]/g;
+  for (const f of DIST_FILES) {
+    let dist = null;
+    try { dist = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    rd.lastIndex = 0;
+    let d;
+    while ((d = rd.exec(dist)) !== null) distNames.push(d[1]);
+  }
   const missing = names.filter((n) => !distNames.includes(n));
   const extra = distNames.filter((n) => !names.includes(n));
   if (missing.length || extra.length) {
@@ -49,7 +75,7 @@ try {
     if (missing.length) say(`   dist 缺：${missing.join(', ')}`);
     if (extra.length) say(`   dist 多：${extra.join(', ')}`);
   } else {
-    say(`✅ server/dist/tools.js 与 src 一致（${distNames.length} 个）—— 无需重新构建`);
+    say(`✅ server/dist 与 src 一致（${distNames.length} 个）—— 无需重新构建`);
   }
 } catch (e) {
   say(`（读不到 dist：${e.message}）`);
@@ -59,7 +85,12 @@ try {
 try {
   const doc = read('knowledge/docs/MCP工具清单.md');
   const listed = [];
-  const rl = /^\|\s*`(sv_[a-z_]+)`/gm;
+  // ⚠️ 2026-10-05：前缀**不再只有 `sv_`** —— ACE 组的工具叫 `ace_state` / `ace_cli` / `acep`
+  //   （ACE 是第三方宿主，不走桥；见 skills/ace/SKILL.md §3b）。原先写死 `sv_[a-z_]+` ⇒ 永远看不到它们。
+  // ⚠️ 2026-10-06 **第三次**同族修正：又写死成 `(?:sv|ace)_…|acep` ⇒ 新增的**宿主无关**工具 `write_notes`
+  //   （故意不带前缀，因为它同时服务三个宿主）永远匹配不到，于是文档里那行**明明在**却被报「文档缺」。
+  //   ⇒ 判据改成"表格首格是反引号包起来的小写标识符"，不再猜前缀。
+  const rl = /^\|\s*`([a-z][a-z0-9_]*)`/gm;
   let l;
   while ((l = rl.exec(doc)) !== null) listed.push(l[1]);
   const missInDoc = names.filter((n) => !listed.includes(n));
@@ -237,8 +268,14 @@ try {
 //      ⚠️ **豁免只在"命中位置前 40 字内"有旧版标记时生效**（退役/历史/旧/归档/时代/legacy）——
 //      一开始写成"整行含标记就豁免"，结果**假绿**：协议技能的 description 是一整行巨长文本，
 //      里面另有"剪贴板已整体退役"字样 ⇒ 整行被豁免，而**漂的数字恰好就在那一行**。
+// 🆕 2026-10-05 扩面：+ `tools/gen-github-readme.cjs`（**GitHub README 的生成器** —— 那一行是它**写死**的，
+//      改 README.md 手改没用，下次生成就被覆盖回去：本次实测「手改成 47 → 生成后变回 44」）·
+//      + `docs/README-开发版.md`（开发版 README，树形注释里也有工具数）。
 try {
-  const files = ['skills/akdagent-protocol/SKILL.md', 'knowledge/docs/PROTOCOL.md', 'README.md'];
+  const files = [
+    'skills/akdagent-protocol/SKILL.md', 'knowledge/docs/PROTOCOL.md', 'README.md',
+    'tools/gen-github-readme.cjs', 'docs/README-开发版.md',
+  ].filter((f) => fs.existsSync(P(f)));
   const RE = /MCP 工具面（(\d+)\s*个）|(\d+)\s*个\s*(op|MCP 工具|工具)/g;
   const OKMARK = /退役|已删|归档|历史|时代|legacy|旧/;
   say('\n【正文裸数量声明】（与真源比较；命中处前 40 字内有"旧/历史"字样才豁免）');

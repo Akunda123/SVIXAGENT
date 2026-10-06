@@ -184,15 +184,88 @@ const api = {
   getProviders: () => {
     mark('getProviders')
     // 形状要和主进程真实返回一致（缺字段会让页面脚本抛错，污染错误统计）
-    return Promise.resolve({ providers: [], presets: [], language: 'zh', reasoningEffort: 'high', models: [] })
+    /* 🆕 2026-10-05：给一份**有内容**的假数据（原来是空数组 ⇒ 截图里什么都看不到，测不了模型页的新 UI）。
+     *   ⚠️ 字段名照 `akdagent-get-providers` 的真实返回抄；`models: []` 是**故意**的
+     *   —— 走"自定义列表为空 ⇒ 用宿主真实目录"那条分支（把 renderCatalogChips 也照出来）。 */
+    return Promise.resolve({
+      providers: [
+        {
+          id: 'deepseek-official', displayName: 'DeepSeek', namespace: 'llm-deepseek', kind: 'deepseek',
+          apiKeyEnv: 'DEEPSEEK_API_KEY', hasKey: true, models: [], defaultModel: 'deepseek-flash', isDefault: true,
+          keyWarn: '',
+        },
+        {
+          id: 'anthropic', displayName: 'Anthropic', namespace: 'llm-pi-ai', kind: 'pi-ai',
+          apiKeyEnv: 'ANTHROPIC_API_KEY', hasKey: true, models: [], defaultModel: '', isDefault: false,
+          baseURL: '', api: '',
+          /* 🆕 2026-10-05（⑦ 展示侧）：故意给一个"已存在但看起来不对"的密钥提示 ——
+           *   本机实况就是 `ANTHROPIC_API_KEY` 只有 6 个字符（界面以前只显示"已配置"）。 */
+          keyWarn: '这把密钥只有 6 个字符，看起来不像完整密钥（可能只粘贴了一部分）',   // ⚠️ 真机是主进程 i18n.t() 的结果，这里给同义字面量
+        },
+        {
+          id: 'openai', displayName: 'OpenAI', namespace: 'llm-pi-ai', kind: 'pi-ai',
+          apiKeyEnv: 'OPENAI_API_KEY', hasKey: false, models: [{ id: 'gpt-4o', name: 'GPT-4o' }], defaultModel: '', isDefault: false,
+          baseURL: '', api: '', keyWarn: '',
+        },
+      ],
+      defaultProvider: 'deepseek-official',
+      defaultModel: 'deepseek-flash',
+      reasoningEffort: 'high',
+      language: 'zh',
+      presets: ['openai', 'anthropic'],
+      models: [],
+      /* ③ 凭据来源：走"我们自己的家 + 两个键"这一支 */
+      credentialKeys: [{ key: 'DEEPSEEK_API_KEY', configured: true }, { key: 'ANTHROPIC_API_KEY', configured: true }],
+      credentialSource: 'isolated',
+      credentialReadable: true,
+    })
   },
   setDefaultProvider: record('setDefaultProvider'),
-  setProviderKey: record('setProviderKey'),
+  setProviderKey: (providerId, keyEnv, keyValue) => {
+    mark('setProviderKey')
+    // ⑦：故意回一个 warn，把"密钥形状提示"那一行也照进截图
+    return Promise.resolve({ ok: true, apiKeyEnv: keyEnv, configured: true, warn: 'main.key.warnTooShort:6' })
+  },
   addPiProvider: record('addPiProvider'),
   removePiProvider: record('removePiProvider'),
   updatePiModels: record('updatePiModels'),
   // 🆕 2026-09-25（B 方案）：pi-ai 覆写字段（Base URL / API 协议 / 模型列表）；null = 删键
   setPiProviderFields: record('setPiProviderFields'),
+  /* 🆕 2026-10-05（④⑤）：宿主模型目录 + 本会话模型（形状照真机实测抄）
+   *   `lastUsed` 与 `next` **故意不同** —— 就是为了把"上一轮实际用：…"那一行照出来。 */
+  getModelCatalog: (force) => {
+    mark('getModelCatalog', force)
+    return Promise.resolve({
+      ok: true,
+      default: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' },
+      routableProviders: ['deepseek-official'],
+      groups: [{
+        id: 'deepseek-official', name: 'DeepSeek',
+        models: [
+          { id: 'deepseek-flash', name: 'DeepSeek-V41-Flash' },
+          { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+          { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp' },
+        ],
+      }],
+      failures: [],
+    })
+  },
+  getSessionModel: () => {
+    mark('getSessionModel')
+    return Promise.resolve({
+      ok: true, sessionId: 'stub-session-1',
+      next: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' },
+      lastUsed: { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp', reasoningEffort: 'high' },
+      /* 🆕 2026-10-05：`fallback=false`（已绑到本会话）—— 想照"最近会话"那支就把这里改 true */
+      fallback: false,
+    })
+  },
+  selectSessionModel: (sessionId, provider, model) => {
+    mark('selectSessionModel', { sessionId, provider, model })
+    return Promise.resolve({ ok: true, selected: { provider, model }, sessionId })
+  },
+  onSessionModel: () => { mark('onSessionModel') },
 }
 
 contextBridge.exposeInMainWorld('svsettings', api)

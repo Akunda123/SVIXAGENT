@@ -360,7 +360,14 @@ export function parseMusicXML(xmlText: string): MxScore {
     const spList = Array.isArray(root["part-list"]["score-part"]) ? root["part-list"]["score-part"] : [root["part-list"]["score-part"]];
     for (const sp of spList) {
       if (sp["@_id"]) {
-        if (sp["part-name"]) nameMap[sp["@_id"]] = typeof sp["part-name"] === "string" ? sp["part-name"] : String(sp["part-name"]["#text"] ?? sp["part-name"]);
+        // ⚠️ `<part-name print-object="no"></part-name>` —— **空元素带属性**，解析出来是只有 `@_*` 的对象、没有 `#text`。
+        // 老写法 `String(sp["part-name"]["#text"] ?? sp["part-name"])` 会得到 `"[object Object]"`：
+        // 2026-10-05 拿 Dolce（五线谱识别）的真实产物照出来的（它的写出端对所有 part 都这么写）。
+        const rawName = sp["part-name"];
+        if (rawName !== undefined) {
+          nameMap[sp["@_id"]] =
+            typeof rawName === "string" ? rawName : String(rawName && typeof rawName === "object" ? (rawName["#text"] ?? "") : (rawName ?? ""));
+        }
         // midi-instrument：GM program（0~127）
         if (sp["midi-instrument"]) {
           const miList = Array.isArray(sp["midi-instrument"]) ? sp["midi-instrument"] : [sp["midi-instrument"]];

@@ -36,6 +36,24 @@ test('only official authorization URLs can open a browser', () => {
   for(const url of ['javascript:alert(1)','https://auth.openai.com.evil.test/oauth/authorize','https://user:pass@auth.openai.com/oauth/authorize','http://auth.openai.com/oauth/authorize','https://auth.openai.com:9000/oauth/authorize']) assert.equal(authUrl(url), null)
 })
 
+test('API key handler retains upstream warnings and reports locked write failure', async () => {
+  const source=fs.readFileSync(path.resolve(__dirname,'../electron/src/main.js'),'utf8')
+  const handlerSource=source.match(/ipcMain\.handle\('akdagent-set-provider-key',[\s\S]*?\n\}\)/)[0]
+  let handler,failWrite=false
+  const vm=require('node:vm')
+  vm.runInNewContext(handlerSource,{
+    ipcMain:{handle:(_name,fn)=>{handler=fn}},
+    CRED_REF_RE:/^[A-Za-z_][A-Za-z0-9_]*$/,
+    keyShapeWarning:()=> 'shape-hint',
+    codexService:{setKey:async()=>({ok:!failWrite})},
+  })
+  const saved=await handler({},'google','GOOGLE_API_KEY','synthetic-value')
+  assert.equal(saved.ok,true);assert.equal(saved.warn,'shape-hint')
+  assert.equal((await handler({},'google','INVALID-REF','synthetic')).ok,false)
+  failWrite=true
+  assert.equal((await handler({},'google','GOOGLE_API_KEY','synthetic')).ok,false)
+})
+
 test('login single flight, stale replies, cancellation and late sign-out', async () => {
   let child, input=''
   const events=[], opened=[]

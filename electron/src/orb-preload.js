@@ -3,7 +3,7 @@
  */
 'use strict'
 
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 /* ── 界面语言（i18n）────────────────────────────────────────────────
  * 沙箱 preload **不能读文件**，字典由主进程经同步 IPC 给（见 src/i18n/README.md）。
@@ -75,6 +75,24 @@ contextBridge.exposeInMainWorld('akdagent', {
   sttTranscribe: (audio) => ipcRenderer.invoke('akdagent-stt-transcribe', audio),
   /** Agent 真实对话：主进程代理 DSH host（/api + events.mux WS） */
   agentSend: (text) => ipcRenderer.invoke('akdagent-agent-send', text),
+  /** 拖拽进来的 File → **绝对路径**。
+   *  ⚠️ Electron 32+ 已移除 `File.path`（渲染层拿不到真路径）⇒ 只能走主进程侧的 `webUtils.getPathForFile`。
+   *  ✅ 本窗口是**沙箱** preload（main.js 只给了 preload/contextIsolation/nodeIntegration，没关 sandbox），
+   *     而官方文档写明沙箱 preload 的 `require('electron')` 白名单正是
+   *     `contextBridge / crashReporter / ipcRenderer / nativeImage / webFrame / webUtils`
+   *     （https://www.electronjs.org/docs/latest/tutorial/sandbox#preload-scripts）⇒ 这里可用，**不需要** `sandbox:false`。
+   *  返回 '' 表示拿不到（调用方按"没拖到路径"处理并提示，不静默）。 */
+  pathFor: (file) => {
+    try { return webUtils.getPathForFile(file) || '' } catch { return '' }
+  },
+  /** 路径存在性/类型（粘贴路径、拖目录都要先问一句）。不读内容、不写盘。 */
+  fileStat: (p) => ipcRenderer.invoke('akdagent-file-stat', String(p == null ? '' : p)),
+  /** `.pdf` → 每页 PNG（识谱吃位图）⇒ 附件换成 PNG 路径。
+   *  渲染与落盘都在主进程（隐藏窗 + Chromium 真 canvas）；这里只转发路径，**不读文件内容**。 */
+  pdfRender: (p, opts) => ipcRenderer.invoke('akdagent-pdf-render', String(p == null ? '' : p), opts || {}),
+  /** 非 MP3/WAV 的音频（m4a/AAC、FLAC、Ogg…）→ 16bit WAV（内置解码器只认 MP3/WAV，靠客户端 Chromium 解）。
+   *  解码与落盘都在主进程（隐藏窗 + Web Audio）；这里只转发路径，**不读文件内容**。 */
+  audioDecode: (p, opts) => ipcRenderer.invoke('akdagent-audio-decode', String(p == null ? '' : p), opts || {}),
   agentNew: () => ipcRenderer.invoke('akdagent-agent-new'),
   /** 导出当前工程段会话为 md（导出后该段不再喂模型；显示层继续追加新段） */
   agentExport: () => ipcRenderer.invoke('akdagent-orb-export'),
@@ -102,4 +120,12 @@ contextBridge.exposeInMainWorld('akdagent', {
    * 链路：本进程 → jsonl → Lua 桥 → project scriptData → 面板（见 docs/SidePanel桥设计.md）
    */
   panelPush: (p) => ipcRenderer.invoke('akdagent-panel-push', p),
+
+  /* 🆕 2026-10-05（用户裁「5 做」）：**本会话模型** —— 读（含目录）与切。
+   *   ⚠️ 会话模型 ≠ 设置里的「默认模型」：后者只对**新会话**生效（宿主原话见 main.js 注释）。 */
+  getModelCatalog: (force) => ipcRenderer.invoke('akdagent-model-catalog', force === true),
+  getSessionModel: () => ipcRenderer.invoke('akdagent-session-model'),
+  selectSessionModel: (sessionId, provider, model, reasoningEffort) =>
+    ipcRenderer.invoke('akdagent-select-session-model', sessionId, provider, model, reasoningEffort),
+  onSessionModel: (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p)),
 })

@@ -28,6 +28,10 @@ dsh-runtime/node/
 dsh-runtime/dsh/
 dsh.*.bak-*/
 
+# ── 客户端渲染用的第三方构建（识谱 PDF→PNG 要的 pdfjs min 版，≈1.8 MB）──
+#    由 tools/stage-pdfjs.cjs 从 server/node_modules/pdfjs-dist 落位 ⇒ 不进库（electron-builder 照打）
+electron/src/vendor/
+
 # ── 模型权重（CREPE / 分离模型，64~85 MB 起；GitHub 会拒）──────────
 server/models/
 **/models/

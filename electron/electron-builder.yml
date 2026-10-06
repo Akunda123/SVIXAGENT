@@ -30,6 +30,11 @@ asarUnpack:
   - src/stt-server.js
   - src/stt-model.js
   - node_modules/sherpa-onnx-node/**
+  # 客户端 PDF→PNG 渲染要的 pdfjs（`src/vendor/pdfjs/**`，由 tools/stage-pdfjs.cjs 落位）：
+  #   ESM `import` 与 **Web Worker 从 asar 内读有历史坑**（拿不到 worker 会退到"假 worker"——能跑但慢，且不报错）
+  #   ⇒ 与 STT 同等对待：放**实盘**（`app.asar.unpacked/src/vendor/pdfjs/...`）。
+  #   守卫：tools/check-pdf-render-wiring.cjs
+  - src/vendor/pdfjs/**
 
 win:
   icon: assets/icon.ico

@@ -148,6 +148,10 @@ for (const h of res.hits) {
 console.log('');
 console.log('处理方式（二选一）：');
 console.log('  ① 直接生成脱敏副本（推荐，源文件不动）：');
-console.log('     node tools/check-redaction.cjs --redact-to dist\\knowledge --tools docs skills');
+console.log('     node tools/check-redaction.cjs --redact-to dist/knowledge --clean');
+// ⚠️ 2026-10-05 更正：这里原先把命令写成 `--redact-to dist\knowledge --tools docs skills` —— 那是**旧默认源**
+//    时代（docs+skills 也随包）的写法。现在默认源是 `knowledge/docs` + `tools`（`docs/` 已降级为开发参考、
+//    `skills/` 走 dsh-runtime 自己的分发链），而 `--tools`/`docs`/`skills` 这些位置参数会被当成**源目录** ⇒
+//    照抄会把 `docs/` 与 `skills/` 拷进知识包（并让 `check-package-assets` ⑧ 的份数对不上）。
 console.log('  ② 逐条改源文件（注意：`docs/` 里的路径多用于说明，通常保留占位符即可）');
 process.exit(1);

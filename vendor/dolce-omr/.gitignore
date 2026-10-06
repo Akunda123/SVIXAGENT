@@ -1,0 +1,6 @@
+# 开发树里让简谱那路解析得到 `onnxruntime-node`（它装在 server/node_modules）。
+# 打包版不需要：运行时布局是 <runtime>/dolce-omr + <runtime>/node_modules，向上查找天然命中。
+#
+# 用法（Windows，无需管理员）：
+#   New-Item -ItemType Junction -Path vendor\dolce-omr\node_modules -Target server\node_modules
+node_modules/

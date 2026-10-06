@@ -44,18 +44,37 @@ const ROOT = path.join(__dirname, '..')
 const SERVER = path.join(ROOT, 'server')
 const WITH_MODELS = !process.argv.includes('--no-models')
 const opt = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d }
-/** `--out <dir>`：组装到别处（默认 dist/server-runtime —— 那是 electron-builder 打包读的固定路径） */
-const OUT = path.resolve(opt('--out', path.join(ROOT, 'dist', 'server-runtime')))
 /**
  * 目标平台/架构（🆕 2026-09-21：原先**写死 win32/x64** ⇒ 想支持 macOS 必须参数化）。
  * 默认 = 当前机器（在 Windows 上跑就还是 win32/x64，**行为与从前完全一致**）。
  */
 const PLATFORM = opt('--platform', process.platform)
 const ARCH = opt('--arch', process.arch)
+/**
+ * `--out <dir>`：组装到别处。⚠️ **默认值随目标平台变**（2026-10-06 修）：
+ *   · 目标 = 本机 ⇒ `dist/server-runtime`（electron-builder 打包读的固定路径）
+ *   · 目标 ≠ 本机 ⇒ `dist/server-runtime-<platform>-<arch>`
+ * 起因：`--platform darwin --arch x64` **不带 `--out`** 时原先写死默认路径 ⇒ 静默把本机那份 **win32 runtime
+ * **覆盖掉**（`check-package-assets` 报「台账 = darwin/x64，与本机 win32 不一致」）。跨平台产物**不许**落在打包路径上。
+ */
+const OUT_EXPLICIT = process.argv.includes('--out')
+const DEFAULT_OUT = (PLATFORM === process.platform && ARCH === process.arch)
+  ? path.join(ROOT, 'dist', 'server-runtime')
+  : path.join(ROOT, 'dist', `server-runtime-${PLATFORM}-${ARCH}`)
+const OUT = path.resolve(opt('--out', DEFAULT_OUT))
 const VALID = { win32: ['x64', 'arm64'], darwin: ['x64', 'arm64'], linux: ['x64', 'arm64'] }
 if (!VALID[PLATFORM] || !VALID[PLATFORM].includes(ARCH)) {
   console.error(`✗ 不支持的平台/架构组合：--platform ${PLATFORM} --arch ${ARCH}（可用：win32/darwin/linux × x64/arm64）`)
   process.exit(2)
+}
+/* 跨平台组装**显式**写进打包路径 ⇒ 大声警告（十有八九是忘了 `--out`，那会覆盖本机那份） */
+if (OUT_EXPLICIT && PLATFORM !== process.platform &&
+    path.resolve(OUT) === path.resolve(ROOT, 'dist', 'server-runtime')) {
+  console.warn(`  ⚠️ 你把**跨平台**（${PLATFORM}/${ARCH}）产物写进了 electron-builder 的默认路径 dist/server-runtime` +
+    ` —— 这会**覆盖本机**那份；确认是有意的再继续（否则用 --out dist/server-runtime-${PLATFORM}-${ARCH}）`)
+}
+if (!OUT_EXPLICIT && PLATFORM !== process.platform) {
+  console.log(`  ℹ️ 跨平台组装：未给 --out ⇒ 输出到 ${path.relative(ROOT, OUT)}（本机那份 dist/server-runtime 不动）`)
 }
 
 /** onnxruntime-node 里要保留的平台目录（相对 bin/napi-v6/） */
@@ -109,6 +128,27 @@ copyDir(distSrc, path.join(OUT, 'dist'))
 fs.copyFileSync(path.join(SERVER, 'package.json'), path.join(OUT, 'package.json'))
 console.log('  ✓ dist/ + package.json  ' + sizeMB(path.join(OUT, 'dist')).toFixed(1) + ' MB')
 
+// ①' 识谱引擎（vendor/dolce-omr）——**必须进包**，否则 `sv_omr_image` 在用户机上找不到引擎
+//     驱动按两条布局找它：打包版 = `<runtime>/dolce-omr`（这里拷的位置），开发树 = `<repo>/vendor/dolce-omr`。
+const dolceSrc = path.join(ROOT, 'vendor', 'dolce-omr')
+if (fs.existsSync(path.join(dolceSrc, 'dist-cli', 'index.js'))) {
+  /* ⚠️⚠️ 2026-10-06 真事故：`vendor/dolce-omr/node_modules` 是**开发树里的一条 junction**
+   * （指向 `server/node_modules`，只为让简谱那路在开发树解析得到 `onnxruntime-node`）。
+   * `copyDir` 会**跟着它去拷** ⇒ 三次构建全部 `EPERM: copyfile` 崩在这里，
+   * 而 runtimes 变成**半拷贝的残缺状态**（打包守卫随即报"退役 JS 桥/STT/跨平台 staging"）。
+   * ⇒ 拷 vendor 时**排除 `node_modules` 与一切符号链接/junction**：运行时自带 `<runtime>/node_modules`，
+   *   根本不需要这份 junction。 */
+  const skipVendorJunk = (s, e) => !(e && typeof e.isSymbolicLink === 'function' && e.isSymbolicLink()) && path.basename(s) !== 'node_modules'
+  copyDir(dolceSrc, path.join(OUT, 'dolce-omr'), skipVendorJunk)
+  if (fs.existsSync(path.join(OUT, 'dolce-omr', 'node_modules'))) {
+    rmrf(path.join(OUT, 'dolce-omr', 'node_modules'))
+    console.log('  ! 已清掉误拷进 runtimes 的 dolce-omr/node_modules（junction 的产物）')
+  }
+  console.log('  ✓ dolce-omr/（识谱引擎）' + sizeMB(path.join(OUT, 'dolce-omr')).toFixed(1) + ' MB')
+} else {
+  console.error('  ✗ vendor/dolce-omr 不存在（或缺 dist-cli/index.js）—— 打出来的包**没有识谱能力**（见 vendor/dolce-omr/SOURCE.md）')
+}
+
 // ② 生产依赖（按 package.json 的 dependencies 白名单，避免把 devDeps 带进去）
 const pkg = JSON.parse(fs.readFileSync(path.join(SERVER, 'package.json'), 'utf8'))
 const prodDeps = Object.keys(pkg.dependencies || {})
@@ -141,6 +181,46 @@ for (const e of fs.readdirSync(srcNM, { withFileTypes: true })) {
 }
 // ③ 裁掉 onnxruntime 里**非目标平台**的二进制（258 MB → 单平台约 60 MB）
 
+/* ③''' sharp 的**原生件**也按平台裁（2026-10-06 真事故：darwin 的两个 runtime 里混进了
+ * `@img/sharp-win32-x64` 的 libvips dll / .node —— `npm i --cpu=wasm32 sharp` 仍会把宿主平台的原生件拉下来）。
+ * 保留：目标平台的 `sharp-<platform>-<arch>` + 跨平台的 `sharp-wasm32*`（我们实际用的是 wasm 那份）。 */
+{
+  const imgRoot = path.join(dstNM, '@img')
+  if (fs.existsSync(imgRoot)) {
+    const want = `sharp-${PLATFORM}-${ARCH}`
+    for (const e of fs.readdirSync(imgRoot)) {
+      if (e === want || e.includes('wasm32')) continue
+      if (/^sharp-(win32|darwin|linux)/.test(e)) {
+        rmrf(path.join(imgRoot, e))
+        console.log(`  ✓ @img/${e} 已按平台删除（目标 ${PLATFORM}/${ARCH}）`)
+      }
+    }
+  }
+}
+
+/* ③'' 裁识谱依赖（2026-10-05）：`pdfjs-dist` / `pdf-lib` 装上共 52 MB，而 Node 真正会加载的只是一小部分
+ *   （实测：pdfjs-dist 33.3 MB = legacy 15.7 + build 11.9 + wasm 1.5 + web 1.3 + cmaps 1.1 + standard_fonts 0.8
+ *     + image_decoders 0.6 + types 0.4；pdf-lib 18.6 MB = dist 13.5 + cjs 1.8 + es 1.7 + ts3.4 0.7 + src 0.7）。
+ *   ⚠️ 保留集是**保守**的：`cmaps/`（CJK 文本）与 `standard_fonts/`、`wasm/`（内嵌图解码）都留着 ——
+ *      它们各只有 1 MB 上下，删错了会在某些 PDF 上**静默**出问题，不值得省。
+ *   ⚠️ 改这里之后**必须**跑一次 `tools/check-omr-runtime.cjs`（用打包布局真跑一张谱子图），
+ *      只测"文件在不在"证明不了 Node 还能解析出 `legacy/build/pdf.mjs`。 */
+const PRUNE_KEEP = {
+  'pdfjs-dist': ['legacy', 'wasm', 'standard_fonts', 'iccs', 'cmaps'],
+  'pdf-lib': ['cjs', 'es'],
+}
+for (const [dep, keep] of Object.entries(PRUNE_KEEP)) {
+  const d = path.join(dstNM, dep)
+  if (!fs.existsSync(d)) continue
+  const before = sizeMB(d)
+  for (const e of fs.readdirSync(d)) {
+    if (keep.includes(e)) continue
+    if (/^(package\.json|LICENSE|README)/i.test(e)) continue
+    rmrf(path.join(d, e))
+  }
+  console.log(`  ✓ ${dep} 已裁 ${before.toFixed(1)} → ${sizeMB(d).toFixed(1)} MB（保留 ${keep.join(' / ')}）`)
+}
+
 /* ③' `--onnx-version <v>`：给**这个目标**换上指定版本的 onnxruntime-node（必须在裁剪之前做）。
  * 场景：darwin/x64 从 1.24 起就没有官方二进制了 ⇒ 钉 1.23.2（它的 npm 包自带 darwin/x64）。
  * 做法：临时目录里 `npm install --os=<platform> --cpu=<arch> --ignore-scripts onnxruntime-node@<v>`
@@ -153,11 +233,27 @@ if (ONNX_VER) {
   const args = ['install', '--os=' + PLATFORM, '--cpu=' + ARCH, '--ignore-scripts',
     '--no-audit', '--no-fund', '--loglevel=error', 'onnxruntime-node@' + ONNX_VER]
   console.log(`  … 给 ${PLATFORM}/${ARCH} 装 onnxruntime-node@${ONNX_VER}（临时目录，不动本机）`)
-  const r = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args,
-    { cwd: tmp, stdio: 'inherit', shell: false })
+  /* ⚠️ 2026-10-05 修：Windows 上**不能**无 shell 地 spawn `npm.cmd` —— Node ≥ 20.12（本机 24.13）
+   *   拒绝执行 `.cmd`/`.bat`（CVE-2024-27980 加固）⇒ 直接 `EINVAL`、`status === null`；
+   *   而老代码把这个失败**误报成"该版本对目标平台可能没有二进制"** ⇒ 排查方向全错（实际一个字节都没下载）。
+   *   修法取**不走 shell** 的那条：直接 `node <npm>/bin/npm-cli.js …`（官方安装器的布局），
+   *   `shell:true` 只是兜底 —— 它会触发 DEP0190（args 与 shell 同用不安全），能不用就不用。 */
+  if (!/^[0-9A-Za-z.\-]+$/.test(ONNX_VER)) {
+    console.error(`✗ --onnx-version 只接受版本号字符（收到 ${JSON.stringify(ONNX_VER)}）`)
+    process.exit(2)
+  }
+  const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  const useNodeNpm = fs.existsSync(npmCli)
+  const bin = useNodeNpm ? process.execPath : (process.platform === 'win32' ? 'npm.cmd' : 'npm')
+  const argv = useNodeNpm ? [npmCli, ...args] : args
+  const r = spawnSync(bin, argv,
+    { cwd: tmp, stdio: 'inherit', shell: !useNodeNpm && process.platform === 'win32' })
   const src = path.join(tmp, 'node_modules', 'onnxruntime-node')
   if (r.status !== 0 || !fs.existsSync(src)) {
-    console.error(`✗ onnxruntime-node@${ONNX_VER} 装失败（exit=${r.status}）—— 该版本对 ${PLATFORM}/${ARCH} 可能也没有二进制`)
+    const why = r.error ? `spawn 失败：${r.error.message}` : `exit=${r.status}`
+    console.error(`✗ onnxruntime-node@${ONNX_VER} 装失败（${why}）`)
+    console.error('   若 spawn 报 EINVAL/ENOENT ⇒ 是调用方式问题（npm 是否在 PATH、是否要给 shell:true）；')
+    console.error(`   若装成功但目录里没有 ${PLATFORM}/${ARCH} 的二进制 ⇒ 才是"该版本没这个平台的包"，换版本再试。`)
     process.exit(3)
   }
   const keepDir = path.join(src, 'bin', 'napi-v6', PLATFORM === 'win32' ? 'win32' : PLATFORM, ARCH)

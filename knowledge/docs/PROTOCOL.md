@@ -88,7 +88,8 @@
 > 分组速览：**读 13** = `ping` · `selftest` · `get_project_info` · `get_current_group` · `get_selected_notes` · `get_melody_notes` · `get_measure_info` · `get_note_time` · `get_layout` · `get_lyrics_attrs` · `get_phonemes` · `get_computed_pitch` · `get_computed_attributes`；
 > **写 18** = `transpose_selected_notes` · `set_selected_lyrics` · `apply_lyrics` · `fill_track_lyrics` · `set_note_languages` · `set_note_rap_accents` · `set_note_phonemes` · `set_note_phoneme_attrs` · `set_note_dur` · `write_chords` · `create_harmony_group` · `write_pit` · `align_audio` · `apply_tempo` · `playback` · `run_script` · 🆕 `apply_ornaments` · 🆕 `set_automation`；
 > **维护 1** = `stop`（桥常驻，改了桥源码必须 `stop` 后在宿主里重跑）。
-> 关系：**32 op ↔ 44 个 MCP 工具**（`knowledge/docs/MCP工具清单.md`）—— 工具更多，因为分离/分析/生成/织体渲染完全本地算。
+> 关系：**32 op ↔ 53 个 MCP 工具**（`knowledge/docs/MCP工具清单.md`）—— 工具更多，因为分离/分析/生成/织体渲染完全本地算；
+> 其中 **3 个是 ACE Studio 工具**（`ace_state` / `ace_cli` / `acep`，第三方宿主，**不走本协议**）。
 
 > ⚠️ **写操作的通用约束**（见 `skills/sv-scripting/references/04-notes.md` 音符布局铁律）：
 > SV **发声组**内同时间不得重叠（**重叠 = 违规**）；**缝隙允许但要告知**，消缝须经用户同意；**IX 乐器轨允许并列**。

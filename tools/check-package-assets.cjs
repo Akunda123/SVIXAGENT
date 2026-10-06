@@ -429,13 +429,37 @@ console.log('\n== ⑦ 跨平台 staging 台账（2026-09-24：darwin 运行时�
         ok(`server/dist 不比源码旧（src ${new Date(srcTs).toISOString().slice(11, 16)} ≤ dist ${new Date(distJs).toISOString().slice(11, 16)} UTC）`);
       }
 
-      /* ② 预装运行时必须与 server/dist 逐字节相同 */
-      const want = fs.readFileSync(srvEntry);
-      for (const d of ['server-runtime', 'server-runtime-darwin-arm64']) {
-        const p = path.join(ROOT, 'dist', d, 'dist', 'index.js');
-        if (!fs.existsSync(p)) continue;
-        if (fs.readFileSync(p).equals(want)) ok(`预装运行时 ${d} 与 server/dist 同源（不是旧代码）`);
-        else fail(`dist/${d}/dist/index.js 与 server/dist/index.js **不一致** ⇒ 预装运行时是旧的，重跑：node tools/build-server-runtime.cjs${d.includes('darwin') ? ' --platform darwin --arch arm64 --out dist/server-runtime-darwin-arm64' : ''}`);
+      /* ② 预装运行时必须与 server/dist **整棵树**逐字节相同
+       *    ⚠️ 2026-10-05 扩面：原先只比 `dist/index.js` **一个文件**。本轮加了 `server/src/ace/`（3 个 ACE 工具）
+       *      —— **入口没改** ⇒ 守卫照报「同源（不是旧代码）」，而包内 `dist/tools.js` 与 `dist/ace/`
+       *      都停在 2026-10-03（实测：三份运行时全都**没有 `ace/index.js`**）。
+       *      现在比 `server/dist` 下**每个 .js**：缺文件、内容不同，都算落后。 */
+      const relJs = [];
+      (function walkDist(d, base) {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const p = path.join(d, e.name);
+          if (e.isDirectory()) { walkDist(p, base); continue; }
+          if (e.name.endsWith('.js')) relJs.push(path.relative(base, p));
+        }
+      })(path.join(ROOT, 'server', 'dist'), path.join(ROOT, 'server', 'dist'));
+      const REBUILD = (d) => 'node tools/build-server-runtime.cjs' +
+        (d.includes('darwin') ? ` --platform darwin --arch ${d.includes('arm64') ? 'arm64' : 'x64'} --out dist/${d}` : '') +
+        (d.includes('x64') && d.includes('darwin') ? ' --onnx-version 1.23.2' : '');
+      for (const d of ['server-runtime', 'server-runtime-darwin-arm64', 'server-runtime-darwin-x64']) {
+        const rtDist = path.join(ROOT, 'dist', d, 'dist');
+        if (!fs.existsSync(rtDist)) { console.log(`  [--]   没有 dist/${d} ⇒ 跳过（该平台还没组装）`); continue; }
+        const stale = [];
+        for (const rel of relJs) {
+          const mine = path.join(ROOT, 'server', 'dist', rel);
+          const theirs = path.join(rtDist, rel);
+          if (!fs.existsSync(theirs)) { stale.push('缺 ' + rel); continue; }
+          try { if (!fs.readFileSync(mine).equals(fs.readFileSync(theirs))) stale.push('旧 ' + rel); } catch { stale.push('读不了 ' + rel); }
+        }
+        if (!stale.length) ok(`预装运行时 ${d} 与 server/dist **整棵树**同源（${relJs.length} 个 .js 逐字节一致）`);
+        else {
+          fail(`dist/${d} 是**旧的**（${stale.length}/${relJs.length} 处：${stale.slice(0, 3).join(' · ')}${stale.length > 3 ? ' …' : ''}）` +
+            ` ⇒ 重跑：${REBUILD(d)}`);
+        }
       }
     }
   }

@@ -72,6 +72,13 @@ contextBridge.exposeInMainWorld('svsettings', {
   onBridgeStatus: (cb) =>
     ipcRenderer.on('akdagent-bridge-status', (_e, ok, msg) => cb(ok, msg)),
 
+  /* ACE Studio（第三方宿主，走它自己的 CLI；2026-10-03 加）：
+   *   getAceStatus 拉当前状态（主进程顺手探一次）、checkAce 只触发探针、onAceStatus 听结果推送。
+   *   没装 ACE 的机器上主进程回 installed=false ⇒ 页面把那一行整行隐藏（用户口径）。 */
+  getAceStatus: () => ipcRenderer.invoke('akdagent-ace-status'),
+  checkAce: () => ipcRenderer.send('akdagent-check-ace'),
+  onAceStatus: (cb) => ipcRenderer.on('akdagent-ace-status-push', (_e, st) => cb(st)),
+
   /* 操作 */
   openChat: () => ipcRenderer.send('akdagent-open-chat'),
   toggleAutostart: () => ipcRenderer.send('akdagent-toggle-autostart'),
@@ -140,4 +147,15 @@ contextBridge.exposeInMainWorld('svsettings', {
   updatePiModels: (route, models) => ipcRenderer.invoke('akdagent-update-pi-models', route, models),
   /** 🆕 2026-09-25：pi-ai 覆写字段（Base URL / API 协议 / 模型列表）；传 null 表示**删掉该键**（回内建默认） */
   setPiProviderFields: (route, fields) => ipcRenderer.invoke('akdagent-set-pi-provider-fields', route, fields),
+
+  /* 🆕 2026-10-05（用户裁「4 做」「5 做」）：**宿主真实模型目录** + **本会话模型**
+   *   · `getModelCatalog()` 问宿主 `session/modelCatalog`（按提供方分组 + 部署默认 + 各自 failure）
+   *   · `getSessionModel()` 读 `session/list` 的 `projections.values.modelSelection`（本会话实际用哪个）
+   *   · `selectSessionModel()` 调 `session/selectModel`（**只改这次会话**，不动默认模型） */
+  getModelCatalog: (force) => ipcRenderer.invoke('akdagent-model-catalog', force === true),
+  getSessionModel: () => ipcRenderer.invoke('akdagent-session-model'),
+  selectSessionModel: (sessionId, provider, model, reasoningEffort) =>
+    ipcRenderer.invoke('akdagent-select-session-model', sessionId, provider, model, reasoningEffort),
+  /** 主进程推来的"本会话模型已变"（切模型后 / 换会话后） */
+  onSessionModel: (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p)),
 })

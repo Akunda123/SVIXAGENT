@@ -18,6 +18,7 @@ import { extractChordTrack } from "./audio/chord-track.js";
 import { chordsToNotes } from "./audio/chords.js";
 import { parseMusicXML, type MxNote } from "./audio/musicxml.js";
 import { importMusicXml } from "./audio/musicxml-import.js";
+import { imageToMusicXml, jianpuToText } from "./omr/dolce.js";
 import {
   analyzeChordsFromNotes, analysisFromProgression, analysisFromSegs, abstractTemplate, renderTexture,
   findInstrument, suggestTextures, applyInstrumentRules, INSTRUMENTS,
@@ -28,10 +29,30 @@ import { tonesOfGroup } from "./lyric/tone.js";
 import { checkLyrics, type LyricNote } from "./lyric/check.js";
 import { runArticulations, loadArticulationData, pruneList, applyToGroupCode, unwrapResult } from "./articulations/index.js";
 import { listPhonemes, replacePhonemes } from "./phoneme/ops.js";
+import { runAceCli, runAcep, projectState, aceCliPath, acepScriptPath, ACEP_SCRIPTS } from "./ace/index.js";
+import { registerAceImportMusicXml } from "./ace/tool-import.js";
+import { registerWriteNotes } from "./write-notes.js";
+import { registerMeasureTempo } from "./tools-tempo.js";
+import { resolveClip } from "./ace/import-io.js";
+import { prepareAceWrite, acceptedVsReadBack, classifyCliFailure } from "./ace/prewrite.js";
+import {
+  scanLyricText, resolveLyricTarget, planGraphemeAssignment, buildFillArgs, buildSetGraphemeArgs,
+  summarizeLyricWrite, readBackLyrics, runLyricCheck, illegalTextBlock,
+} from "./ace/lyrics.js";
+import {
+  readRoster, readParam, checkPayload, buildWriteArgs, writeParam, summarizeWriteAccepted,
+  compareReadBack, summarizePoints, gateParam, gateLayer, makePayload, pointsArg, cleanupPoints,
+} from "./ace/vocal-params.js";
+import { capToolResult } from "./util/cap-tool-text.js";
 
 /** 工具调用结果统一格式化为文本块（DSH mcp-client 会拼 text 块） */
 function textResult(data: unknown): { content: { type: "text"; text: string }[] } {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+}
+
+/** 逐音符/逐 tick 的计划能上千行 ⇒ 只回前 N 行，并**自述截断**（别静默截）。 */
+function capRows<T>(rows: T[], max = 60): { rows: T[]; truncated?: string } {
+  return rows.length > max ? { rows: rows.slice(0, max), truncated: `…只回前 ${max} 行（共 ${rows.length} 行）` } : { rows };
 }
 
 /**
@@ -304,6 +325,18 @@ export function registerTools(server: McpServer): void {
     chain = run.catch(() => undefined);
     return run;
   };
+
+  /* ACE 侧工具（走 `acestudio-cli`，**不走桥**）—— 单独注册，别混进 sv_* 的纪律里。
+   * `ace_import_musicxml`：MusicXML → ACE 音符块（预览四件事 + needConfirm + 写带 --if-match）。 */
+  registerAceImportMusicXml(server);
+
+  /* **统一写入器**（宿主无关）：音符 → MusicXML → SV/IX（`importMusicXml`）/ ACE（`importMusicXmlToAce`）。
+   * 生成类（旋律/和声/和弦/织体）的产物要落到 ACE 时走它 —— ACE 没有别的写入端。 */
+  registerWriteNotes(server);
+
+  /* **BPM 包络测量**（宿主无关）：音频 → 「时间 → 速度」曲线 + 点击轨 / MIDI tempo 轨 / CSV 产物。
+   * 用户 2026-10-06 点名要的"**完全不依赖 SV2 的可变 bpm 测量**"（118–122 这类浮动速度）。 */
+  registerMeasureTempo(server);
 
   server.tool(
     "sv_ping",
@@ -613,7 +646,7 @@ server.tool(
   // 音频格式转换（本地计算，不经过宿主通道，不依赖 SV   
 server.tool(
     "sv_convert_audio",
-    "将音频文件（mp3/wav/m4a/其他 mpg123 可解码格式）转换 44.1kHz 立体 WAV。完全本地处理（mpg123-decoder WASM 解码 + 重采样），不需 Synthesizer V 在线。可用于把任意音频转 SV 可导入的 WAV 格式",
+    "将音频文件转成 44.1kHz 立体 WAV。**先嗅探容器再分派**：WAV 用我们自己的读取器（支持 16/24/32-bit）、MP3 走内置 mpg123、其余（m4a/AAC、FLAC、Ogg…）交给 ffmpeg（有就用）。⛔ mpg123 **只认 MP3**，把 AAC 喂进去只会产出噪声 ⇒ 非 MP3/WAV 而本机又没有 ffmpeg 时**明确拒绝**，并提示「让用户把文件拖进悬浮球，客户端会用 Chromium 先转成 WAV」（见 convertAudio 的报错）。完全本地处理，不需 Synthesizer V 在线",
     {
       input: z.string().describe("输入音频文件绝对路径"),
       outPath: z.string().optional().describe("输出 WAV 路径（默认输入同目录、同 .wav）"),
@@ -1635,6 +1668,67 @@ const payloadLen = JSON.stringify(opArgs).length;
     }
   );
 
+  // 内置识谱：谱子**图片** → MusicXML 文件（本地离线；引擎 = vendored 悦谱 Dolce，MIT）
+  server.tool(
+    "sv_omr_image",
+    "**内置识谱**：把**谱子图片**（五线谱的扫描件 / 拍照 / 截图）识别成 **MusicXML 文件**，随后用 `sv_import_musicxml` 导入工程。" +
+    "引擎 = 随包分发的**悦谱 Dolce**（MIT，`vendor/dolce-omr/SOURCE.md`）的位图五线谱识别，**全本地离线**（不起浏览器、不联网、本阶段不跑 OCR）。" +
+    "**护栏**：① 只收**绝对本地路径**、只认 **PNG / JPEG**（URL、相对路径、webp/bmp/tiff 一律拒）② 单张 ≤ 48 MB " +
+    "③ **绝不覆盖**已存在的 `.musicxml`（自动加 `-2`）④ 本工具**只写文件、不碰工程** —— 写工程仍走 `sv_import_musicxml`（预览 / SHA-256 指纹 / 权利确认 / 复调护栏都在那边，不重复造）。" +
+    "**⚠️ 必须把 `stats` 如实报给用户**：`unknown`（没归属的图形对象数）与 `full` / `bars`（时值能凑满的小节数）就是**识别覆盖率**；" +
+    "覆盖率低就明说「这份图认得不全，建议换更高清的原图或原版 PDF」，**别只说一句导好了**。" +
+    "**本阶段读不出**：歌词 / 和弦名 / 拍号数字（要 OCR，第二阶段）；调号与拍号靠模板。",
+    {
+      input: z.string().describe("谱子图片的**绝对本地路径**（.png / .jpg / .jpeg）"),
+      kind: z.enum(["auto", "staff", "jianpu"]).optional()
+        .describe("`staff`=五线谱 → MusicXML · `jianpu`=简谱 → 123 文本 · 省略/`auto`=**先试五线谱、没认出再试简谱**"),
+      format: z.string().optional().describe("简谱产物格式（默认 `123`；另有 jpwabc / abc / tomato / shige / jly / jcx）"),
+      outPath: z.string().optional().describe("输出路径（绝对；省略 = 与图片同名同目录）"),
+      title: z.string().optional().describe("写进 MusicXML 的标题（省略 = 图片文件名）"),
+    },
+    async ({ input, kind, format, outPath, title }) => {
+      const want = kind || "auto";
+      return serial(async () => {
+        const tried: string[] = [];
+        if (want === "staff" || want === "auto") {
+          try {
+            const r = await imageToMusicXml({ input, outPath, title });
+            if (r.xml) {
+              return textResult({
+                ok: true, path: "staff", ...r,
+                hint: "接着用 sv_import_musicxml 导入（默认只读预览）—— 复调谱子记得它默认拒、要大谱表分段导",
+              });
+            }
+            tried.push("五线谱：没认出谱表");
+          } catch (e) {
+            tried.push("五线谱：" + (e instanceof Error ? e.message : String(e)));
+            if (want === "staff") throw e;
+          }
+        }
+        if (want === "jianpu" || want === "auto") {
+          try {
+            const r = await jianpuToText({ input, outPath, format: (format || "123") as any });
+            if (r.text) {
+              return textResult({
+                ok: true, path: "jianpu", ...r,
+                preview: r.text.slice(0, 400),
+                hint: "简谱文本可直接喂悦谱 Dolce 排版/导出；⚠️ 本阶段**歌词与拍号常错**（要 OCR 且吃分辨率），要准请给更高清的图",
+              });
+            }
+            tried.push("简谱：没认出");
+          } catch (e) {
+            tried.push("简谱：" + (e instanceof Error ? e.message : String(e)));
+            if (want === "jianpu") throw e;
+          }
+        }
+        return textResult({
+          ok: false, kind: want, tried,
+          error: "两条路都没认出：这份图既不像五线谱也不像简谱（或分辨率太低）—— 换更高清的原图 / 原始 PDF 再试",
+        });
+      });
+    },
+  );
+
   // MusicXML 乐谱 → 音符 → 导入 SV/IX 工程（P5：护栏整组 + tech/dynamics/instrument 映射复核后落地）
   server.tool(
     "sv_import_musicxml",
@@ -1648,13 +1742,14 @@ const payloadLen = JSON.stringify(opArgs).length;
       groupName: z.string().optional().describe("音符组名（默认 Import）"),
       trackIndex: z.number().optional().describe("目标轨道索引（0 起）；（省略时自动选第一个非音频轨）"),
       lyrics: z.string().optional().describe("音符歌词填充（默认保 MusicXML 歌词；无歌词则用该词填充）"),
+      offsetQ: z.number().optional().describe("时间轴偏移（**拍** = 四分音符）：整份谱往后推 —— **多页谱分段导**时用它把第 N 页接到前一页之后（不给偏移会叠在第一页上）；预览里会回显 `offsetQuarters`"),
       dryRun: z.boolean().optional().describe("省略或 true = **只读预览不写工程**（护栏第 ⑤ 条）；false 才写入"),
       confirmRights: z.boolean().optional().describe("写操作必须显式确认**有权使用这份乐谱**（护栏第 ⑥ 条）；不带就不写"),
       allowPolyphony: z.boolean().optional().describe("该 part 含多个 `<voice>` 或和弦时：默认**拒绝**（会算错音位）；确要导请显式 true"),
       ...HOST_SCHEMA,
     },
-    async ({ input, part, groupName, trackIndex, lyrics, dryRun, confirmRights, allowPolyphony, host }) =>
-      serial(() => importMusicXml({ input, part, groupName, trackIndex, lyrics, dryRun, confirmRights, allowPolyphony, host })
+    async ({ input, part, groupName, trackIndex, lyrics, offsetQ, dryRun, confirmRights, allowPolyphony, host }) =>
+      serial(() => importMusicXml({ input, part, groupName, trackIndex, lyrics, offsetQ, dryRun, confirmRights, allowPolyphony, host })
         .then(textResult)
         .catch((e) => textResult({ ok: false, error: e instanceof Error ? e.message : String(e) }))),
   );
@@ -1727,6 +1822,438 @@ const payloadLen = JSON.stringify(opArgs).length;
         return textResult({ ok: true, request: opArgs, result: res, elapsedMs: Date.now() - start });
       } catch (e) {
         return textResult({ ok: false, error: e instanceof Error ? e.message : String(e), elapsedMs: Date.now() - start });
+      }
+    }
+  );
+
+  /* ───────────────────────── ACE Studio（第三方宿主：⛔ 不走我们的桥）─────────────────────────
+   * ACE 只有两条路：① 它自己的 `acestudio-cli`（首选）② `.acep` 文件工具（`skills/acep/scripts/*`）。
+   * 事实源：`skills/ace/SKILL.md`（分工/路线）· `skills/acep/SKILL.md`（容器/三种画法/写纪律）· `skills/ace-params/SKILL.md`（参数层与载荷形状）。
+   * 这三个工具**不进 `serial()` 链**：那条链是给"一对 req/res 文件"的桥用的，ACE 是独立进程、各走各的 stdin/stdout。
+   */
+
+  server.tool(
+    "ace_state",
+    "【ACE Studio】开工自检（**读，先跑这个**）：ACE 是否在线、当前工程名/路径/`dirty`/`isTempProject`（走 `project dirty` —— ⚠️ `project info` **没有** path/dirty 两个键）、" +
+      "以及 `acestudio-cli` 的位置与技能脚本是否就位。⚠️ ACE **不走我们的桥**（Lua 桥只服务 SV/IX）⇒ 要 ACE 就只走 `acestudio-cli`（本组工具）。" +
+      "判据速记：`isTempProject:true` 或 `projectName` 空串 = **光秃秃一个 .acep（没成「包」）**，ACE 当无名临时工程处理 ⇒ 工程必须长成 " +
+      "`<名字>\\<名字>.acep` + `autosave\\`（必需）+ `Samples\\`（可选）。写任何东西之前先看这里：`dirty:true` 就先 `project save`。",
+    {},
+    async () => {
+      const cli = aceCliPath();
+      const st = projectState();
+      const scripts: Record<string, string> = {};
+      for (const k of Object.keys(ACEP_SCRIPTS)) {
+        try {
+          scripts[k] = acepScriptPath(k);
+        } catch (e) {
+          scripts[k] = "✗ " + (e instanceof Error ? e.message : String(e));
+        }
+      }
+      return textResult({
+        cli: { path: cli.cmd, source: cli.source, exists: cli.exists },
+        project: st,
+        scripts,
+        note:
+          "ACE 两条路：① `ace_cli`（首选，有撤销栈/指纹/原子拒写）② `acep`（文件工具，**只在 CLI 没开放的能力上用** —— 当前已知：人声音高曲线）。" +
+          "文件路线纪律见 skills/acep/SKILL.md §8：先落盘 → 备份 → 只改必要字节 → **让 ACE 重新打开** → 读回核对。",
+      });
+    }
+  );
+
+  server.tool(
+    "ace_cli",
+    "【ACE Studio】跑 `acestudio-cli`（**首选路线**）。参数按原样传**数组**（不经 shell ⇒ 没有 PowerShell 的引号/BOM/编码坑，`--points '[[0,0.5]]'` 这种 JSON 参数放心写）；" +
+      "会自动补 `--json`，**不会**替你加 `-y/--yes`（确认提示必须由你显式承担）。返回 `{code, json, stdout, stderr}`（json 已解析，人话输出在 stdout）。\n" +
+      "常用：`['project','info'|'save'|'open',<path>,'--discard-changes']`、`['track','list']`、`['clip','list','--track-index','0']`、" +
+      "`['clip','note-content','--track-index','N','--clip-index','M']`（⚠️ 2026-10-05 实测：**没有 `--clip-uuid`**，是 `--track-index`+`--clip-index`；返回 `{fingerprint,noteCount,notes:[{pos,endPos,dur,pitch,lyric,language,syllable,headConsonants,tailConsonants,noteUuid}]}`，`pos/endPos/dur` 单位是 **tick**，tick 率从 `clip list` 的 `clipBegin`/`clipBeginSec` 反算（本机 = 1080 tick/s），**别硬编码**）、`['note','list'|'add'|'set-lyric',…]`、`['lyric','fill',…]`、`['history','undo']`、" +
+      "`['export','audio',…]`、`['vocalparam','layers'|'read'|'write',…]`、`['phoneme','list'|'move-boundary',…]`、`['sound-source','load'|'set',…]`。\n" +
+      "⚠️ 硬口径：① **参数名 ≠ 文件字段** —— `dynamic` 存 `vocalControls.__dynamic`；`air` 存 **`mambaBreathiness`**；`energy/tension/falsetto` 存 `mambaEnergy/mambaTension/mambaFalsetto`；" +
+      "② 花名册**随引擎世代变**（v2 `singing-mamba` 有 `dynamic`/`formant` ❌；v1 `verse24` 有 `formant` ✅、**没有 `dynamic`**）⇒ **每次现读 `vocalparam layers`，别按声库名推断**；" +
+      "③ 同名参数两代**尺度/范围/层集合都不同**（v2 `air` = `model` `0..1`；v1 `air` = `envelope` `0.2..2.5`）⇒ 跨引擎抄数值一定错；" +
+      "④ `pitch` 在 CLI 上 `available:false`（原话「the channel stores a delta while the draw primitive takes absolute pitch, and anchors and vibrato ride on top」）⇒ **音高线只能走文件**；" +
+      "⑤ 越界一律 `INVALID_ARG`，**不 clamp**；⑥ 写前先看 `project dirty`，有未保存改动先 `project save`。详见 skills/ace-params/SKILL.md。",
+    {
+      args: z.array(z.string()).min(1).describe("子命令 + 参数数组，如 ['project','info'] / ['vocalparam','layers','--clip-uuid','{...}']（**不含** acestudio-cli 本身）"),
+      timeoutSec: z.number().int().min(1).max(1800).optional().describe("超时秒数（默认 180；导出/分离这类慢活给大点）"),
+      waitBusy: z.string().optional().describe("给 ACE 用的 `--wait-busy` 值（如 '5s'）；不填=自带 fail-fast（用户正忙时直接 USER_BUSY）"),
+      limit: z.number().int().min(0).optional().describe("数组型回包（notes/tracks/clips/items）每次回多少条，**默认 50**；`0` = 不限（要全量就传它）"),
+      offset: z.number().int().min(0).optional().describe("从第几条开始（默认 0）；配 `limit` 分页"),
+    },
+    async ({ args, timeoutSec, waitBusy, limit, offset }) => {
+      const argv = waitBusy && !args.includes("--wait-busy") ? [...args, "--wait-busy", waitBusy] : args;
+      const r = runAceCli(argv, (timeoutSec ?? 180) * 1000);
+      /* 🆕 2026-10-06：**默认截断大回包** —— 一次 `clip note-content`（242 音）能回 68k 字符，
+       * 而会话记录显示 message 上下文累计 34 万 token、LLM 22.4 min vs 工具 4.1 min ⇒ 大回包是主因之一。
+       * 截断永远**自述**（`_truncated` / "已截断 N 字符"），要全量传 `limit:0`。 */
+      return { content: [{ type: "text" as const, text: capToolResult({ ok: r.code === 0, ...r }, { limit, offset }) }] };
+    }
+  );
+
+  server.tool(
+    "acep",
+    "【ACE Studio】跑 `.acep` **文件工具**（`skills/acep/scripts/*`，零依赖、不碰 ACE 进程）。**只在 `acestudio-cli` 没开放的能力上用** —— 当前已知只有**人声音高曲线**（`pitch` 在 CLI 上 `available:false`）。\n" +
+      "⛔ 写纪律（工具会强制其中一部分）：只写副本（`--out <目录>`；`--in-place` 默认被拒，要显式 `allowInPlace:true`，且 ACE 正打开该文件 + `dirty:true` 时会被拒）→ 自动 `.bak` → **写完让 ACE 重新打开**（`ace_cli ['project','open',<path>,'--discard-changes']`）→ **读回核对**（文件自检只证明字节对，不证明 ACE 认）。\n" +
+      "脚本与常用子命令：\n" +
+      "· `acep`（主工具）：`info <f>` · `dump <f> [--tree N|--find RE|--json out]` · `get <f> --path 'tracks[0].patterns[0].notes[0]'` · `verify <f>` · `unpack <f> <out.json>` · " +
+      "`set-value <f> --path … --value '<JSON>'|--value-file f [--out 目录|--in-place]` · `set-json`（**旧壳专用**）· `set-text`/`set-array`（新壳等长原语）· " +
+      "**`rap-curve <f> --tones \"1234\"`**（rap 音高线，写 `pitchDelta` 的 `data`/delta 形态）· **`vibrato <f> [--track N --clip M] [--notes uuid,…] [--freq 5.5] [--amp 1.5] [--start 0.14|--start-tick N] [--clear]`**（第三种画法）· " +
+      "**`anchor <f> [--entry I|--append] --points \"100:61.5,200:63.25\" [--vuv \"1,0\"] [--clear]`**（第二种画法：**值是绝对音高**；插 entry 只能追加到末尾）· `selftest`\n" +
+      "· `lane-report <f> [--lane RE] [--spark]`：每条 lane 的 entry/样本/非零数/值域 + 三种画法 + ⛔ `kind:0` 乐器插槽（导出数字静音）告警 —— **独立核对**必用\n" +
+      "· `tree-diff <a.acep> <b.acep>`：两份快照逐字段 diff（钉「哪个字段被改动了」；退出码 1 = 有差异）。**取证手法**：`project save`→快照 A → 做一件事 → `project save`→快照 B → diff\n" +
+      "· `lyric-tones [--acep <f>|--track N --clip M]`：歌词 → 声调串（喂 `rap-curve --tones`）· `lane-poke` 造值 JSON · `f0-contour <wav>` 渲染音频核对\n" +
+      "已知硬事实：音高线**三种画法存三个地方**（① `parameters.pitchDelta` 的 `data` entry = **delta 半音**；② 同 lane 的 `anchor` entry = **绝对音高** `points`+`pointsVUV`；③ `notes[k].vibrato` 对象）；" +
+      "`pitchDelta` 栅格 **15/16 tick/样本（1024 Hz）**，`energy/tension/air` 系是 **1 样本/tick（960 Hz）**；`timeUnit:\"sec\"`（音频片段）**必须拒**（tick 栅格不适用）；" +
+      "工程必须成包（`<名字>\\<名字>.acep` + `autosave\\`）。详见 skills/acep/SKILL.md。",
+    {
+      script: z.enum(Object.keys(ACEP_SCRIPTS) as [string, ...string[]]).describe("要跑哪个脚本：" + Object.keys(ACEP_SCRIPTS).join(" / ")),
+      args: z.array(z.string()).describe("该脚本的参数数组（文件路径放在前面），如 ['<f>.acep','--points','100:61.5,200:63.25','--out','<目录>']"),
+      allowInPlace: z.boolean().optional().describe("显式允许 `--in-place` 原地改（默认 false=拒）。**必须是副本工程**，且 ACE 里那份要重新打开"),
+      timeoutSec: z.number().int().min(1).max(1800).optional().describe("超时秒数（默认 180；`f0-contour` 这类 DSP 慢活给大点）"),
+    },
+    async ({ script, args, allowInPlace, timeoutSec }) => {
+      const r = runAcep(script, args, { allowInPlace: allowInPlace === true, timeoutMs: (timeoutSec ?? 180) * 1000 });
+      return textResult({ ok: r.code === 0, ...r });
+    }
+  );
+
+  /* ── `ace_lyrics`：填词 / 逐音对位 / 复核（对标 SV 的 apply_lyrics+fill_lyrics_to_track+check_lyrics，
+   *    但走 ACE 自己的两条原语：句级 `lyric fill` / 逐音 `note set-grapheme`）── */
+  server.tool(
+    "ace_lyrics",
+    "【ACE Studio】歌词：**填 / 逐音对位 / 复核**（走 `acestudio-cli`，ACE **不走我们的桥**）。三种 `mode`：\n" +
+      "· `fill`（默认）＝**句级填充**：把 `text` 交给 ACE 自己的分词器铺到音符上（`lyric fill`）—— 切字、延音 `-`、" +
+      "溢出丢弃都是**引擎的活**（语言相关，我们不重写）。\n" +
+      "· `grapheme`＝**逐音精确**：`text` 按音符顺序一对一写（`note set-grapheme`）；词多/词少**如实报**，不静默丢也不自作主张补 `-`。\n" +
+      "· `check`＝**复核**已填歌词：倒字/谐音/韵脚/词格（复用宿主无关的 `sv_check_lyrics` 内核）——**只列不改**。\n" +
+      "⛔ 四条硬口径（都有出处）：\n" +
+      "⓪ **`dryRun` 默认 true = 只出计划，一个字都不写**（`fill` 模式走引擎自己的 `--dry-run`，不动撤销栈）；真写要显式 `dryRun:false`。\n" +
+      "① **默认不改语种**（语言纪律）：`lyric fill` 的默认 intent 会**按字形改写音符语种** ⇒ 本工具默认走机制形态 " +
+      "`--filler tenuto-standby --follow-note-language=false`，并把每行 `languageChanged` **如实报出**；要跟随字形得显式 `followNoteLanguage:true`。\n" +
+      "② **字母表外的字符会被引擎静默丢掉**（实测 `--text \"云123\"` ⇒ 只有 `云` 落位、`discardedText` 却是空串）⇒ " +
+      "干跑阶段先扫字符逐个点名，**写入默认拒**（要明知故犯传 `allowIllegalText:true`）。\n" +
+      "③ **写前先看 `project dirty`**：脏就替你 `project save`（`saveFirst:false` 改成「脏就不写」）；`--if-match` 带 `clip note-content` 的指纹。\n" +
+      "④ **写后读回分开报**（§3.6c 实测：**写响应 ≠ 持久**）⇒ `accepted`（ACE 接受了什么）与 `readBack`（读回看到什么）两块分开。",
+    {
+      mode: z.enum(["fill", "grapheme", "check"]).optional().describe("三种模式；省略时：给了 text ⇒ fill，没给 ⇒ check"),
+      text: z.string().optional().describe("要填的歌词（`fill`/`grapheme` 必填；`check` 时可当作待复核的整词文本）"),
+      trackIndex: z.number().int().optional().describe("目标 ACE 轨索引（0 起）；省略 = 第一条轨"),
+      clipIndex: z.number().int().optional().describe("目标 clip 索引（0 起，默认 0）"),
+      clipUuid: z.string().optional().describe("直接给 clipUuid（与 trackIndex/clipIndex 二选一，更稳）"),
+      sentence: z.number().int().optional().describe("`fill` 模式按**句**填（`--clip + --sentence N`，句序以 `clip lyrics` 为准）；省略则按 `--note` 填"),
+      noteUuids: z.array(z.string()).optional().describe("只填这些音符（`--note`）；省略 = 该 clip 里**全部**音符按顺序填"),
+      followNoteLanguage: z.boolean().optional().describe("是否让引擎**按字形改写音符语种**（默认 false=不改，语言纪律）"),
+      matchGraphemeLanguage: z.boolean().optional().describe("字形在音符语种下解析不出时是否跟随字形语种（引擎默认 true；给了才发这个参数）"),
+      alignLinesToSentences: z.boolean().optional().describe("把 text 的第 N 行对到第 N 句（必须配 `sentence`；逐句各填各的）"),
+      language: z.string().optional().describe("**显式**改语种（CHN/JPN/ENG/SPA/KOR；只对 `grapheme` 有效）—— 默认一个字都不改"),
+      allowIllegalText: z.boolean().optional().describe("明知字母表外字符会被引擎丢掉仍然写（默认 false=拒）"),
+      bpm: z.number().optional().describe("`check` 用：tick→拍 换算（配合 clip 反算的 tick 率）；省略则退化成相对量并如实标注"),
+      timeSig: z.number().optional().describe("`check` 用：每小节拍数（默认 4）"),
+      dryRun: z.boolean().optional().describe("省略/true = **只出计划**（`fill` 走引擎自己的 `--dry-run`，不动撤销栈）；false 才写"),
+      saveFirst: z.boolean().optional().describe("写时工程 `dirty:true` 是否替你 `project save`（默认 true）；传 false = 脏就不写"),
+    },
+    async ({ mode, text, trackIndex, clipIndex, clipUuid, sentence, noteUuids, followNoteLanguage, matchGraphemeLanguage, alignLinesToSentences, language, allowIllegalText, bpm, timeSig, dryRun, saveFirst }) => {
+      const run = runAceCli;
+      try {
+        const target = resolveLyricTarget(run, { trackIndex, clipIndex, clipUuid });
+        const tgt = {
+          trackIndex: target.track.trackIndex, trackName: target.track.trackName, trackType: target.track.trackType,
+          clipIndex: target.clipIndex, clipName: target.clip.clipName, clipUuid: target.clip.clipUuid,
+          clipType: target.clip.clipType, noteCount: target.notes.length, ticksPerSecond: target.ticksPerSecond,
+        };
+        const useMode = mode ?? (text ? "fill" : "check");
+
+        if (useMode === "check") {
+          const { report, timeBase } = runLyricCheck({ notes: target.notes, ticksPerSecond: target.ticksPerSecond, bpm, lyrics: text, timeSig });
+          return textResult({
+            ok: true, mode: "check", target: tgt, timeBase, report,
+            note: "**只列不改**：问题清单 + 替换意见（倒字/谐音/韵脚/词格），改不改由用户定 —— 与 `sv_check_lyrics` 同一内核（宿主无关）",
+          });
+        }
+        if (!text) return textResult({ ok: false, mode: useMode, target: tgt, error: "需要 `text`（要填的歌词）" });
+
+        const scan = scanLyricText(text);
+        const base = {
+          mode: useMode, target: tgt, fingerprint: target.fingerprint,
+          text: { input: scan.input, tokens: scan.tokens, illegal: scan.illegal, warnings: scan.warnings },
+          languagePolicy: followNoteLanguage === true
+            ? "⚠️ `followNoteLanguage:true` ⇒ **允许引擎按字形改写音符语种**（逐行 `languageChanged` 会报出来）"
+            : "默认**不改语种**（机制形态 `--follow-note-language=false`）；引擎仍可能因字形匹配改语种（`--match-grapheme-language`），逐行 `languageChanged` 会报",
+        };
+        const illegalBlock = illegalTextBlock(scan, allowIllegalText) !== null;
+        const illegalError = illegalTextBlock(scan, allowIllegalText) ?? undefined;
+
+        if (useMode === "grapheme") {
+          const plan = planGraphemeAssignment(target.notes, scan.tokens, { noteUuids });
+          const planOut = {
+            counts: plan.counts, extraTokens: plan.extraTokens,
+            warnings: [...plan.warnings, ...scan.warnings], lyrics: plan.lyrics, rows: capRows(plan.rows),
+          };
+          if (dryRun !== false) {
+            return textResult({
+              ok: !illegalBlock && plan.rows.length > 0, phase: "preview", ...base, plan: planOut, error: illegalError,
+              needConfirm: !illegalBlock && plan.rows.length
+                ? { ask: `把 ${plan.counts.changed} 个音符的字改成上面的 \`lyrics\` 吗？`, clipUuid: target.clip.clipUuid }
+                : undefined,
+              hint: "确认后带 `dryRun:false` 重调；会带 `--if-match` 守卫，写完**读回核对**并与写响应分开报",
+            });
+          }
+          if (illegalBlock) return textResult({ ok: false, phase: "blocked", ...base, plan: planOut, error: illegalError });
+          const pre = prepareAceWrite(run, { saveFirst });
+          if (!pre.ok) return textResult({ ok: false, phase: "blocked", ...base, plan: planOut, error: pre.block, project: pre.project });
+          const args = buildSetGraphemeArgs({ noteUuids: plan.noteUuids, lyrics: plan.lyrics, language, ifMatch: target.fingerprint, waitBusy: "5s" });
+          const w = run(args);
+          const expect: Record<string, string> = {};
+          for (const r of plan.rows) if (r.targetLyric !== "") expect[r.noteUuid] = r.targetLyric;
+          let rb: unknown = null;
+          try {
+            rb = readBackLyrics(run, { trackIndex: target.track.trackIndex, clipIndex: target.clipIndex, expect });
+          } catch (e) {
+            rb = { error: e instanceof Error ? e.message : String(e) };
+          }
+          const accepted = summarizeLyricWrite(w);
+          const rbObj = rb as { mismatched?: unknown[]; missing?: unknown[] } | null;
+          const consistent = rbObj && Array.isArray(rbObj.mismatched) ? rbObj.mismatched.length === 0 && (rbObj.missing || []).length === 0 : null;
+          return textResult({
+            ok: w.code === 0, phase: "write", ...base, plan: planOut,
+            project: pre.project, savedBeforeWrite: pre.savedBeforeWrite, notices: pre.notices, writeArgs: args,
+            ...acceptedVsReadBack(accepted, rb, consistent, pre.savedBeforeWrite ? "写前替你 `project save` 过。" : undefined),
+          });
+        }
+
+        // ── fill ──
+        const allUuids = target.notes.map((n) => n.noteUuid).filter((x): x is string => !!x);
+        const addressed = sentence !== undefined ? undefined : (noteUuids && noteUuids.length ? noteUuids : allUuids);
+        if (sentence === undefined && (!addressed || !addressed.length)) {
+          return textResult({ ok: false, mode: "fill", target: tgt, error: "这个 clip 里没有可填的音符（`noteUuid` 读不到）—— 换 clip 或先在 ACE 里建音符" });
+        }
+        if (dryRun !== false) {
+          const previewArgs = buildFillArgs({
+            clipUuid: target.clip.clipUuid, sentence, noteUuids: addressed, text,
+            followNoteLanguage: followNoteLanguage === true, matchGraphemeLanguage, alignLinesToSentences, dryRun: true,
+          });
+          const r = run(previewArgs);
+          return textResult({
+            ok: r.code === 0 && !illegalBlock, phase: "preview", ...base, error: illegalError,
+            addressed: sentence !== undefined ? { sentence } : { notes: addressed!.length },
+            enginePlan: summarizeLyricWrite(r), engineArgs: previewArgs,
+            needConfirm: r.code === 0 && !illegalBlock
+              ? { ask: sentence !== undefined ? `按第 ${sentence} 句填进这条 clip 吗？` : `按音符顺序填进这 ${addressed!.length} 个音符吗？`, clipUuid: target.clip.clipUuid }
+              : undefined,
+            hint: "确认后带 `dryRun:false` 重调（带 `--if-match` 守卫）；写后读回与写响应**分开报**",
+          });
+        }
+        if (illegalBlock) return textResult({ ok: false, phase: "blocked", ...base, error: illegalError });
+        const pre = prepareAceWrite(run, { saveFirst });
+        if (!pre.ok) return textResult({ ok: false, phase: "blocked", ...base, error: pre.block, project: pre.project });
+        const args = buildFillArgs({
+          clipUuid: target.clip.clipUuid, sentence, noteUuids: addressed, text,
+          followNoteLanguage: followNoteLanguage === true, matchGraphemeLanguage, alignLinesToSentences,
+          dryRun: false, ifMatch: target.fingerprint, waitBusy: "5s",
+        });
+        const w = run(args);
+        const sum = summarizeLyricWrite(w) as { rows?: { noteUuid?: string; after?: string }[] } & Record<string, unknown>;
+        const expect: Record<string, string> = {};
+        for (const row of sum.rows || []) if (row.noteUuid && typeof row.after === "string" && row.after !== "") expect[row.noteUuid] = row.after;
+        let rb: unknown = null;
+        try {
+          rb = Object.keys(expect).length
+            ? readBackLyrics(run, { trackIndex: target.track.trackIndex, clipIndex: target.clipIndex, expect })
+            : { note: "写响应里没有逐音符的 `lyricAfter` ⇒ 跳过逐音读回核对（读回只作参考）" };
+        } catch (e) {
+          rb = { error: e instanceof Error ? e.message : String(e) };
+        }
+        const rbObj = rb as { mismatched?: unknown[]; missing?: unknown[] } | null;
+        const consistent = rbObj && Array.isArray(rbObj.mismatched) ? rbObj.mismatched.length === 0 && (rbObj.missing || []).length === 0 : null;
+        return textResult({
+          ok: w.code === 0, phase: "write", ...base, engineArgs: args,
+          project: pre.project, savedBeforeWrite: pre.savedBeforeWrite, notices: pre.notices,
+          ...acceptedVsReadBack(sum, rb, consistent, pre.savedBeforeWrite ? "写前替你 `project save` 过。" : undefined),
+        });
+      } catch (e) {
+        return textResult({ ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  );
+
+  /* ── `ace_vocal_params`：人声参数曲线（读花名册 / 读 / 写）。⚠️ **越界一律拒、绝不 clamp** ——
+   *    这一点**故意与 `sv_write_automation` 相反**（ACE 引擎自己就是 INVALID_ARG 不 clamp，我们也不替它夹）。── */
+  server.tool(
+    "ace_vocal_params",
+    "【ACE Studio】人声参数曲线：**读花名册 / 读曲线 / 写曲线**（走 `acestudio-cli vocalparam`，ACE 不走桥）。\n" +
+      "· 不给 `param` ⇒ **花名册**（`vocalparam layers`：每个参数的 `available` / `unavailableReason` / `scale` / `valueRange` / **可写层与形状**）。\n" +
+      "· 给 `param`（无载荷）⇒ **读**该参数：层的形状/角色/`sparse` + **取样摘要**（dense 层是每 tick 一值，实测一条 clip 282240 个数 ⇒ 绝不原样倒出）。\n" +
+      "· 给 `param` + `layer` + 一种载荷 ⇒ **写**（`vocalparam write`）：`values`（dense，每 tick 一值，`null`=抹掉）· `anchors`（points，`[[tick,value],…]`）· `scalarValue`（scalar）。\n" +
+      "⛔ 硬口径：① **每次现读花名册** —— 参数面随**引擎世代**变（v2 `singing-mamba` 与 v1 `verse24` 的层集合/scale/valueRange 都不同，`air` 在两代是两种尺度）⇒ **不按声库名推断、不跨引擎抄数值**；\n" +
+      "② **越界直接拒，绝不 clamp** —— 把合法区间回给你（**与 `sv_write_automation` 的 clamp 故意不同**）；\n" +
+      "③ 形状按层**声明的** `shape` 走：dense 必须给 `posBegin`，points/scalar 反而**不许**给；dense 的**每段连续 run 至少 2 tick**（引擎硬规则）⇒ 我们本地先查，别白跑；\n" +
+      "④ `--layer` **必填**（没有默认值）；`effective` 只读、永远不可写；`pitch` 在这个 surface 上 `available:false`（音高线走 `acep` 的文件路）；\n" +
+      "⑤ **写前先看 `project dirty`**（脏就替你 `project save`）；写完**读回**并与写响应**分开报**（§3.6c：写响应 ≠ 持久；值读回按 f32 容差比）。\n" +
+      "⑥ **大载荷/大回包的两条活路**：读**默认 `--encoding base64`**（整条 clip 的 dense JSON 回包实测 **39.4 MB**，base64 只要 2.3 MB；要看原文传 `encoding:'json'`），或用 `rangeBegin/rangeEnd` 只取一段；" +
+      "写时**超过 2 KB 的载荷自动落临时文件**发 `--points @<file>`（`--points` 是命令行参数，Windows 上限约 32 KB ⇒ 长曲线塞不进 argv），用完即删。",
+    {
+      param: z.string().optional().describe("参数名（**每次现读**花名册，别按声库名推断）：air / falsetto / tension / energy / dynamic / formant / pitch（后两个常 `available:false`）；省略 ⇒ 只回花名册"),
+      action: z.enum(["roster", "read", "write"]).optional().describe("省略时自动推断：有载荷 ⇒ write；有 param ⇒ read；都没有 ⇒ roster"),
+      layer: z.string().optional().describe("要写/要读的层（写**必填**）：user / direct / envelope / global（`baseline` 与 `effective` 只读）"),
+      values: z.array(z.number().nullable()).optional().describe("dense 载荷：**每 tick 一值**（`null` = 抹掉该 tick / 空档）；配 `posBegin`"),
+      anchors: z.array(z.array(z.number().nullable())).optional().describe("points 载荷：`[[tick, value], …]` 锚点（tick 升序；`[tick,null]` = 空档标记，不会被插值跨过）"),
+      scalarValue: z.number().optional().describe("scalar 载荷：一个数（lane 的 global offset）"),
+      posBegin: z.number().int().optional().describe("dense 的起点 tick（省略 = 用现读回包的 `posBegin`）；points/scalar **不要给**（会被拒）"),
+      encoding: z.enum(["json", "base64"]).optional().describe("dense 的线上形态：**读默认 base64**（整条 clip 的 JSON 回包实测 39.4 MB，base64 只要 2.3 MB）；写时 base64 = `{dtype:'f64le',count,data}`，空档 = NaN 位型（我们替你编码/解码）"),
+      rangeBegin: z.number().int().optional().describe("读的范围起点（**clip-local tick**，`--range-begin`）；与 `rangeEnd` 配用，长 clip 只想看一段时给"),
+      rangeEnd: z.number().int().optional().describe("读的范围终点（**clip-local tick，开区间**，`--range-end`）"),
+      ifMatch: z.string().optional().describe("`--if-match` 指纹；省略 = 用写前现读到的 `fingerprint`（ETag 语义，防覆盖别人的改动）"),
+      trackIndex: z.number().int().optional().describe("目标 ACE 轨索引（0 起）；省略 = 第一条轨"),
+      clipIndex: z.number().int().optional().describe("目标 clip 索引（0 起，默认 0）"),
+      clipUuid: z.string().optional().describe("直接给 clipUuid（与 track/clipIndex 二选一）"),
+      dryRun: z.boolean().optional().describe("省略/true = **只出计划**（含校验结果与将要发的参数）；false 才写"),
+      saveFirst: z.boolean().optional().describe("写时工程 `dirty:true` 是否替你 `project save`（默认 true）；传 false = 脏就不写"),
+    },
+    async ({ param, action, layer, values, anchors, scalarValue, posBegin, encoding, rangeBegin, rangeEnd, ifMatch, trackIndex, clipIndex, clipUuid, dryRun, saveFirst }) => {
+      const run = runAceCli;
+      const hasPayload = values !== undefined || anchors !== undefined || scalarValue !== undefined;
+      const useAction = action ?? (hasPayload ? "write" : param ? "read" : "roster");
+      try {
+        const clip = resolveClip(run, { trackIndex, clipIndex, clipUuid, withNotes: false });
+        const clipInfo = {
+          trackIndex: clip.track.trackIndex, trackName: clip.track.trackName, trackType: clip.track.trackType,
+          clipIndex: clip.clipIndex, clipName: clip.clip.clipName, clipUuid: clip.clip.clipUuid, clipType: clip.clip.clipType,
+        };
+
+        if (useAction === "roster") {
+          // ⚠️ 一律读**整份矩阵**（不给 `--param`）：未知参数名要由我们给出"可选清单"，不能让 CLI 直接抛掉上下文
+          const roster = readRoster(run, clip.clip.clipUuid);
+          const shown = param ? roster.params.filter((p) => p.param === param) : roster.params;
+          return textResult({
+            ok: true, action: "roster", clip: clipInfo, filter: param,
+            engineGeneration: roster.engineGeneration, vocalControlRoute: roster.vocalControlRoute, paramCount: roster.paramCount,
+            params: shown.map((p) => ({
+              param: p.param, displayName: p.displayName, available: p.available,
+              unavailableReason: p.unavailableReason, scale: p.scale, valueRange: p.valueRange,
+              writableLayers: p.layers.filter((l) => l.access === "read-write").map((l) => ({ layer: l.layer, shape: l.shape, role: l.role, sparse: l.sparse })),
+              allLayers: p.layers.map((l) => `${l.layer}:${l.access}${l.shape ? ":" + l.shape : ""}`),
+            })),
+            unknownParam: param && !shown.length ? `${param} 不在这份花名册里（路由 ${roster.vocalControlRoute ?? "?"}·引擎 ${roster.engineGeneration ?? "?"}）` : undefined,
+            note: "花名册**随引擎世代变** ⇒ 每次现读；写之前先看这一份的 `scale`/`valueRange`/`shape`（`air` 在 v2 是 `model 0..1`、在 v1 是 `envelope 0.2..2.5`）。",
+          });
+        }
+
+        if (!param) return textResult({ ok: false, action: useAction, clip: clipInfo, error: `${useAction} 需要 \`param\`` });
+        const roster = readRoster(run, clip.clip.clipUuid);
+        // 门 ①：参数在不在花名册里 / `available` 是不是 false（`pitch` 就在这里被挡）
+        const gParam = gateParam(roster, param);
+        if (!gParam.ok) return textResult({ ok: false, action: useAction, clip: clipInfo, param, error: gParam.error, ...(gParam.detail || {}) });
+        const info = gParam.value;
+
+        if (useAction === "read") {
+          /* ⚠️ 读**默认 base64**：dense 层是每 tick 一值 —— 整条 4 分钟 clip 的 JSON 回包实测 **39.4 MB**
+           * （base64 只要 2.3 MB）。要看原文就显式 `encoding:'json'`，或用 rangeBegin/rangeEnd 只取一段。 */
+          const readEnc = encoding ?? "base64";
+          const r = readParam(run, clip.clip.clipUuid, param, layer, { encoding: readEnc, rangeBegin, rangeEnd });
+          return textResult({
+            ok: true, action: "read", clip: clipInfo, param, displayName: r.displayName,
+            engineGeneration: r.engineGeneration, scale: r.scale, valueRange: r.valueRange,
+            posBegin: r.posBegin, count: r.count, fingerprint: r.fingerprint,
+            encoding: readEnc,
+            range: rangeBegin !== undefined || rangeEnd !== undefined ? { begin: rangeBegin, end: rangeEnd } : undefined,
+            unvoicedRanges: Array.isArray(r.unvoiced) ? (r.unvoiced as unknown[]).length : undefined,
+            layers: r.layers.map((l) => ({
+              layer: l.layer, access: l.access, role: l.role, shape: l.shape, sparse: l.sparse,
+              drawnRangesCount: Array.isArray(l.drawnRanges) ? (l.drawnRanges as unknown[]).length : undefined,
+              pointsSource: l.drew,
+              points: summarizePoints(l.points),
+            })),
+            effective: r.effective ? summarizePoints(r.effective.points) : null,
+            note: "⚠️ **别拿 `effective` 有没有变化当「有人画过」**（它天生就在变）⇒ 判据是**可写层的 `points.nonNull`**；`valueRange` 只管**写入**，`effective` 的极值可以略微越出它。",
+          });
+        }
+
+        // ── write ──
+        // 门 ②：`--layer` 必填 + 必须是可写层；门 ③：一次只给一种载荷形状
+        const gLayer = gateLayer(info, layer);
+        if (!gLayer.ok) return textResult({ ok: false, action: "write", clip: clipInfo, param, layer, error: gLayer.error, ...(gLayer.detail || {}) });
+        const lay = gLayer.value;
+        const layerName = lay.layer;
+        const gPayload = makePayload({ values, anchors, scalarValue, posBegin });
+        if (!gPayload.ok) return textResult({ ok: false, action: "write", clip: clipInfo, param, layer, error: gPayload.error });
+        const payload = gPayload.value;
+
+        // 先读（skill §9 纪律 1「先读后写」）：dense 要 posBegin，写要 if-match 指纹
+        let pre: ReturnType<typeof readParam> | null = null;
+        let preErr: string | undefined;
+        try { pre = readParam(run, clip.clip.clipUuid, param, layerName); } catch (e) { preErr = e instanceof Error ? e.message : String(e); }
+        const chk = checkPayload(payload, lay, info, { posBeginFallback: pre?.posBegin ?? 0, encoding });
+        if (!chk.ok) {
+          return textResult({
+            ok: false, action: "write", phase: "rejected", clip: clipInfo, param, layer: layerName,
+            error: "载荷**没过我们的校验** ⇒ **没有写**（引擎也会拒，且**从不 clamp**）",
+            errors: chk.errors, warnings: chk.warnings,
+            scale: info.scale, valueRange: chk.legalRange ?? info.valueRange,
+            noClamp: "**我们绝不替你夹到边界**（与 `sv_write_automation` 故意不同）：越界请自己改数，或换到合法区间内重写。",
+          });
+        }
+        // 载荷落盘还是进命令行：`--points` 是**命令行参数**，Windows 整条命令行上限约 32 KB
+        // ⇒ 长曲线（1 小节 = 1920 个值 ≈ 10 KB、整条 clip ≈ 2 MB）必须走 `@<临时文件>`（官方口径：
+        // "A curve is bulk data. Read it from a file or a pipe"）。
+        const pts = pointsArg(chk.pointsJson!);
+        const writeArgs = buildWriteArgs({
+          clipUuid: clip.clip.clipUuid, param, layer: layerName, pointsJson: chk.pointsJson!,
+          pointsFile: pts.tempPath,
+          posBegin: payload.kind === "dense" ? chk.posBegin : undefined,
+          encoding, ifMatch: ifMatch ?? pre?.fingerprint, waitBusy: "5s",
+        });
+        if (dryRun !== false) {
+          cleanupPoints(pts.tempPath);
+          return textResult({
+            ok: true, action: "write", phase: "preview", clip: clipInfo, param, layer: layerName,
+            payloadKind: payload.kind, posBegin: chk.posBegin, scale: info.scale, valueRange: chk.legalRange ?? info.valueRange,
+            pointsTransport: { inline: pts.inline, bytes: pts.bytes, note: pts.inline ? "载荷短 ⇒ 直接进命令行" : "载荷长 ⇒ 落临时文件后用 `--points @<file>`（命令行放不下）" },
+            payloadSummary: payload.kind === "dense"
+              ? summarizePoints(payload.values, { max: 16 })
+              : payload.kind === "points"
+                ? { anchorCount: payload.anchors?.length, anchors: payload.anchors?.slice(0, 24), tailOmitted: (payload.anchors?.length ?? 0) > 24 }
+                : { scalar: payload.scalar },
+            warnings: [...(chk.warnings || []), preErr ? `写前读数失败（${preErr}）⇒ 用默认 posBegin，且**没有**指纹守卫` : ""].filter(Boolean),
+            request: { args: writeArgs },
+            needConfirm: { ask: `给 \`${param}\` 的 \`${layerName}\` 层写这段载荷吗？`, clipUuid: clip.clip.clipUuid },
+            hint: "确认后带 `dryRun:false` 重调；写完会**读回**并与写响应分开报",
+          });
+        }
+        const gate = prepareAceWrite(run, { saveFirst });
+        if (!gate.ok) {
+          cleanupPoints(pts.tempPath);
+          return textResult({ ok: false, action: "write", phase: "blocked", clip: clipInfo, param, layer: layerName, error: gate.block, project: gate.project });
+        }
+        let w: ReturnType<typeof writeParam>;
+        try {
+          w = writeParam(run, writeArgs);
+        } finally {
+          cleanupPoints(pts.tempPath);   // 临时载荷**用完就删**（别把用户目录当地盘）
+        }
+        let rb: unknown = null;
+        try {
+          const after = readParam(run, clip.clip.clipUuid, param, layerName, { encoding, rangeBegin: chk.posBegin, rangeEnd: payload.kind === "dense" ? (chk.posBegin ?? 0) + (payload.values?.length ?? 0) : undefined });
+          const layerAfter = after.layers.find((l) => l.layer === layerName);
+          rb = payload.kind === "dense"
+            ? compareReadBack({ wrote: payload.values ?? [], posBegin: chk.posBegin ?? 0, read: after, layer: layerName })
+            : { layerFound: !!layerAfter, shape: layerAfter?.shape, points: summarizePoints(layerAfter?.points, { max: 16 }) };
+        } catch (e) {
+          rb = { error: e instanceof Error ? e.message : String(e) };
+        }
+        const rbCmp = rb as { valueMismatch?: number; gapMismatch?: number } | null;
+        const consistent = payload.kind === "dense" && rbCmp && typeof rbCmp.valueMismatch === "number" && typeof rbCmp.gapMismatch === "number"
+          ? rbCmp.valueMismatch === 0 && rbCmp.gapMismatch === 0
+          : null;
+        return textResult({
+          ok: w.code === 0, action: "write", phase: "write", clip: clipInfo, param, layer: layerName,
+          payloadKind: payload.kind, scale: info.scale, valueRange: chk.legalRange ?? info.valueRange,
+          project: gate.project, savedBeforeWrite: gate.savedBeforeWrite, notices: gate.notices, request: { args: writeArgs },
+          exitCode: w.code, stderr: w.stderr || undefined,
+          failure: classifyCliFailure(w) ?? undefined,
+          ...acceptedVsReadBack(summarizeWriteAccepted(w.accepted), rb, consistent, gate.savedBeforeWrite ? "写前替你 `project save` 过。" : undefined),
+        });
+      } catch (e) {
+        return textResult({ ok: false, error: e instanceof Error ? e.message : String(e) });
       }
     }
   );
