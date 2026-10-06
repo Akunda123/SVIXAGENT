@@ -15,6 +15,8 @@
 
 `src/codex-catalog.cjs` 保存 2026-10-06 核对的增量目录，并合并随包 SDK 模型；普通与 Fast 共用容量和推理档位来源。Astra / 6.1 Sol 使用 `low / medium / high / xhigh / max`，没有把 Codex 的多代理 Ultra 模式冒充成 API 推理值。Fast 仅列出已核对支持 Standard / Fast 的 Astra 与 6.1 Sol。
 
+更新目录保留提供方的显示名称、推理偏好、重试和图片参数；`modelOverrides` 会先合入显式模型条目，避免 DSH 的两种配置形式互斥。仅清除 API Key、端点、协议和请求头覆写，以保证 OAuth 使用原生 Codex 接口。
+
 参考：[Codex 模型与可用性](https://learn.chatgpt.com/docs/models)、[Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)、[6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。目录不是账号权限查询；刷新按钮不会调用模型或消耗推理额度。后续模型发布需要更新这份小型目录或随包 SDK。
 
 ## 验证
@@ -31,23 +33,4 @@ node tools/test-codex-host.cjs
 
 同一环境变量下，启动临时 web host 并检查两种通道均能解析 Astra / 6.1 Sol；退出后关闭测试进程并清理临时目录。另有 `tools/test-codex-ui.cjs`，设置 `AKDAGENT_TEST_DOM` 为提供 `jsdom` 的依赖根目录后，可运行中文界面与交互回归。
 
-## 打包与在线验收
-
-`tools/test-codex-electron.cjs` 是独立 Electron 验收入口，加载生产的 preload、IPC 控制器、UI 和 worker。使用测试专用的 `AKDAGENT_REVIEW_HOME`，不运行主应用的自启动、桥部署等无关操作。测试包的 `resources/dsh` 和 `resources/node` 指向对应平台的随包运行时。
-
-制作测试包时，将该文件作为 `app-stage/index.cjs`，在 `app-stage/package.json` 声明 `main: index.cjs`，复制 `electron/src/codex-*`、`settings-preload.js` 与 `i18n/settings.json` 到对应的 `src` 目录；`review.html` 只需包含 `#codex-settings` 容器、生产设置页的样式和 `codex-settings.js`，调用 `initCodexSettings(container, window.svsettings, window.svi18n)`。使用官方 `@electron/asar` 打包，解包规则为 `{codex-*.mjs,codex-catalog.cjs}`，与生产清单的目标文件一致。普通模式执行离线 IPC 验收并退出。
-
-- `AKDAGENT_REVIEW_LIVE=1`：执行真实登录，`AKDAGENT_REVIEW_METHOD=browser|device` 选择方式。授权信息仅写测试目录。
-- `AKDAGENT_REVIEW_LOGOUT=1`：用同一测试目录开启新进程，验证授权持久化，再通过生产设置 IPC 退出登录并确认已清除。
-- 结果保存在测试目录的 `electron-review.json`，不含访问令牌或刷新令牌。
-
-在线模型验收采用显式开关：设置 `AKDAGENT_LIVE_TEST=1`、`AKDAGENT_TEST_RUNTIME` 和 `AKDAGENT_LIVE_TEST_HOME` 后运行 `node tools/test-codex-live.mjs`。测试仅用独立授权目录，对 Astra / 6.1 Sol 的普通和 Fast 通道各执行一个合成只读工具往返，共 8 次小请求；不读取或发送用户工程。它将测试授权的本地有效期置为过期，再验证真实 SDK 能向服务端刷新。完成后运行测试应用的 logout 模式清理授权。
-
-### 2026-10-06 实际验收结果
-
-- Windows 真实打包 Electron：8 项基础检查通过，包括 `.asar.unpacked` worker、preload/IPC、模型选择和其他窗口拒绝访问。
-- 浏览器和设备码 OAuth 均完成真实授权；两者均在新 Electron 进程中读到已保存授权，再通过设置 IPC 成功退出。
-- 普通 / Fast × Astra / 6.1 Sol 的 4 个在线工具往返全部成功（8 次请求），SDK 服务端刷新成功。使用合成工具，无真实 SV/IX 工程数据。
-- 两份测试授权均已清除。单元测试另覆盖并发凭据写入、登录/退出互斥、异步设置写入、Priority 请求载荷和真实 SDK 的 SSE 解析。
-
-这些结果支持代码评审，不代表完整发行验收。真实 SV/IX 工程的端到端回归、完整安装/卸载流程及 macOS 发行包仍需在相应环境完成；不得把合成工具往返写成这些项目已通过。
+历史在线与打包验收记录见 [PR #3](https://github.com/Akunda123/SVIXAGENT/pull/3)。上述回归仅使用合成数据，不代替真实 SV/IX 工程、安装流程及 macOS 发行包验收。

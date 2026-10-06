@@ -29,7 +29,7 @@ const sttModel = require('./stt-model.js')
 const { createPanelBridge } = require('./panel-bridge.js')
 const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge, probeBridgeHeartbeat } = require('./sv-bridge-client.js')
 const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf, pickHostType, ACE_HOST_TYPE } = require('./host-pick.js')
-const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
+const { ensureHome, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
 const { pathToFileURL } = require('node:url')
@@ -1633,26 +1633,6 @@ function getCred(creds, name) {
   const refs = credRefs(creds)
   return (refs && refs[name]) || creds[name]
 }
-/* ⚠️ 只写 `refs`（2026-09-27 修 —— "过了一会就闪退"的真因）：
- *  以前这里按"有没有 `refs` 段"判新旧格式，文件不存在 / 没有 `refs` 就**写到顶层** ⇒ 产出
- *  `version: 1` + `records` + **顶层键**的混合文档 ⇒ 宿主凭据层见顶层未知键直接抛
- *  （`unknown top-level key "DEEPSEEK_API_KEY"`）⇒ **宿主 boot 失败** ⇒ 进程退出 ⇒ 客户端 500ms 后
- *  跟着退出 = 用户看到的"闪退"，且**重装也没用**（每次启动都同步过去那份）。
- *  可那正是**全新机器**的必然形态：DSH 先写 `version: 1` + `records`（会话授权），**还没有 refs**
- *  ⇒ 用户一填 key 就把自己弄得起不来。宿主只认 `version`/`refs`/`records`（规则详见 dsh-home.js 顶部）。 */
-function setCred(creds, name, value) {
-  if (!creds || typeof creds !== 'object') return
-  if (!creds.refs || typeof creds.refs !== 'object') creds.refs = {}
-  if (creds.version === undefined) creds.version = 1
-  creds.refs[name] = value
-  delete creds[name]            // 顶层同名键必须清掉：它就是宿主拒读的那个键
-}
-function delCred(creds, name) {
-  const refs = credRefs(creds)
-  if (refs && refs[name] !== undefined) delete refs[name]
-  if (creds[name] !== undefined) delete creds[name]
-}
-
 /** 解析某一份凭据文件；**null 表示读不了**（宿主也读不了 ⇒ 界面不该说"已配置"）。 */
 function readCredentialsFrom(p) {
   try { return yaml.load(fs.readFileSync(p, 'utf8')) || {} } catch { return null }
@@ -3078,24 +3058,12 @@ function readCredentials() {
   return {}
 }
 
-function writeCredentials(obj) {
-  const dir = path.dirname(OWNED_CREDENTIALS_PATH)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })   // 建的是**我们自己的**目录（不是 ~/.dsh）
-  /* 落盘前**统一规范化**（2026-09-27）：顶层杂键搬进 `refs`、保证 `version: 1`、清掉形状不对的
-   * records 条目 —— 写出去的文件必须**宿主读得了**（宿主 boot 读不懂就直接失败 ⇒ 客户端跟着退）。 */
-  const { doc } = normalizeCredentialsDoc(obj)
-  const out = yaml.dump(doc, { indent: 2, lineWidth: -1 })
-  // 原子写（宿主 chokidar 守着它）；失败就抛，交给 IPC 回报界面（别做哑失败）
-  if (!writeFileAtomic(OWNED_CREDENTIALS_PATH, out)) throw new Error('写 ' + OWNED_CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
-  // ⛔ 不再写/镜像回 `~/.dsh`（源只读）
-}
-
-/** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */
 require('./codex-controller.cjs').registerCodexIPC({
   ipcMain, getSettingsWindow: () => settingsWin, service: codexService,
   readSettings, writeSettings, hasGrant: hasCodexGrant,
 })
 
+/** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */
 const PI_AI_PROVIDER_PRESETS = [
   'openai', 'anthropic', 'google', 'groq', 'mistral', 'openrouter',
   'xai', 'moonshotai', 'deepseek', 'cerebras', 'together', 'huggingface',

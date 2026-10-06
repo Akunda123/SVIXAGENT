@@ -21,13 +21,30 @@ test('verified models, capabilities and retired models', () => {
   assert.ok(!Object.hasOwn(models.find(m=>m.id==='legacy').reasoningEfforts, 'xhigh'))
   assert.ok(!Object.hasOwn(models[0].reasoningEfforts, 'minimal'))
   const original = { other:{keep:true}, 'llm-pi-ai':{providers:{google:{apiKeyEnv:'GOOGLE_API_KEY'},
-    'openai-codex':{baseURL:'https://example.invalid',apiKeyEnv:'WRONG',headers:{Authorization:'synthetic'},models:[{id:'gpt-6-astra',contextWindow:800000}]}}} }
+    'openai-codex':{baseURL:'https://example.invalid',api:'openai-completions',apiKeyEnv:'WRONG',headers:{Authorization:'synthetic'},models:[{id:'gpt-6-astra',contextWindow:800000}]}}} }
   const configured = C.configure(original, models)
-  assert.equal(configured['llm-pi-ai'].providers['openai-codex'].baseURL, undefined)
+  for(const key of ['baseURL','api','apiKeyEnv','headers']) assert.equal(configured['llm-pi-ai'].providers['openai-codex'][key],undefined)
   assert.equal(configured['llm-pi-ai'].providers['openai-codex'].models.find(m=>m.id==='gpt-6-astra').contextWindow,800000)
   assert.deepEqual(configured.other, original.other)
   assert.deepEqual(configured['llm-pi-ai'].providers.google, original['llm-pi-ai'].providers.google)
   assert.equal(original['llm-pi-ai'].providers['openai-codex'].baseURL, 'https://example.invalid')
+})
+
+test('catalog refresh preserves provider preferences and materializes model overrides', () => {
+  const profile={displayName:'Personal Codex',reasoning:'low',retryPolicy:{mode:'normal',maxRetries:2},
+    requestImagePixelBudget:1048576,requestImageMaxBytes:524288,
+    modelOverrides:{'gpt-6-astra':{name:'My Astra',contextWindow:800000,maxTokens:40000,reasoningEfforts:{low:'low',high:'high'}}}}
+  const original={'llm-pi-ai':{providers:{'openai-codex':profile}},locale:{preference:'ja'}}
+  const next=C.configure(original,C.catalog())
+  const actual=next['llm-pi-ai'].providers[C.PROVIDER]
+  for(const key of ['displayName','reasoning','retryPolicy','requestImagePixelBudget','requestImageMaxBytes']) assert.deepEqual(actual[key],profile[key])
+  const astra=actual.models.find(m=>m.id==='gpt-6-astra')
+  for(const [key,value] of Object.entries(profile.modelOverrides['gpt-6-astra'])) assert.deepEqual(astra[key],value)
+  assert.equal(actual.modelOverrides,undefined)
+  assert.ok(actual.models.some(m=>m.id==='gpt-6.1-sol'))
+  assert.deepEqual(C.configure(next,C.catalog()),next)
+  assert.deepEqual(original['llm-pi-ai'].providers[C.PROVIDER],profile)
+  assert.deepEqual(next.locale,original.locale)
 })
 
 test('only official authorization URLs can open a browser', () => {
@@ -134,7 +151,11 @@ test('bundled runtime: native and Fast model resolution, shared locked credentia
   const unrelated=runtime.credentialKey('test','untouched')
   const grant={kind:'grant',payload:{type:'oauth',access:'synthetic-access',refresh:'synthetic-refresh',accountId:'synthetic-account',expires:Date.now()+3600000}}
   try {
-    const settings=C.configure({}, C.catalog(runtime.openaiCodexProvider().getModels()))
+    const settings=C.configure({'llm-pi-ai':{providers:{[C.PROVIDER]:{
+      displayName:'Personal Codex',reasoning:'low',retryPolicy:{mode:'normal',maxRetries:2},
+      requestImagePixelBudget:1048576,modelOverrides:{'gpt-6-astra':{contextWindow:900000}},
+    }}}}, C.catalog(runtime.openaiCodexProvider().getModels()))
+    const capacities={'gpt-6-astra':900000,'gpt-6.1-sol':1050000}
     settings['akdagent-codex']={fastEnabled:true}
     await withStore(runtime,home,async credentials=>{
       await credentials.set(runtime.credentialRef('KEEP_KEY'),'synthetic-key')
@@ -149,12 +170,12 @@ test('bundled runtime: native and Fast model resolution, shared locked credentia
         for(const id of C.FAST_MODELS) {
           const model=await ctx.llm.resolveModelInfo(C.PROVIDER,id)
           assert.equal(model.id,id)
-          assert.equal(model.context.contextWindow,1050000)
+          assert.equal(model.context.contextWindow,capacities[id])
         }
       } finally { await adapter.dispose(); await llmFiber.dispose() }
       const fast=createFastAdapter(runtime,{credentials,get:()=>undefined},()=>settings)
       assert.deepEqual((await fast.listModels(C.FAST_PROVIDER)).map(m=>m.id).sort(),[...C.FAST_MODELS].sort())
-      for(const id of C.FAST_MODELS) assert.equal((await fast.resolveModel(C.FAST_PROVIDER,id)).context.contextWindow,1050000)
+      for(const id of C.FAST_MODELS) assert.equal((await fast.resolveModel(C.FAST_PROVIDER,id)).context.contextWindow,capacities[id])
       const shared=sharedStore(runtime,credentials)
       await shared.modify(C.PROVIDER,async value=>({...value,access:'synthetic-rotated'}))
       assert.equal((await credentials.readRecord(key)).payload.access,'synthetic-rotated')

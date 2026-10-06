@@ -40,19 +40,19 @@ function configure(settings, models) {
   const next = structuredClone(settings)
   const pi = next['llm-pi-ai'] || {}
   const old = pi.providers?.[PROVIDER] || {}
-  // OAuth is only sent to the SDK's native Codex endpoint. Never inherit key,
-  // endpoint, or header overrides from an API-key provider configuration.
-  const existing = new Map((old.models || []).map(m => [m.id, m]))
-  const merged = models.map(m => ({ ...m, ...existing.get(m.id), id: m.id,
-    // Refresh verified model capabilities, retaining user capacity overrides.
-    reasoningEfforts: m.reasoningEfforts,
-  }))
+  // Materialize overrides before adding an explicit model list: DSH refuses
+  // models + modelOverrides together. Explicit user entries keep precedence.
+  const existing = new Map(Object.entries(old.modelOverrides || {}).map(([id, value]) => [id, { ...value, id }]))
+  for (const model of old.models || []) existing.set(model.id, { ...existing.get(model.id), ...model })
+  const merged = models.map(m => ({ ...m, ...existing.get(m.id), id: m.id }))
   for (const model of existing.values()) {
     if (!retired.has(model.id) && !merged.some(m => m.id === model.id)) merged.push(model)
   }
-  next['llm-pi-ai'] = { ...pi, providers: { ...pi.providers, [PROVIDER]: {
-    displayName: 'OpenAI Codex', models: merged,
-  } } }
+  const profile = { ...old, displayName: old.displayName ?? 'OpenAI Codex', models: merged }
+  delete profile.modelOverrides // Preserved in models above, not discarded.
+  // Pin OAuth to the native endpoint. Leave unrelated preferences intact.
+  for (const field of ['apiKeyEnv', 'baseURL', 'api', 'headers']) delete profile[field]
+  next['llm-pi-ai'] = { ...pi, providers: { ...pi.providers, [PROVIDER]: profile } }
   return next
 }
 

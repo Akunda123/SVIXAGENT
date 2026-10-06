@@ -116,7 +116,7 @@ if (/if \(!CRED_REF_RE\.test\(env\)\)/.test(t)) ok('set-provider-key 校验凭�
 else fail('set-provider-key 不校验凭据名');
 if (/return \{ ok: false, error: '写入凭据失败：'/.test(t)) ok('写凭据异常时如实回报 ok:false（不再冒到渲染层）');
 else fail('写凭据异常没被接住 ⇒ 用户以为存好了');
-if (/if \(!writeFileAtomic\(OWNED_CREDENTIALS_PATH/.test(t)) ok('凭据落盘失败会抛（交给 IPC 回报）');
+if ((t.match(/if \(!result\.ok\) throw new Error\('Credential store write failed'\)/g) || []).length === 2) ok('两条凭据写入路径都检查原生服务结果，失败会抛（交给 IPC 回报）');
 else fail('凭据落盘失败没被检查');
 
 console.log('\n== ⑦ 密钥"像不像密钥"要给**非阻塞**提示（2026-10-05，用户裁「7 做」）==');
