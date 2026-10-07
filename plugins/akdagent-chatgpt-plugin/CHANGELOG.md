@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0 — 2026-10-07
+
+- Publish the first stable plugin release under littleclock2; retain the existing plugin identifier and legacy status alias.
+- Resolve all 14 production-dependency audit findings: update MCP SDK, ONNX Runtime and affected transitive dependencies; override cwise's static-module with 3.0.4 without downgrading ndarray-fft.
+- Add FFT/baseline and cwise execution regression checks, and document per-dependency results and audit boundaries.
+- Include both runtime audio .mjs assets required by dist/audio.js in service bundles; verify packaged audio conversion without models or live host writes.
+- Keep the 0.3.0 preview release available; 1.0.0 installs in its own versioned directory.
+
 ## 0.3.0 — 2026-10-07
 
 - Rename the display name to AKDAgent Plugin while preserving existing plugin identifiers and the legacy status tool.

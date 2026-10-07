@@ -11,7 +11,7 @@ for(const name of ['generic','claude-code','claude-desktop','cursor','vscode','o
   const command=Array.isArray(entry.command)?entry.command[0]:entry.command;
   const args=Array.isArray(entry.command)?entry.command.slice(1):entry.args;
   const transport=new StdioClientTransport({command,args,env:{...process.env,...(entry.env||entry.environment)},stderr:'pipe'});
-  const client=new Client({name:'akdagent-profile-readonly-check',version:'0.3.0'});
+  const client=new Client({name:'akdagent-profile-readonly-check',version:'1.0.0'});
   const record={profile:name,projectWrites:0};
   try {
     await client.connect(transport);

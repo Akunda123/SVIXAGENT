@@ -19,6 +19,13 @@ foreach ($name in @('plugin.json','mcp.json','.claude-plugin','.codex-plugin','.
 $serverStage = Join-Path $stage 'akdagent-mcp-service/resources/server'
 New-Item -ItemType Directory -Path $serverStage -Force | Out-Null
 foreach ($name in @('dist','package.json','package-lock.json')) { Copy-Item -LiteralPath (Join-Path $repo "server/$name") -Destination $serverStage -Recurse }
+# TypeScript leaves these runtime modules in src; dist/audio.js imports ../src/audio/*.mjs.
+foreach ($module in Get-ChildItem -LiteralPath "$repo/server/src" -Filter '*.mjs' -File -Recurse) {
+  $relative = $module.FullName.Substring((Join-Path $repo 'server').Length + 1)
+  $target = Join-Path $serverStage $relative
+  New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+  Copy-Item -LiteralPath $module.FullName -Destination $target
+}
 $serviceStage = Join-Path $stage 'akdagent-mcp-service'
 New-Item -ItemType Directory -Path "$serviceStage/bridge" | Out-Null
 Copy-Item -LiteralPath "$repo/sv/lua/AKDAgentBridge.lua" -Destination "$serviceStage/bridge"
@@ -42,9 +49,15 @@ Copy-Item -LiteralPath "$plugin/licenses" -Destination "$referenceStage/licenses
 Copy-Item -LiteralPath "$plugin/docs/reference-pack.md" -Destination "$referenceStage/README.md"
 $revision = (& git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the AKDAgent source commit; use a Git checkout as SourceRoot.' }
+$sourceRepository = 'https://github.com/Akunda123/SVIXAGENT.git'
+if (Test-Path -LiteralPath "$pluginRepo/UPSTREAM.json") {
+  $sourceInfo = Get-Content -LiteralPath "$pluginRepo/UPSTREAM.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($sourceInfo.commit -ne $revision) { throw 'SourceRoot does not match the pinned UPSTREAM.json commit.' }
+  $sourceRepository = $sourceInfo.repository
+}
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $files = @(Get-ChildItem -LiteralPath $referenceStage -File -Recurse | ForEach-Object { @{path=$_.FullName.Substring($referenceStage.Length+1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()} })
-[IO.File]::WriteAllText("$referenceStage/manifest.json", (@{upstream='https://github.com/Akunda123/SVIXAGENT'; sourceCommit=$revision; files=$files} | ConvertTo-Json -Depth 8), $utf8)
+[IO.File]::WriteAllText("$referenceStage/manifest.json", (@{upstream='https://github.com/Akunda123/SVIXAGENT'; sourceRepository=$sourceRepository; sourceCommit=$revision; files=$files} | ConvertTo-Json -Depth 8), $utf8)
 foreach ($component in @('akdagent-chatgpt-plugin','akdagent-mcp-service','akdagent-references')) {
   $artifactName = if ($component -eq 'akdagent-chatgpt-plugin') { 'akdagent-plugin' } else { $component }
   Compress-Archive -LiteralPath (Join-Path $stage $component) -DestinationPath (Join-Path $OutputDirectory "$artifactName-$version.zip")

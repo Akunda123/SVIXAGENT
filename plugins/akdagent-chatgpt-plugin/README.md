@@ -86,7 +86,7 @@
    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1 -AKDAgentDir 'C:\Apps\AKDAgent'
    ```
 
-   标准 `%LOCALAPPDATA%\Programs\AKDAgent` 安装可省略 `-AKDAgentDir`。脚本仅在本用户 `.agents/plugins/marketplace.json` 添加/更新独立条目，安装到 `.codex/plugins/local/akdagent-chatgpt-plugin/0.3.0`。已有同名版本目录时停止，不覆盖；可指定 `-Destination`。
+   标准 `%LOCALAPPDATA%\Programs\AKDAgent` 安装可省略 `-AKDAgentDir`。脚本仅在本用户 `.agents/plugins/marketplace.json` 添加/更新独立条目，安装到 `.codex/plugins/local/akdagent-chatgpt-plugin/1.0.0`。已有同名版本目录时停止，不覆盖；可指定 `-Destination`。
 
 3. 重启 Codex，在插件目录选择 **AKDAgent Community Integrations** 并安装/启用 **AKDAgent Plugin**。如果已有个人市场，会保留其名称及其他插件；在原市场下找新增条目即可。
 4. 退出原 AKDAgent 客户端，在 **SV1 或 SV2 其中一个**打开工程并运行 `脚本 → Agent → AKDAgent Bridge`。

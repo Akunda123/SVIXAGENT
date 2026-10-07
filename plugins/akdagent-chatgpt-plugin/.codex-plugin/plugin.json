@@ -1,6 +1,6 @@
 {
   "name": "akdagent-chatgpt-plugin",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "AKDAgent Plugin — portable SV editing tools and music workflows for local MCP clients.",
   "author": { "name": "littleclock2" },
   "homepage": "https://github.com/littleclock2/AKDAgent-Plugin",

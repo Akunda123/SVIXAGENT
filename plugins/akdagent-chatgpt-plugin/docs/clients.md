@@ -16,7 +16,7 @@ codex,claude-code,claude-desktop,cursor,vscode,opencode
 powershell -NoProfile -ExecutionPolicy Bypass -File .\akdagent-chatgpt-plugin\scripts\deploy.ps1 -BundleRoot . -Clients 'cursor,claude-desktop'
 ```
 
-服务、插件和资料默认安装在 `%USERPROFILE%/.akdagent/0.3.0`。只配置所选应用；已有配置中其他服务、账号设置和 JSONC 注释保留，变更前创建备份。遇到结构错误、重复键或符号链接时保留原文件，导出配置供手动合并。OpenCode v2 使用 `-OpenCodeVersion 2`；默认适配 v1。
+服务、插件和资料默认安装在 `%USERPROFILE%/.akdagent/1.0.0`。只配置所选应用；已有配置中其他服务、账号设置和 JSONC 注释保留，变更前创建备份。遇到结构错误、重复键或符号链接时保留原文件，导出配置供手动合并。OpenCode v2 使用 `-OpenCodeVersion 2`；默认适配 v1。
 
 ## 各应用的入口
 

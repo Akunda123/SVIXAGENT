@@ -1,7 +1,7 @@
 {
   "name": "akdagent-chatgpt-plugin",
   "displayName": "AKDAgent Plugin",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Local SV editing tools with shared vocal-tuning, lyrics and composition workflows.",
   "author": { "name": "littleclock2" },
   "homepage": "https://github.com/littleclock2/AKDAgent-Plugin",
