@@ -40,6 +40,17 @@ const GENERATED_ROOTS = ['dist/', 'electron/release/'];
 //    源就是 runner 上现构建的 `server/dist`）
 const BUILD_OUTPUTS = ['server/dist'];
 
+/* 同一次 job 里**更早一行现场落位**的产物（由仓库里的落位脚本生成，源在别的依赖目录里，产物被 .gitignore 挡住）。
+ * 2026-10-07 加（查「mac 包缺客户端 pdfjs」那条真缺口时）：
+ *   `electron/src/vendor/**` 不进 git，但工作流里先 `node tools/stage-pdfjs.cjs`
+ *   （从 `server/node_modules/pdfjs-dist/legacy/build` 落位）、**随后**才
+ *   `rsync -a electron/src/vendor/ "$T/electron/src/vendor/"` ⇒ 它**不是**"runner 上 checkout 不到"。
+ * ⛔ 判据刻意做成「**同一个文件里、在那一行之前**真的出现过这条生成命令」——**不是路径白名单**：
+ *   把生成命令删掉，这条守卫必须重新报 FAIL（2026-10-07 已做负向验证）。 */
+const STAGERS = [
+  { cmd: /node\s+tools\/stage-pdfjs\.cjs\b/, produces: ['electron/src/vendor'], what: 'stage-pdfjs（客户端 pdfjs min 构建）' },
+];
+
 // git 是否可用（不是仓库/没装 git 时不做跟踪校验，只做存在性校验）
 let gitOk = true;
 try { execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, stdio: 'ignore' }); }
@@ -75,7 +86,7 @@ function pathTokens(line) {
   return out;
 }
 
-function checkPath(where, rel) {
+function checkPath(where, rel, lineIdx, stagings) {
   if (!rel) return;
   const norm = rel.replace(/\\/g, '/').replace(/^\.\//, '');
   // 不是"路径样子"的 token（例如 `for a in arm64 x64` 里的 arm64）不当路径判，免得误报
@@ -87,6 +98,12 @@ function checkPath(where, rel) {
   // 同 job 里更早步骤现场构建出来的产物（如 `npm run build` 产出的 server/dist）不走跟踪校验
   if (BUILD_OUTPUTS.some((b) => norm === b || norm.startsWith(b + '/'))) {
     info(`${where} \`${norm}\` 是同 job 里更早步骤的构建产物 ⇒ 跳过跟踪校验`);
+    return;
+  }
+  // 同 job 里**更早一行**现场落位的产物（如 stage-pdfjs 产出的 electron/src/vendor）也不走跟踪校验
+  const staged = (stagings || []).find((s) => s.line < lineIdx && s.produces.some((p) => norm === p || norm.startsWith(p + '/')));
+  if (staged) {
+    info(`${where} \`${norm}\` 是同 job 里更早一行现场落位的产物（${staged.what}，第 ${staged.line + 1} 行）⇒ 跳过跟踪校验`);
     return;
   }
   for (const g of GENERATED_ROOTS) {
@@ -114,14 +131,20 @@ if (!fs.existsSync(WF_DIR)) {
   for (const f of files) {
     const text = fs.readFileSync(path.join(WF_DIR, f), 'utf8');
     console.log(`  — ${f} —`);
-    text.split(/\r?\n/).forEach((line, i) => {
+    const lines = text.split(/\r?\n/);
+    // 先扫一遍"现场落位"命令出现的行号（判据 = 必须**在该行之前**出现过）
+    const stagings = [];
+    lines.forEach((line, i) => {
+      for (const s of STAGERS) if (s.cmd.test(line)) stagings.push({ line: i, produces: s.produces, what: s.what });
+    });
+    lines.forEach((line, i) => {
       const where = `${f}:${i + 1}`;
       if (/^\s*(rsync|cp)\b/.test(line)) {
-        for (const t of pathTokens(line)) checkPath(where, t);
+        for (const t of pathTokens(line)) checkPath(where, t, i, stagings);
       }
       const m = line.match(/^\s*for\s+\w+\s+in\s+([^;]+?)(?:;|\s*$|;?\s*do)/);
       if (m) {
-        for (const t of pathTokens(m[1])) checkPath(where + ' (for-in)', t);
+        for (const t of pathTokens(m[1])) checkPath(where + ' (for-in)', t, i, stagings);
       }
     });
   }

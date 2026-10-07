@@ -164,6 +164,18 @@ jobs:
             fi
           done
           node -e "console.log('  server 版本 = ' + require('./server/package.json').version)"
+          # 🆕 2026-10-07 修（真缺口，**1.1.0 起每一版 mac 包都缺**，CI 自检那条 ✗ 就是它）：
+          #   客户端「PDF→PNG」渲染页（`electron/src/pdf-render.html`）按相对路径 import
+          #   `src/vendor/pdfjs/legacy/build/{pdf.min.mjs,pdf.worker.min.mjs}`，而 `electron/src/vendor/**`
+          #   被 `.gitignore` 挡住 ⇒ **checkout 里没有**，要靠 `tools/stage-pdfjs.cjs` 从
+          #   `server/node_modules/pdfjs-dist/legacy/build` 落位。上面那步 `npm ci --prefix server` 已经把
+          #   pdfjs-dist 装好了 ⇒ 就地落位，再补进树里（树里那份之前被 rsync 的 `--exclude 'vendor/'` 留着空位；
+          #   ⛔ 别指望整包里那份 —— `build-inputs` 的 payload 本来就没有它）。
+          #   缺了会怎样：`main.js` 加载渲染页**之前**会预检这两个文件，缺了直接抛
+          #   「打包漏了 src/vendor/pdfjs」⇒ mac 版**拖 PDF 识谱失败**（拖图片不受影响，图片识谱不走 pdfjs）。
+          node tools/stage-pdfjs.cjs
+          rsync -a electron/src/vendor/ "$T/electron/src/vendor/"
+          echo "  ✓ 客户端 pdfjs 已补进树里：$(find "$T/electron/src/vendor/pdfjs" -type f | wc -l | tr -d ' ') 个文件"
 
       - name: 重新生成随包文档（脱敏）—— 整包里那份是冻住的
         run: |
