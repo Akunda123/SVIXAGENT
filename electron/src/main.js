@@ -74,7 +74,14 @@ let safeLogBroken = false
     try { line = util.format(...args) }
     catch { line = args.map((a) => { try { return String(a) } catch { return '?' } }).join(' ') }
     if (safeLogPath && !safeLogBroken) {
-      try { fs.appendFileSync(safeLogPath, `${new Date().toISOString()} ${level} ${line}\n`, 'utf8') }
+      /* 🆕 2026-10-07（"再次检查"时补的一个洞）：**日志落盘前也要脱敏**。
+       *   为什么现在才补：这一轮把日志尾部（`logTail`）写进了**用户回传的** `host-crash.json`，
+       *   而排障说明也让用户直接把 `akdagent.log` 发来 ⇒ 日志里若有明文密钥，等于我们主动收集它。
+       *   宿主 stderr / 厂商错误原文里出现 `token=…`、`api_key: …` 这种回显是完全可能的
+       *   （例：`[dsh] dsh web: http://127.0.0.1:PORT/?token=…` 那行本身就带一个会话 token）。
+       *   ⇒ 在**唯一写盘点**统一遮掉。代价：日志里看不到 key 形状 —— 那个本来由
+       *   `keyShapeWarning()` 单独报（只看形状、不泄漏值）。 */
+      try { fs.appendFileSync(safeLogPath, `${new Date().toISOString()} ${level} ${redactForCrash(line)}\n`, 'utf8') }
       catch { safeLogBroken = true }   // 磁盘满/权限不足：放弃写盘，别让日志本身变成崩溃源
     }
     // 打包版没有 stdout ⇒ 这一步必然 EPIPE，吞掉即可（事件型错误见下面的 'error' 兜底）
@@ -200,7 +207,10 @@ function writeSettings(obj) {
    *   而界面**早就准备好**显示错误了（settings.html 里多处 `if (!r || r.ok === false) alert(r.error || …)`）
    *   ⇒ 于是"settings.yaml 只读 / 被杀软锁住 / 磁盘满"时用户被骗：明明改了默认模型、重启又变回去，
    *     与当年那条「界面说配好了、宿主其实没 key」是同一类哑失败（H4）。 */
-  const wrote = writeFileAtomic(OWNED_SETTINGS_PATH, out)
+  /* 🆕 2026-10-07：同样**显式 0600**。settings.yaml 里会有内联密钥（api-key 登录流就写在这），
+   *   而 `~/.dsh-akdagent` 是隔离家目录 ⇒ 没有理由让同机其他人读得到。（宿主对 settings 不做权限校验，
+   *   这条是安全默认，不是它逼的；凭据那条才是硬要求 —— 见 writeCredentials。） */
+  const wrote = writeFileAtomic(OWNED_SETTINGS_PATH, out, { mode: 0o600 })
   if (!wrote) console.error('[akdagent] 写 settings.yaml 失败（权限/杀软？）：' + OWNED_SETTINGS_PATH)
   // ⛔ 不再镜像回 `~/.dsh`（源只读）：宿主读的就是上面这份
   return wrote
@@ -969,8 +979,18 @@ function spawnHost(port) {
   }
   console.log(`[akdagent] spawning embedded host: ${nodeBin} ${args.join(' ')} (cwd=${dshRoot}, DSH_HOME=${AKDAGENT_DSH_HOME})`)
   const child = spawn(nodeBin, args, { cwd: dshRoot, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-  hostSpawnedAt = Date.now()          // 现场取证：宿主能活多久（"起来 20 秒就退"与"跑了两小时才退"是两类问题）
-  hostStderrTail.length = 0
+  /* 🆕 2026-10-07（由 mac 用户回传的 `host-crash.json` 暴露的**取证缺陷**，真实案例：
+   *   `{"code":1,"ranMs":7,"readyBeforeExit":false,"stderrTail":[]}` —— 看起来"只活了 7 毫秒、还没有任何输出"，
+   *   实际是：就绪前退出会**立刻重试**（`HOST_MAX_ATTEMPTS=2`），而第一次的退出回调是 **500ms 后**才跑，
+   *   那时 `hostSpawnedAt` 已被第二次 spawn 改写、`hostStderrTail` 已被清空 ⇒ **崩溃那次的证据被自己擦掉了**，
+   *   `ranMs` 也变成"距第二次 spawn 7ms"这种没有意义的数。用户以为发了现场，我们什么都看不到。
+   * ⇒ 现在：**每一次 spawn 的起始时刻与 stderr 尾巴由本次闭包持有**，退出回调只用它们（不受后续重试影响）；
+   *   `hostStderrTail` / `hostSpawnedAt` 降级成"最新一次"的镜像，供别处（就绪后死亡的弹框/日志）继续读。 */
+  const attemptSeq = ++hostSpawnSeq
+  const attemptStartedAt = Date.now()
+  const attemptStderr = []
+  hostStderrTail = attemptStderr
+  hostSpawnedAt = attemptStartedAt
   hostExited = false                  // 新一轮：清掉上一轮的生死标记（waitForWeb 就靠它快速失败）
   hostExitInfo = null
   // host 的输出**同时**进日志文件（console.* 已被上面的安全网接管）——打包版没终端时，
@@ -1011,18 +1031,24 @@ function spawnHost(port) {
        *      这里**只落现场、不弹框、不退客户端** —— 决定权交给启动流程（`bringUpHost` 的重试循环），
        *      它会先自愈（规范化/挪走读不了的凭据）再重来一次。以前在这直接退 = 用户看到的"闪退"。
        *   ② **就绪后**死亡：客户端与宿主是一体的 ⇒ 弹框 + 退出，但**必须留现场**（以前是静默消失）。 */
-      const ranMs = hostSpawnedAt ? Date.now() - hostSpawnedAt : null
+      const ranMs = Date.now() - attemptStartedAt     // ⚠️ 用**本次** spawn 的起始时刻（不再读全局 hostSpawnedAt）
       let crashPath = ''
       try {
         crashPath = path.join(app.getPath('userData'), 'host-crash.json')
         fs.writeFileSync(crashPath, JSON.stringify({
           at: new Date().toISOString(), code, signal, ranMs, readyBeforeExit: hostReady,
-          logPath: safeLogPath || '', stderrTail: hostStderrTail.slice(-40),
+          /* 🆕 2026-10-07：**哪一次尝试**（1 = 首次；2 = 自愈后重试）+ 日志尾巴。
+           *   为什么加日志尾巴：宿主崩前那几行常常只在**日志文件**里（stdout/stderr 不一定都有），
+           *   而用户回传时最方便的就是这一个文件 ⇒ 一份 host-crash.json 就够定位，不必再要 akdagent.log。 */
+          attempt: attemptSeq,
+          logPath: safeLogPath || '',
+          logTail: tailOfLogLines(40),
+          stderrTail: attemptStderr.slice(-40),         // ⚠️ 本次 spawn 自己的尾巴（以前读全局数组 ⇒ 重试后必空）
         }, null, 2), 'utf8')
       } catch { crashPath = '' }
-      const firstErr = hostStderrTail.slice().reverse().find((l) => /error|failed|FATAL|unknown|refus/i.test(l)) || hostStderrTail.slice(-1)[0] || ''
+      const firstErr = attemptStderr.slice().reverse().find((l) => /error|failed|FATAL|unknown|refus/i.test(l)) || attemptStderr.slice(-1)[0] || ''
       const head = `⚠ 内嵌宿主退出（code=${code} signal=${signal}`
-        + (ranMs === null ? '' : ` · 存活 ${Math.round(ranMs / 1000)}s`) + '）'
+        + (ranMs === null ? '' : ` · 存活 ${Math.round(ranMs / 1000)}s`) + ` · 第 ${attemptSeq} 次尝试）`
       if (!hostReady) {
         console.error(`[akdagent] ${head} —— 在**就绪前**退出 ⇒ 交给启动重试逻辑（自愈后重来一次）；现场：${crashPath || '(写不了)'}`)
         if (firstErr) console.error('[akdagent]   宿主最后一条像样的错误：' + firstErr)
@@ -1136,13 +1162,19 @@ let quitting = false
  * 往往正是真因**（例如 `credentials-local: unknown top-level key "…"`）。以前只有日志文件，
  * 用户报障时给不出、我们也问不到 ⇒ 现在落成一份 `userData/host-crash.json` 直接回传即可。 */
 let hostSpawnedAt = 0
+/* 🆕 2026-10-07：第几次 spawn（1 = 首次；2 = 自愈后重试）。崩溃现场要带这个数，
+ *   否则"起不来"的报告分不清是首次还是重试（两次的现象往往不一样）。 */
+let hostSpawnSeq = 0
 /* 本轮宿主的生死（2026-09-27）：`hostExited` 让 `waitForWeb` 立刻放弃等待；
  * `hostExitInfo` 把退出码带给"启动失败"的报错文案（用户回传时一眼能看到原因）。 */
 let hostExited = false
 let hostExitInfo = null
 /** 宿主最多起几次（1 次失败 + 1 次自愈重试）；再失败就是真起不来，交给外层弹框 + 退出 */
 const HOST_MAX_ATTEMPTS = 2
-const hostStderrTail = []
+/* 🆕 2026-10-07：每次 spawn 的 stderr 尾巴。
+ *   以前是 `const hostStderrTail = []` + 每次 spawn `length = 0` 复用同一个数组 ⇒ 重试后把上一次的证据擦掉
+ *   （见 spawnHost 里那段注释）。现在**每次 spawn 换一个新数组**，所以它必须是 `let`。 */
+let hostStderrTail = []
 const HOST_STDERR_TAIL_MAX = 60
 /* 🆕 2026-10-05：脱敏**补形状**。原来只认 `sk-…`（2026-09-27 加），于是
  *   Google `AIza…` / HuggingFace `hf_…` / Groq `gsk_…` / xAI `xai-…` / GitHub `ghp_…`
@@ -1166,6 +1198,23 @@ function noteHostStderr(text) {
     hostStderrTail.push(redactForCrash(raw).slice(0, 500))
     while (hostStderrTail.length > HOST_STDERR_TAIL_MAX) hostStderrTail.shift()
   }
+}
+/** 读日志文件最后 n 行（**先脱敏**）——写进 `host-crash.json` 随用户回传。
+ *  🆕 2026-10-07：宿主崩前那几行常常只在日志文件里（stdout/stderr 不一定都有），
+ *  而用户回传时最方便的就是那一个 JSON ⇒ 有了它就不必再让用户去找 `akdagent.log`。
+ *  只读文件尾部 64 KB（日志可能上百 MB，绝不能整个读进来）。 */
+function tailOfLogLines(n) {
+  try {
+    if (!safeLogPath) return []
+    const st = fs.statSync(safeLogPath)
+    if (!st.size) return []
+    const want = Math.min(st.size, 64 * 1024)
+    const fd = fs.openSync(safeLogPath, 'r')
+    const buf = Buffer.alloc(want)
+    try { fs.readSync(fd, buf, 0, want, st.size - want) } finally { fs.closeSync(fd) }
+    return buf.toString('utf8').split(/\r?\n/).map((l) => l.replace(/\s+$/, '')).filter(Boolean)
+      .slice(-n).map((l) => redactForCrash(l).slice(0, 500))
+  } catch { return [] }
 }
 let dragOffset = null
 
@@ -3068,7 +3117,10 @@ function writeCredentials(obj) {
   const { doc } = normalizeCredentialsDoc(obj)
   const out = yaml.dump(doc, { indent: 2, lineWidth: -1 })
   // 原子写（宿主 chokidar 守着它）；失败就抛，交给 IPC 回报界面（别做哑失败）
-  if (!writeFileAtomic(OWNED_CREDENTIALS_PATH, out)) throw new Error('写 ' + OWNED_CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
+  /* ⛔ `{ mode: 0o600 }` 不是"锦上添花"，是**宿主的硬要求**（2026-10-07 · mac 用户 `logic` 的日志）：
+   *   宿主 `dsh-credentials-local` 启动时 `assertOwnerOnly` ⇒ 644 直接拒绝加载 ⇒ 宿主起不来。
+   *   POSIX 上默认 umask 022 写出来就是 644 ⇒ 不指定就等着 mac 用户"配完 key 下次启动闪退"。 */
+  if (!writeFileAtomic(OWNED_CREDENTIALS_PATH, out, { mode: 0o600 })) throw new Error('写 ' + OWNED_CREDENTIALS_PATH + ' 失败（权限 / 杀软？）')
   // ⛔ 不再写/镜像回 `~/.dsh`（源只读）
 }
 

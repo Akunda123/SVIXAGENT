@@ -33,7 +33,9 @@ const t = fs.readFileSync(MAIN, 'utf8');
 const lines = t.split(/\r?\n/);
 
 console.log('== ① writeSettings 必须如实回报写盘结果（H4：不许哑失败）==');
-if (/const wrote = writeFileAtomic\(OWNED_SETTINGS_PATH, out\)/.test(t)) ok('把 writeFileAtomic 的结果接住了（const wrote = …）');
+/* ⚠️ 2026-10-07：这里**允许可选第三参** —— settings 现在也显式写 `{ mode: 0o600 }`
+ *   （mac 那个 P0 的连带加固；判据不变：结果必须被 `const wrote = …` 接住）。 */
+if (/const wrote = writeFileAtomic\(OWNED_SETTINGS_PATH, out(?:,[^)]*)?\)/.test(t)) ok('把 writeFileAtomic 的结果接住了（const wrote = …）');
 else fail('writeFileAtomic(OWNED_SETTINGS_PATH…) 的结果没被接住 ⇒ 写盘失败会哑掉');
 if (/return wrote/.test(t)) ok('函数结尾把结果返回给调用方');
 else fail('writeSettings 没有 return 写盘结果（调用方无从判断）');
@@ -66,6 +68,15 @@ for (const [what, re] of [
 ]) {
   if (re.test(t)) ok('脱敏含 ' + what);
   else fail('脱敏缺 ' + what + ' ⇒ 这类密钥会原样进 host-crash.json（而那份是用户回传的）');
+}
+
+console.log('\n== ③b 日志落盘也要脱敏（2026-10-07 补的洞：logTail 与"把 akdagent.log 发来"都会把日志交出去）==');
+{
+  /* 这一轮把日志尾部写进了用户回传的 `host-crash.json`（`logTail`），排障说明也让用户直接把
+   * `akdagent.log` 发来 ⇒ 日志里若有明文密钥，等于我们主动收集它。宿主 stdout 里那行
+   * `dsh web: http://…/?token=…` 本身就带一个会话 token ⇒ 必须在**唯一写盘点**遮掉。 */
+  if (/appendFileSync\(safeLogPath, `\$\{new Date\(\)\.toISOString\(\)\} \$\{level\} \$\{redactForCrash\(line\)\}\\n`/.test(t)) ok('写 akdagent.log 前先过 redactForCrash（唯一写盘点）');
+  else fail('日志落盘没脱敏 ⇒ 用户把 akdagent.log / host-crash.json 发来时会带着明文密钥');
 }
 
 console.log('\n== ④ 抠出 redactForCrash 真跑（源码看着对 ≠ 真遮得住）==');

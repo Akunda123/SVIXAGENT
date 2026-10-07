@@ -179,6 +179,20 @@ console.log('\n== C. 接线：写侧不许再产出顶层键 / 要规范化 / �
     else fail('set-provider-key 没校验凭据名 ⇒ 用户填 `my-key` 之类就能把宿主写崩');
     if (/host-crash\.json/.test(t) && /noteHostStderr\(/.test(t)) ok('宿主异常退出会落 host-crash.json（含 stderr 现场）');
     else fail('宿主异常退出没有现场落盘 ⇒ 用户报"闪退"时我们还是只有"code=1"');
+    /* 🆕 2026-10-07（mac 用户回传的 host-crash.json 暴露的**取证缺陷**，本机已 A/B 复现）：
+     *   真实回传是 `{"code":1,"ranMs":7,"readyBeforeExit":false,"stderrTail":[]}` —— 看着像"只活了 7 毫秒、
+     *   还没有任何输出"。真相：就绪前退出会**立刻重试**，而第一次的退出回调是 **500ms 后**才跑；
+     *   旧实现（`hostStderrTail.length = 0` 复用同一个数组 + 改写全局 `hostSpawnedAt`）⇒ 第二次 spawn
+     *   把上一次的 stderr 擦掉、ranMs 变成"距第二次 spawn 几毫秒" ⇒ **现场被自己抹了**（用户以为发了证据）。
+     *   下面四条钉住这个形状（负向验证过：把 stderrTail 改回全局数组 ⇒ 本守卫 exit 1）。 */
+    if (/const attemptStderr = \[\]/.test(t) && /stderrTail: attemptStderr\.slice\(-40\)/.test(t)) ok('宿主退出写的是**本次 spawn 自己的** stderr 现场（重试不再擦掉上一次）');
+    else fail('崩溃报告仍读全局 stderr 数组 ⇒ 第二次 spawn 一清，回传上来就是空（2026-10-07 mac 用户那份）');
+    if (!/hostStderrTail\.length = 0/.test(t)) ok('不再用 `hostStderrTail.length = 0` 复用同一个数组');
+    else fail('还在清空全局 stderr 数组 ⇒ 上一次尝试的现场会被下一次 spawn 擦掉');
+    if (/const ranMs = Date\.now\(\) - attemptStartedAt/.test(t)) ok('ranMs 用**本次** spawn 的起始时刻（以前读全局变量 ⇒ 报出"存活 7ms"这种假数）');
+    else fail('ranMs 仍在读全局 hostSpawnedAt ⇒ 重试后那个数值没有意义');
+    if (/attempt: attemptSeq/.test(t) && /logTail: tailOfLogLines\(40\)/.test(t) && /function tailOfLogLines\(n\)/.test(t)) ok('报告里带 attempt 序号 + 日志尾巴（用户回传一份文件就够定位）');
+    else fail('报告里缺 attempt / logTail ⇒ 用户回传的信息量还是不够定位');
     const reasons = (t.match(/quitApp\('(托盘菜单|界面按钮|启动失败|窗口全关[^']*|内嵌宿主运行中退出)'\)/g) || []).length;
     if (reasons >= 4) ok('quitApp() 带来源的调用点 ' + reasons + ' 处（以前日志分不出"用户退的"和"宿主死的"）');
     else fail('quitApp() 带来源的调用点只有 ' + reasons + ' 处（至少要覆盖 托盘/界面/启动失败/窗口全关/宿主退出）');
@@ -278,6 +292,30 @@ console.log('\n== E. 第二轮（2026-09-27 二）：自愈重试 / 判据 / 原
   else fail('环境变量遮蔽没有提示');
   if (/setProviderKey\(p\.id, p\.apiKeyEnv, v\)[\s\S]{0,240}?r\.ok === false/.test(st)) ok('设置页会检查写凭据的结果并弹错');
   else fail('设置页仍不检查写凭据的结果（用户会以为存好了）');
+}
+
+console.log('\n== F. 凭据文件的**权限**：POSIX 上必须 600（2026-10-07 · mac 用户日志里的 P0）==');
+{
+  /* 事故（2026-10-07，mac 用户 `logic` 回传的 `akdagent.log`）：
+   *   宿主 `dsh-credentials-local` 启动时 `assertOwnerOnly` ⇒ `mode 644` 就**拒绝加载**
+   *   （原文 `readable beyond its owner (mode 644); run "chmod 600 …"`）⇒ 整棵插件树 failed to load
+   *   ⇒ 宿主 exit 1 ⇒ 客户端"启动失败/闪退"，而用户看不出跟权限有关（他那份 host-crash.json 还是空的）。
+   *   我们写凭据用默认 umask（022）⇒ 644 ⇒ **mac 上配过 key 的用户下次启动必然起不来**；
+   *   Windows 不查这个 ⇒ 本地一直没暴露。下面四条钉住"写入显式 600 + 每次启动自愈已有的"。 */
+  const dh = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'dsh-home.js'), 'utf8');
+  /* ⚠️ 前几段里的 `t` 是块作用域，这里读不到 ⇒ 自己读一遍 main.js（别去引用块外变量） */
+  const mj = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'main.js'), 'utf8');
+  if (/function writeFileAtomic\(p, s, opts\)/.test(dh) && /function applyMode\(p, mode\)/.test(dh) && /applyMode\(tmp, mode\)/.test(dh)) ok('writeFileAtomic 支持 `opts.mode`（写入时就设权限，而不是等下次启动）');
+  else fail('writeFileAtomic 不支持 mode ⇒ 新写的凭据在 POSIX 上还是 644（mac 宿主会拒绝启动）');
+  if (/function ensureCredentialsOwnerOnly\(home, log\)/.test(dh) && /ensureCredentialsOwnerOnly\(home, say\)/.test(dh)) ok('有 ensureCredentialsOwnerOnly()，且在 ensureHome 里被调用（中招用户升级后自动恢复）');
+  else fail('没有"启动时收紧凭据权限"这一步 ⇒ 已经 644 的用户升级后照样起不来（还得自己去敲 chmod）');
+  if (/credentialModeNeedsFix/.test(dh) && /ensureCredentialsOwnerOnly, credentialModeNeedsFix,/.test(dh)) ok('纯判据已导出（可单测，不必靠 mac 手测）');
+  else fail('权限判据没导出 ⇒ 只能靠 mac 手测');
+  if (/writeFileAtomic\(OWNED_CREDENTIALS_PATH, out, \{ mode: 0o600 \}\)/.test(mj)) ok('writeCredentials 显式写 0600');
+  else fail('writeCredentials 没写 0600 ⇒ 客户端一保存 key，mac 上就会把宿主写死');
+  const testFile = path.join(ROOT, 'tools', 'test-credentials-mode.cjs');
+  if (fs.existsSync(testFile) && /credentialModeNeedsFix\(0o644\)/.test(fs.readFileSync(testFile, 'utf8'))) ok('有单测 tools/test-credentials-mode.cjs（判据在 Windows 上也真验）');
+  else fail('没有权限判据的单测');
 }
 
 console.log('');

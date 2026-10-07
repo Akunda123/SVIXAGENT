@@ -90,15 +90,58 @@ function writeTextFile(p, s) {
  * ⇒ 那一轮请求就没有 key。rename 是原子的 ⇒ 宿主只会看到"整份换掉"这一个事件。
  * rename 失败（Windows 上目标被占用等）时退回普通写，保证不会因为"写不进去"而更糟。
  */
-function writeFileAtomic(p, s) {
+function writeFileAtomic(p, s, opts) {
+  const mode = opts && typeof opts.mode === 'number' ? opts.mode : undefined
   const tmp = p + '.akdtmp'
   try {
     fs.writeFileSync(tmp, s, 'utf8')
+    applyMode(tmp, mode)
     fs.renameSync(tmp, p)
     return true
   } catch {
     try { fs.unlinkSync(tmp) } catch { /* 忽略 */ }
-    try { writeTextFile(p, s); return true } catch { return false }
+    try { writeTextFile(p, s); applyMode(p, mode); return true } catch { return false }
+  }
+}
+
+/** 给文件上权限位（POSIX）—— Windows 上 `chmod` 只切只读位、没有意义 ⇒ 直接跳过。
+ *  ⛔ 权限收紧失败**绝不能让写入失败**（数据写进去了但函数返回 false，会让上层以为"没保存"）。 */
+function applyMode(p, mode) {
+  if (mode === undefined || process.platform === 'win32') return
+  try { fs.chmodSync(p, mode) } catch { /* 忽略 */ }
+}
+
+/** 这个权限位是否"过宽"（有组/其他人的任何权限）—— 纯函数，便于单测（不依赖 mac）。 */
+function credentialModeNeedsFix(mode) { return (mode & 0o077) !== 0 }
+
+/** 凭据文件在 POSIX 上必须**只有属主可读**（0600）—— 这是**宿主的硬要求**，不是我们的偏好。
+ *
+ *  🆕 2026-10-07（mac 用户 `logic` 回传的 `akdagent.log` 暴露的 **P0**）：
+ *   宿主 `@deepseek-ai/dsh-credentials-local` 启动时 `assertOwnerOnly`，原文
+ *   `credentials-local: …/.credentials.yaml is readable beyond its owner (mode 644);
+ *    run "chmod 600 …" before starting again` ⇒ **拒绝加载** ⇒ 整棵插件树失败 ⇒ 宿主 `exit 1`
+ *   ⇒ 客户端表现是"启动失败 / 闪退"，而用户完全看不出跟权限有关（那份回传里 `stderrTail` 还是空的）。
+ *   我们写凭据用的是默认 umask（022）⇒ 644 ⇒ **mac 上只要配过 key，下一次启动就必然起不来**；
+ *   Windows 不查这个，所以本地一直没暴露（1.1.0 / 1.1.1 的 mac 包都带这个病）。
+ *
+ *  ⇒ 两道保险：写入时显式 0600（见 `writeFileAtomic` 的 `opts.mode`），**并且每次启动都修一次**已有的
+ *  （这样已经中招的用户升级后**自动恢复**，不必自己去终端敲 chmod）。
+ *  @returns {{changed:boolean, was:number|null, skipped?:string}} */
+function ensureCredentialsOwnerOnly(home, log) {
+  const say = typeof log === 'function' ? log : () => {}
+  if (process.platform === 'win32') return { changed: false, was: null, skipped: 'win32' }
+  const p = path.join(home, '.credentials.yaml')
+  try {
+    if (!fs.existsSync(p)) return { changed: false, was: null }
+    const was = fs.statSync(p).mode & 0o777
+    if (!credentialModeNeedsFix(was)) return { changed: false, was }
+    fs.chmodSync(p, 0o600)
+    say(`[akdagent] ⚠ 凭据文件权限过宽（${was.toString(8)}）⇒ 已收紧为 600`
+      + `（宿主看到 644 会**拒绝启动**，mac 用户实测就是"闪退"）`)
+    return { changed: true, was }
+  } catch (e) {
+    say('[akdagent] ⚠ 收紧凭据文件权限失败（宿主可能因此起不来）：' + ((e && e.message) || e))
+    return { changed: false, was: null }
   }
 }
 
@@ -297,7 +340,7 @@ function healCredentialsFile(home, log, opts) {
   const still = credentialDocProblems(fixed)
   if (still.length === 0) {
     try { fs.copyFileSync(p, p + '.bak') } catch { /* 忽略 */ }
-    writeFileAtomic(p, dumpCredentialsDoc(fixed))
+    writeFileAtomic(p, dumpCredentialsDoc(fixed), { mode: 0o600 })
     say('[akdagent] ⚠ ' + label + '的凭据不合宿主规则（' + problems.join('；') + '）⇒ 已就地规范化'
       + (report.moved.length ? `（搬进 refs：${report.moved.join(', ')}）` : '')
       + (report.dropped.length ? `（丢弃：${report.dropped.join(', ')}）` : '') + '；原件留 ' + path.basename(p) + '.bak')
@@ -552,7 +595,7 @@ function ensureHome(opts) {
         }
         if (!fs.existsSync(d)) {
           // 首次导入：隔离那份还不存在 ⇒ 用规范化后的源那份（records 不搬：那是**另一个家目录**的授权）
-          writeFileAtomic(d, mergeCredentialDocs(out.text, d, say))
+          writeFileAtomic(d, mergeCredentialDocs(out.text, d, say), { mode: 0o600 })
           synced.push(f + '(首次导入)')
         } else {
           /* 已有我们那份 ⇒ 只把**源里有、我们这份没有的 ref** 补进来（只增不改）。
@@ -571,14 +614,14 @@ function ensureHome(opts) {
             const dstRecords = isPlainMap(dDoc) && isPlainMap(dDoc.records) ? dDoc.records : null
             const outDoc = { version: CRED_VERSION, refs: { ...dRefs, ...addRefs } }
             if (dstRecords && Object.keys(dstRecords).length) outDoc.records = dstRecords
-            writeFileAtomic(d, dumpCredentialsDoc(outDoc))
+            writeFileAtomic(d, dumpCredentialsDoc(outDoc), { mode: 0o600 })
             synced.push(f + '(补齐 ' + toAdd.join(',') + ')')
           }
         }
       } else {
         /* settings：**只在隔离那份不存在时**导入一次；之后以隔离那份为准（那是我们的写入目标）。
          * 以前每次启动都用源的覆盖 ⇒ 用户在客户端改的语言会被源里那份"顶回去"。 */
-        if (!fs.existsSync(d)) { writeFileAtomic(d, text); synced.push(f + '(首次导入)') }
+        if (!fs.existsSync(d)) { writeFileAtomic(d, text, { mode: 0o600 }); synced.push(f + '(首次导入)') }
       }
     } catch (e) {
       // ⚠️ 以前这里是静默 catch —— 同步失败时用户照样没 key，而我们一无所知（2026-09-26 改）
@@ -591,6 +634,10 @@ function ensureHome(opts) {
    * 那份**历史遗留**（旧版客户端写坏的混合文档 / 扁平文档）会一直留着 ⇒ 宿主每次启动都失败。
    * 这份是**我们自己的拷贝**，可以放心规范化、必要时挪走（源那份不动）。 */
   healCredentialsFile(home, say, { label: '隔离家目录' })
+  /* 🆕 2026-10-07（P0 · mac）：**权限**也要在起宿主之前修 —— 宿主 `credentials-local` 看到 644
+   *   会直接拒绝加载（整棵插件树失败 ⇒ 宿主 exit 1）。这里修的是**我们自己那份**，
+   *   所以中招的用户升级后**自动恢复**，不需要自己去终端敲 `chmod 600`。 */
+  ensureCredentialsOwnerOnly(home, say)
   /* 同步后自检（2026-09-27 判据换成**规则层**，不再用"sk- 开头的正则"）：
    *   ① 隔离家目录那份**宿主读得了吗** —— 读不了就是"宿主起不来/闪退"，必须当场喊出来；
    *   ② 源里有哪些 ref **没进**隔离家目录 —— 旧判据是"值像 sk-xxx"或"refs 段非空"，
@@ -631,6 +678,8 @@ function ensureHome(opts) {
 module.exports = { rmrf, readTextFile, writeTextFile, writeFileAtomic, runtimeVersionTag, patchNameResolvable,
   sanitizePatchLayer, sanitizeAllPatches, ensureInventoryContributorDisabled, normalizeCredentialFiles,
   migrateProfileHomeIfNeeded, ensureHome, REGENERATED,
+  // 🆕 2026-10-07（P0 · mac 宿主因凭据权限 644 拒绝启动）：权限自愈 + 它的纯判据
+  ensureCredentialsOwnerOnly, credentialModeNeedsFix,
   // 宿主凭据文档的硬约束（2026-09-27）：main.js 的写侧与守卫都用这几个
   CRED_VERSION, CRED_TOP_KEYS, CRED_REF_RE, CRED_SEG_RE,
   credentialDocProblems, normalizeCredentialsDoc, normalizeCredentialsText, dumpCredentialsDoc, healCredentialsFile,
