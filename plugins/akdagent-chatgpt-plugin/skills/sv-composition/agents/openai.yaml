@@ -1,0 +1,4 @@
+interface:
+  display_name: "SV 作曲与编曲"
+  short_description: "结合本地音乐工具进行旋律、和声、编曲结构和乐句设计"
+  default_prompt: "请用 $sv-composition 分析指定段落的旋律与和声，先给出方案。"

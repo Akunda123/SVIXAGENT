@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "akdagent_chatgpt": {
+      "command": "node",
+      "args": ["./scripts/server.mjs"],
+      "cwd": ".",
+      "env_vars": ["USERPROFILE", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "PATH", "AKDAGENT_INSTALL_DIR", "AKDAGENT_SKILLS_DIR", "AKDAGENT_IPC_DIR"],
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 180
+    }
+  }
+}

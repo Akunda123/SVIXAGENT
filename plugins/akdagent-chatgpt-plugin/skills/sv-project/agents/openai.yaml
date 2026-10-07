@@ -1,0 +1,4 @@
+interface:
+  display_name: "SV 工程与迁移"
+  short_description: "保留原文件，检查或迁移 SVP 工程并核对轨道和音符结构"
+  default_prompt: "请用 $sv-project 检查指定工程的迁移需求，保留源文件。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "SV 人声调教"
+  short_description: "结合乐句和歌词调教音高、咬字、颤音、呼吸及人声表现参数"
+  default_prompt: "请用 $sv-vocal-tuning 调教工程副本中指定的人声音轨。"
