@@ -8,6 +8,14 @@ Known limitations from those tests: consonant automation previews may exceed req
 
 Release checks are separate: manifest/link/privacy validation, reference-reader traversal/pagination tests, isolated installer tests, and offline MCP initialization/tool parity/status/reference checks against an installed runtime. Offline checks never invoke a project-editing operation. They do not prove installed-plugin UI discovery, saved audio, musical quality, SV1 or macOS compatibility. No local-inference-model features are tested or downloaded.
 
+## 1.0.0 release verification
+
+- All 14 production-audit entries were addressed. Both the build checkout and a fresh production-only installation from the packaged lockfile reported zero vulnerabilities with `npm audit --omit=dev` on 2026-10-07; no lifecycle scripts or inference models were used. See [per-dependency results](dependency-audit.md).
+- The service build and 11 existing offline suites passed 541 assertions. Ten new FFT/cwise compatibility checks passed, including comparison with the old dependency tree at 8, 12, 64 and 6144 points. Clipboard mutation and live-host/model tests were not run.
+- All eight integration tests passed; official plugin/MCP schema validation passed against the fresh runtime. Seven generated profiles each listed 57 tools and read status/workflow/references, with zero project writes and no missing original tools.
+- Audio conversion tests ran against the extracted service, not just the source checkout: 16 assertions passed. Both required audio .mjs runtime modules are now included in the service archive.
+- Version 1.0.0 is published as a stable release, not a claim that every client UI, SV1/macOS host, model-driven edit or audio-inference feature has completed end-to-end acceptance. Earlier prototype and 0.3.0 results below remain historical records with their original boundaries.
+
 ## 0.3.0 cross-client verification
 
 - Portable `plugin.json` and `mcp.json` pass the official Agent Plugins 1.0 JSON schemas. Codex/Claude manifest identity and version remain aligned; the display name is AKDAgent Plugin.
