@@ -1,0 +1,4 @@
+interface:
+  display_name: "SV 实时操作"
+  short_description: "通过 AKDAgent 的现役 Lua 桥检查并实时编辑打开的 SV 工程"
+  default_prompt: "请用 $sv-live 检查当前 SV 工程，先不要修改。"

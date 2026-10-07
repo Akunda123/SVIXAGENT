@@ -1,0 +1,4 @@
+interface:
+  display_name: "SV 歌词与咬字"
+  short_description: "回填已有歌词或创作新词，并按需检查倒字、咬字与延音对位"
+  default_prompt: "请用 $sv-lyrics 将指定歌词填入目标轨道，不改动音符结构。"

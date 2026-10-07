@@ -15,6 +15,8 @@
 
 ## 目录
 
+> **社区 AI 客户端集成（提案）**：[AKDAgent Plugin](plugins/akdagent-chatgpt-plugin/README.md) 提供独立 MCP、调教资料与 Lua 桥的一键部署，可接入 Codex、Claude Code、Claude Desktop、Cursor、VS Code Copilot 和 OpenCode；所选模型与客户端的额度规则适用。此目录为社区贡献，是否采用由维护者决定。
+
 - [这是什么](#这是什么)
 - [一、开始使用](#一开始使用)　· 运行要求 / 安装 / 配 API 密钥 / 部署桥 / 启动 / 设置项
 - [二、组件](#二组件)　· 桥 / 悬浮球 / 侧栏面板 / 语音输入 / 语言（两套）

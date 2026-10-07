@@ -1,0 +1,10 @@
+{
+  "name": "akdagent-community",
+  "interface": { "displayName": "AKDAgent Community Integrations" },
+  "plugins": [{
+    "name": "akdagent-chatgpt-plugin",
+    "source": { "source": "local", "path": "./plugins/akdagent-chatgpt-plugin" },
+    "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+    "category": "Productivity"
+  }]
+}

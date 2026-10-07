@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "akdagent-chatgpt-plugin",
+  "version": "1.0.0",
+  "description": "AKDAgent Plugin: local Synthesizer V editing tools and music workflows across MCP clients.",
+  "author": { "name": "littleclock2" },
+  "homepage": "https://github.com/littleclock2/AKDAgent-Plugin",
+  "repository": "https://github.com/littleclock2/AKDAgent-Plugin",
+  "license": "MIT",
+  "keywords": ["music", "synthesizer-v", "mcp", "vocal-tuning", "akdagent"]
+}

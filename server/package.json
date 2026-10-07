@@ -33,20 +33,25 @@
   },
   "dependencies": {
     "@audio/beat": "^2.1.2",
-    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "fast-xml-parser": "^5.11.1",
     "jpeg-js": "^0.4.4",
     "midi-file": "^1.2.4",
     "mpg123-decoder": "^1.0.3",
     "ndarray": "^1.0.19",
     "ndarray-fft": "^1.0.3",
-    "onnxruntime-node": "^1.27.0",
+    "onnxruntime-node": "^1.30.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
     "pinyin-pro": "^3.29.4",
     "pngjs": "^7.0.0",
     "sharp": "^0.35.5",
     "zod": "^3.24.0"
+  },
+  "overrides": {
+    "cwise": {
+      "static-module": "3.0.4"
+    }
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

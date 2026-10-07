@@ -1,0 +1,21 @@
+{
+  "name": "akdagent-chatgpt-plugin",
+  "version": "1.0.0",
+  "description": "AKDAgent Plugin — portable SV editing tools and music workflows for local MCP clients.",
+  "author": { "name": "littleclock2" },
+  "homepage": "https://github.com/littleclock2/AKDAgent-Plugin",
+  "repository": "https://github.com/littleclock2/AKDAgent-Plugin",
+  "keywords": ["music", "synthesizer-v", "mcp", "vocal-tuning", "akdagent"],
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./clients/codex.mcp.json",
+  "interface": {
+    "displayName": "AKDAgent Plugin",
+    "shortDescription": "独立 MCP 实时编辑 SV1/SV2，支持歌词、音高与演唱参数调教",
+    "longDescription": "跨客户端的 SV 编辑插件：一键部署独立 MCP 服务、调教资料和 Lua 桥。支持 Codex、Claude Code、Claude Desktop、Cursor、VS Code Copilot 与 OpenCode；无需下载 AKDAgent 客户端。",
+    "developerName": "littleclock2 · based on Akunda123's AKDAgent",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["检查当前 SV 工程，不要修改", "仅在工程副本上调教我指定的人声音轨"]
+  }
+}

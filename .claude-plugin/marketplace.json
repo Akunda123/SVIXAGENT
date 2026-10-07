@@ -1,0 +1,9 @@
+{
+  "name": "akdagent-community",
+  "owner": { "name": "littleclock2" },
+  "plugins": [{
+    "name": "akdagent-chatgpt-plugin",
+    "source": "./plugins/akdagent-chatgpt-plugin",
+    "description": "AKDAgent Plugin: Synthesizer V editing tools and music workflows."
+  }]
+}
