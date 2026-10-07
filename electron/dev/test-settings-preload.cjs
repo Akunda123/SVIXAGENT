@@ -119,7 +119,9 @@ const api = {
   },
   __setState: (s) => { Object.assign(state, s) },
   __getWritten: () => state.lastWritten,
-  __debug: () => ({ lastReadPath: state.lastReadPath, keys: Object.keys(state.nofsByPath || {}), hasNofsFallback: !!state.nofs }),
+  __debug: () => ({ lastReadPath: state.lastReadPath, keys: Object.keys(state.nofsByPath || {}), hasNofsFallback: !!state.nofs,
+    /* 🆕 2026-10-07：把"最近一次新增提供方 / 保存密钥"的参数也吐出来，供 DOM 用例断言 */
+    lastAddPi: state.lastAddPi || null, lastSetKey: state.lastSetKey || null }),
 
   getSettings: record('getSettings'),
   setDefaultModel: record('setDefaultModel'),
@@ -223,10 +225,18 @@ const api = {
   setDefaultProvider: record('setDefaultProvider'),
   setProviderKey: (providerId, keyEnv, keyValue) => {
     mark('setProviderKey')
+    /* 🆕 2026-10-07：**记下参数** —— 用户报「自定义提供方保存 apikey 仍显示未配置」，
+     *   要能断言"写进凭据库的名字"与"写进 profile 的 apiKeyEnv"**是同一个**；
+     *   桩只记一个调用名是不够的。 */
+    state.lastSetKey = { providerId, keyEnv, keyValue }
     // ⑦：故意回一个 warn，把"密钥形状提示"那一行也照进截图
     return Promise.resolve({ ok: true, apiKeyEnv: keyEnv, configured: true, warn: 'main.key.warnTooShort:6' })
   },
-  addPiProvider: record('addPiProvider'),
+  addPiProvider: (route, opts) => {
+    mark('addPiProvider')
+    state.lastAddPi = { route, opts: opts || {} }
+    return Promise.resolve({ ok: true })
+  },
   removePiProvider: record('removePiProvider'),
   updatePiModels: record('updatePiModels'),
   // 🆕 2026-09-25（B 方案）：pi-ai 覆写字段（Base URL / API 协议 / 模型列表）；null = 删键

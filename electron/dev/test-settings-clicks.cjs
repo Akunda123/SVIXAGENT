@@ -359,6 +359,31 @@ app.whenReady().then(async () => {
   check('空着点提交 ⇒ **不发送** authAnswer', emptySeq.indexOf('authAnswer') < 0, JSON.stringify(emptySeq))
   check('空着点提交 ⇒ 面板给出"这一格不能留空"的提示', await js(`/不能留空/.test(document.getElementById('auth-recheck').textContent)`), '')
 
+  /* ⑤l 用户报的 bug：「自定义提供方保存 apikey，即使点击保存也会显示未配置 api」
+   *   根因：keyEnv 留空时，**密钥按派生名写进了凭据库**，但 profile 里**没写 apiKeyEnv**
+   *   ⇒ 列表判据 `!!keyEnv && docHasApiKey(...)` 永远为假（宿主也不知道去读哪个名字）。
+   *   这条钉住：两个调用必须用**同一个派生名**（并且清洗成合法凭据名）。 */
+  const customClicked = await js(`(() => {
+    document.getElementById('custom-form').style.display = 'flex';
+    document.getElementById('custom-route').value = 'my-openai';
+    document.getElementById('custom-name').value = 'My OpenAI';
+    document.getElementById('custom-keyenv').value = '';            // ⬅ 留空（就是出事的那种填法）
+    document.getElementById('custom-api').value = 'openai-completions';
+    document.getElementById('custom-baseurl').value = 'https://api.example.com/v1';
+    document.getElementById('custom-key').value = 'sk-test-123456';
+    const b = document.getElementById('btn-save-custom');
+    if (b) b.click();
+    return !!b;
+  })()`)
+  await new Promise((r) => setTimeout(r, 250))
+  const dbg = await js(`window.svsettings.__debug()`)
+  check('自定义提供方：保存按钮点了', customClicked === true)
+  check('addPiProvider 的 apiKeyEnv = 派生并清洗过的 MY_OPENAI_API_KEY',
+    !!(dbg.lastAddPi && dbg.lastAddPi.opts && dbg.lastAddPi.opts.apiKeyEnv === 'MY_OPENAI_API_KEY'), JSON.stringify(dbg.lastAddPi))
+  check('setProviderKey 的 keyEnv 与上面**同一个名字**（bug 就出在这两个不一致）',
+    !!(dbg.lastSetKey && dbg.lastSetKey.keyEnv === 'MY_OPENAI_API_KEY'), JSON.stringify(dbg.lastSetKey))
+  check('route 与密钥都带上了', !!(dbg.lastAddPi && dbg.lastAddPi.route === 'my-openai' && dbg.lastSetKey && dbg.lastSetKey.keyValue === 'sk-test-123456'), JSON.stringify(dbg.lastSetKey))
+
   /* ④ 静态接线检查：主进程发的事件，preload 与页面都接上了 */
   const calls = await js(`Array.from(document.querySelectorAll('[data-call]')).map((e) => e.dataset.call)`)
   const errs = await js(`window.__errs`)

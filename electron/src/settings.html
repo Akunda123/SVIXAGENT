@@ -1427,21 +1427,37 @@
   $('btn-cancel-custom').addEventListener('click', () => {
     $('custom-form').style.display = 'none'
   })
+  /* 从 route 派生一个**合法**的凭据名（与主进程 `deriveKeyEnvName` 同一口径：
+   * 宿主只认 `/^[A-Za-z_][A-Za-z0-9_]*$/`，带 `-`/`.` 的名字会让**整个宿主起不来**）。
+   * ⛔ 2026-10-07（用户报「自定义提供方保存 apikey 也显示未配置」）：派生名原来只用在下密钥那一步，
+   *    **没写进 profile 的 apiKeyEnv** ⇒ 列表判据 `!!keyEnv && …` 永远为假 ⇒ 一直"未配置"。
+   *    现在派生一次，**addPiProvider 与 setProviderKey 共用同一个名字**。 */
+  function deriveKeyEnv(route) {
+    const name = String(route || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+/, '').replace(/_+$/, '')
+    return (!name || /^[0-9]/.test(name)) ? '' : name + '_API_KEY'
+  }
+
   $('btn-save-custom').addEventListener('click', async () => {
     const tip = $('custom-tip')
     tip.textContent = ''
     const route = $('custom-route').value.trim()
     if (!route) { tip.textContent = I.t('settings.model.routeRequired'); return }
-    const apiKeyEnv = $('custom-keyenv').value.trim()
+    const rawEnv = $('custom-keyenv').value.trim()
+    const keyEnv = rawEnv || deriveKeyEnv(route)
+    /* 提前拦住非法凭据名（后端也会拦，但这里能立刻给出可读的提示，而不是等一次往返） */
+    if (keyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyEnv)) {
+      tip.textContent = '凭据名只能用字母/数字/下划线、且不能以数字开头：' + keyEnv
+      return
+    }
     const key = $('custom-key').value.trim()
     const r = await window.svsettings.addPiProvider(route, {
       displayName: $('custom-name').value.trim() || route,
-      apiKeyEnv: apiKeyEnv || undefined,
+      apiKeyEnv: keyEnv || undefined,
       api: $('custom-api').value.trim() || undefined,
       baseURL: $('custom-baseurl').value.trim() || undefined,
     })
     if (r.ok) {
-      if (key) await window.svsettings.setProviderKey(route, apiKeyEnv || route.toUpperCase() + '_API_KEY', key)
+      if (key) await window.svsettings.setProviderKey(route, keyEnv, key)
       $('custom-route').value = ''
       $('custom-name').value = ''
       $('custom-keyenv').value = ''

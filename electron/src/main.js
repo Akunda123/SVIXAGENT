@@ -1067,6 +1067,9 @@ async function bringUpHost(attempt) {
   /* 每次都要跑：同步凭据/设置 + 规范化 + 起宿主前的自检自愈。
    * （2026-09-26 的教训：这段以前挂在 spawnHost 里 ⇒ 复用孤儿宿主时整段被跳过。） */
   ensureAkdagentDshHome()
+  /* 🆕 2026-10-07：老的自定义提供方补 `apiKeyEnv`（用户报「保存了也显示未配置」的那个 bug 的产物）。
+   * 放在起宿主**之前**：宿主读 settings 的那一刻它就得在。 */
+  migratePiProviderKeyEnvs()
   const prevHost = loadHostRecord()
   const clientVersion = app.getVersion()
   if (attempt === 0 && prevHost && prevHost.port && await probeHost(prevHost.port)) {
@@ -3252,15 +3255,82 @@ ipcMain.handle('akdagent-set-default-provider', (_e, providerId, modelId) => {
   return { ok: true, provider: providerId, model: modelId }
 })
 
-/** 更新提供方 API 密钥（写 credentials.yaml；keyEnv 为空时按命名空间推断） */
+/** 把一个 provider route/id 派生成**合法的凭据名**（宿主的引用文法见 `CRED_REF_RE`）。
+ *  2026-10-07（用户报「自定义提供方保存 apikey 也显示未配置」）：
+ *   · 界面上 keyEnv 留空时，密钥是按**派生名**写进去的，但 profile 里没写 apiKeyEnv
+ *     ⇒ 列表判据 `!!keyEnv && docHasApiKey(...)` 永远为假 ⇒ 卡片一直显示「未配置 API 密钥」；
+ *   · 更糟的是卡片那条路把空 keyEnv 递给后端，而后端老代码 `keyEnv || 'DEEPSEEK_API_KEY'`
+ *     会把**自定义提供方的密钥写进 DEEPSEEK_API_KEY**（顺手覆盖用户真的 DeepSeek 密钥）。
+ *  ⇒ 统一在这里派生（并清洗成合法字符），后端与界面都用它。 */
+function deriveKeyEnvName(providerId) {
+  const id = String(providerId == null ? '' : providerId).trim()
+  if (!id) return ''
+  const name = id.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+/, '').replace(/_+$/, '')
+  if (!name || /^[0-9]/.test(name)) return ''
+  return name + '_API_KEY'
+}
+
+/** 解析"这次到底该写哪个凭据名"：显式传入 → 该 provider 的 profile → 从 id 派生。
+ *  @returns {{env:string, repaired:boolean}} repaired = 顺手把 profile 的 apiKeyEnv 补上了 */
+function resolveKeyEnvName(settings, providerId, keyEnv) {
+  const explicit = String(keyEnv == null ? '' : keyEnv).trim()
+  const piAi = (settings && settings['llm-pi-ai']) || {}
+  const providers = piAi.providers || {}
+  const profile = providers[providerId] && typeof providers[providerId] === 'object' ? providers[providerId] : null
+  const fromProfile = profile ? String(profile.apiKeyEnv || '').trim() : ''
+  const env = explicit || fromProfile || deriveKeyEnvName(providerId)
+  /* profile 里没有（或与解析结果不一致）⇒ 补上：宿主要靠它知道去 refs 里读哪个名字，
+   * 否则就算密钥写对了，宿主也用不上（这正是用户"看着配好了、其实没配"的另一半）。 */
+  let repaired = false
+  if (env && profile && fromProfile !== env) {
+    profile.apiKeyEnv = env
+    repaired = true
+  }
+  return { env, repaired }
+}
+
+/** 一次性修复（2026-10-07，用户报「自定义提供方保存 apikey 也显示未配置」）：
+ *  给**没写 apiKeyEnv** 的 pi-ai 提供方补上凭据名 —— 只在该 route 的**派生名那份凭据确实存在**时才补
+ *  （不猜、不乱写：命中了说明"密钥当初就是按派生名写进去的"，正是那个 bug 的产物）。
+ *  补上之后：列表会显示「已配置」、宿主也知道去 `refs` 里读哪个名字。失败不影响启动。 */
+function migratePiProviderKeyEnvs() {
+  const fixed = []
+  try {
+    const s = readSettings()
+    const piAi = s['llm-pi-ai'] || {}
+    const providers = piAi.providers || {}
+    const creds = readCredentials()
+    for (const route of Object.keys(providers)) {
+      const profile = providers[route]
+      if (!profile || typeof profile !== 'object') continue
+      if (String(profile.apiKeyEnv || '').trim()) continue      // 已经有了 ⇒ 不动
+      const derived = deriveKeyEnvName(route)
+      if (!derived || !CRED_REF_RE.test(derived)) continue
+      if (!getCred(creds, derived)) continue                   // 库里没有 ⇒ 不猜
+      profile.apiKeyEnv = derived
+      fixed.push(route + '→' + derived)
+    }
+    if (fixed.length) {
+      if (writeSettings(s)) console.log('[akdagent] 已给提供方补上凭据名 apiKeyEnv：' + fixed.join(' · '))
+      else console.log('[akdagent] 补 apiKeyEnv 时写 settings.yaml 失败（下次启动再试）')
+    }
+  } catch (e) {
+    console.log('[akdagent] 补 apiKeyEnv 失败（不影响启动）：' + ((e && e.message) || e))
+    return []
+  }
+  return fixed
+}
+
+/** 更新提供方 API 密钥（写 credentials.yaml；keyEnv 为空时按 profile / id 推断，**绝不默认成 DeepSeek**） */
 ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) => {
-  const env = keyEnv || 'DEEPSEEK_API_KEY'
+  const s = readSettings()
+  const { env, repaired } = resolveKeyEnvName(s, providerId, keyEnv)
   /* 凭据名必须符合宿主的引用文法 `/^[A-Za-z_][A-Za-z0-9_]*$/`（2026-09-27）：
    * 名字里带 `-` / `.` 之类的键，宿主读凭据时会直接抛错 ⇒ **整个宿主起不来**。
    * 名字来自界面上的自由输入（自定义提供方的 keyEnv 框）⇒ 在这里拦下来并把原因交给界面，
    * 而不是写进去等下次启动炸。 */
-  if (!CRED_REF_RE.test(env)) {
-    return { ok: false, error: `凭据名 "${env}" 不合法：只能用字母/数字/下划线、且不能以数字开头（宿主会拒绝启动）` }
+  if (!env || !CRED_REF_RE.test(env)) {
+    return { ok: false, error: `凭据名 "${env || '(空)'}" 不合法：只能用字母/数字/下划线、且不能以数字开头（宿主会拒绝启动）` }
   }
   try {
     const creds = readCredentials()
@@ -3271,7 +3341,13 @@ ipcMain.handle('akdagent-set-provider-key', (_e, providerId, keyEnv, keyValue) =
       setCred(creds, env, v)
     } else delCred(creds, env)
     writeCredentials(creds)
-    return { ok: true, apiKeyEnv: env, configured: !!getCred(creds, env), warn }
+    if (repaired) {
+      /* 顺手把 profile 的 apiKeyEnv 补上（self-repair）。写失败不影响本次密钥落库 ⇒ 只留痕，
+       * 下次用户再保存会重试（界面上会显示"未配置"，正好提示他再点一次）。 */
+      const wrote = writeSettings(s)
+      if (!wrote) console.log('[akdagent] set-provider-key：补 apiKeyEnv 时写 settings.yaml 失败（keyEnv=' + env + '）')
+    }
+    return { ok: true, apiKeyEnv: env, repaired, configured: !!getCred(creds, env), warn }
   } catch (e) {
     // 以前这里异常会直接冒到渲染层（而且界面还没接住）⇒ 用户以为存好了；现在如实回报
     return { ok: false, error: '写入凭据失败：' + (e && e.message ? e.message : e) }

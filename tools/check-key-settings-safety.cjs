@@ -112,12 +112,38 @@ else fail('失败不弹框 ⇒ 用户以为存好了（§11 那类"界面上明�
 }
 
 console.log('\n== ⑥ 凭据名/写入必须校验并如实回报 ==');
-if (/if \(!CRED_REF_RE\.test\(env\)\)/.test(t)) ok('set-provider-key 校验凭据名（非法名会让宿主 boot 失败）');
-else fail('set-provider-key 不校验凭据名');
+if (/if \(!env \|\| !CRED_REF_RE\.test\(env\)\)/.test(t)) ok('set-provider-key 校验凭据名（空名字/非法名都会拦，宿主 boot 不会因此失败）');
+else fail('set-provider-key 不校验凭据名（或没拦空名字）');
 if (/return \{ ok: false, error: '写入凭据失败：'/.test(t)) ok('写凭据异常时如实回报 ok:false（不再冒到渲染层）');
 else fail('写凭据异常没被接住 ⇒ 用户以为存好了');
 if (/if \(!writeFileAtomic\(OWNED_CREDENTIALS_PATH/.test(t)) ok('凭据落盘失败会抛（交给 IPC 回报）');
 else fail('凭据落盘失败没被检查');
+
+console.log('\n== ⑥b 凭据名怎么定（2026-10-07 用户报「自定义提供方保存 apikey 也显示未配置」）==');
+/* 起因（两个症状，同一处代码）：
+ *  ① 界面上 keyEnv 留空 ⇒ 密钥按**派生名**写进凭据库，但 profile 里**没写 apiKeyEnv**
+ *     ⇒ 列表判据 `!!keyEnv && docHasApiKey(...)` 永远为假 ⇒ 卡片一直「未配置 API 密钥」；
+ *  ② 卡片那条「保存」把**空** keyEnv 递给后端，而后端老代码 `keyEnv || 'DEEPSEEK_API_KEY'`
+ *     ⇒ 自定义提供方的密钥被写进 **DEEPSEEK_API_KEY**（顺手覆盖用户真的 DeepSeek 密钥）。 */
+{
+  const htmlPath = path.join(ROOT, 'electron', 'src', 'settings.html');
+  const html = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, 'utf8') : '';
+  if (/const env = keyEnv \|\| 'DEEPSEEK_API_KEY'/.test(t)) fail("后端又把空 keyEnv 默认成 DEEPSEEK_API_KEY 了 ⇒ 会写错名字并覆盖用户的 DeepSeek 密钥")
+  else ok('后端不再把空 keyEnv 默认成 DeepSeek（那会覆盖用户密钥）');
+  if (/function deriveKeyEnvName\(providerId\)/.test(t) && /replace\(\/\[\^A-Z0-9\]\+\/g, '_'\)/.test(t)) ok('有 deriveKeyEnvName()：把 route 清洗成合法凭据名')
+  else fail('没有 deriveKeyEnvName()（route 里带 `-`/`.` 会写出宿主读不了的名字）');
+  if (/function resolveKeyEnvName\(settings, providerId, keyEnv\)/.test(t)) ok('有 resolveKeyEnvName()：显式 → profile → 派生，三段兜底')
+  else fail('没有 resolveKeyEnvName() ⇒ 空名字只能靠猜');
+  if (/function migratePiProviderKeyEnvs\(\)/.test(t) && /migratePiProviderKeyEnvs\(\)/.test(t.replace(/function migratePiProviderKeyEnvs\(\)[\s\S]{0,2000}?\n\}/, ''))) {
+    ok('有启动迁移 migratePiProviderKeyEnvs()，且**在起宿主之前**被调用（老用户不必重新保存）')
+  } else fail('没有启动迁移（老用户会一直显示未配置）');
+  if (/if \(repaired\) \{[\s\S]{0,220}?writeSettings\(s\)/.test(t)) ok('保存密钥时会顺手把 profile 的 apiKeyEnv 补上（self-repair）')
+  else fail('profile 缺 apiKeyEnv 时不会补 ⇒ 密钥写对了宿主也读不到');
+  /* 界面：派生一次、两处共用（这正是那个 bug 的修法） */
+  if (/const keyEnv = rawEnv \|\| deriveKeyEnv\(route\)/.test(html) && /apiKeyEnv: keyEnv \|\| undefined/.test(html) && /setProviderKey\(route, keyEnv, key\)/.test(html)) {
+    ok('自定义提供方表单：派生一次、addPiProvider 与 setProviderKey **共用同一个名字**')
+  } else fail('表单里两个名字又各算各的 ⇒ 保存了也显示未配置（用户报过）');
+}
 
 console.log('\n== ⑦ 密钥"像不像密钥"要给**非阻塞**提示（2026-10-05，用户裁「7 做」）==');
 /* 起因：判"已配置"的只有 `docHasApiKey`（非空串就算）⇒ 本机 `ANTHROPIC_API_KEY` 的值只有 6 个字符，
@@ -136,7 +162,7 @@ console.log('\n== ⑦ 密钥"像不像密钥"要给**非阻塞**提示（2026-10
     if (re.test(t)) ok('前缀表含 ' + what);
     else fail('前缀表缺 ' + what);
   }
-  if (/return \{ ok: true, apiKeyEnv: env, configured: !!getCred\(creds, env\), warn \}/.test(t)) ok('写密钥时把 warn 回给界面');
+  if (/return \{ ok: true, apiKeyEnv: env,[\s\S]{0,90}?warn \}/.test(t)) ok('写密钥时把 warn 回给界面');
   else fail('set-provider-key 没有回传 warn ⇒ 界面无从提示');
   // 抠出来真跑（i18n 用桩：把 key 名原样回显，便于断言命中哪一条）
   const hintsSrc = (t.match(/const KEY_PREFIX_HINTS = \{[\s\S]*?\n\}/) || [])[0];
