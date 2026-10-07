@@ -266,6 +266,22 @@ const api = {
     return Promise.resolve({ ok: true, selected: { provider, model }, sessionId })
   },
   onSessionModel: () => { mark('onSessionModel') },
+
+  /* ── 🆕 2026-10-07：订阅登录（OAuth）—— 真实 preload 有这四个；
+   *    桩里补上是为了**在真 Chromium 里测渲染**（清单 + 提问面板），
+   *    尤其是"轮询重画会不会把正在输入的提问框顶掉"（用户报的那个 bug）。 */
+  authFlows: () => { mark('authFlows'); return Promise.resolve(state.auth || { ok: true, flows: { ok: true, at: new Date().toISOString(), count: 0, flows: [] }, attempt: { ok: true, state: 'idle' } }) },
+  authBegin: (key, method) => { mark('authBegin'); return Promise.resolve({ ok: true, key, method }) },
+  authAnswer: (promptId, value) => { mark('authAnswer'); return Promise.resolve({ ok: true, promptId, value }) },
+  authCancel: () => {
+    mark('authCancel')
+    /* 像真宿主一样：取消之后这次尝试就不再是 running（界面靠它判断"能不能换一家"） */
+    if (state.auth && state.auth.attempt) state.auth.attempt.state = 'cancelled'
+    return Promise.resolve({ ok: true })
+  },
 }
+
+/* 测试钩子：直接换掉"宿主那份快照"（authFlows 会回读它） */
+api.__setAuth = (a) => { state.auth = a }
 
 contextBridge.exposeInMainWorld('svsettings', api)

@@ -1,0 +1,14 @@
+# akd-auth-sim 覆盖层：挂服务 + 挂真实流的所有者（pi-ai）+ 挂模拟器
+# 用法：node node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --patch <本文件> --port 3999
+#
+# ⚠️ 不挂 `akd-auth-bridge`（那是产品件）；这里只验证 **pi-ai 自己的登录流**能不能跑通。
+- insert:
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+
+    - id: akd-auth-sim
+      name: 'akd-auth-sim'
+      config:
+        key: 'llm-pi-ai/github-copilot'   # 也可换 llm-pi-ai/xai、llm-pi-ai/kimi-coding
+        method: 'oauth'
+        decline: false                    # true = 每个 prompt 都拒绝（验证 cancelled 分支）

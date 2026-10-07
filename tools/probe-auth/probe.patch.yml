@@ -1,0 +1,8 @@
+- insert:
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+    - id: akd-auth-probe
+      name: 'akd-auth-probe'
+      config:
+        selfRegister: false
+        beginProbe: false

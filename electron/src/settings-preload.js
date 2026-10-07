@@ -145,4 +145,13 @@ contextBridge.exposeInMainWorld('svsettings', {
     ipcRenderer.invoke('akdagent-select-session-model', sessionId, provider, model, reasoningEffort),
   /** 主进程推来的"本会话模型已变"（切模型后 / 换会话后） */
   onSessionModel: (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p)),
+
+  /* 🆕 2026-10-06：**订阅登录**（OAuth）——
+   *   ① `authFlows()` 读清单 + 当前尝试（宿主插件写的 `flows.json` / `attempt.json`）
+   *   ② `authBegin/authAnswer/authCancel` 下命令（写 `cmd.json`，插件 400ms 轮询）
+   *   ⚠️ 全程只读写文件：客户端**不碰厂商网络**（那是宿主与厂商之间的事）。 */
+  authFlows: () => ipcRenderer.invoke('akdagent-auth-flows'),
+  authBegin: (key, method) => ipcRenderer.invoke('akdagent-auth-begin', key, method),
+  authAnswer: (promptId, value) => ipcRenderer.invoke('akdagent-auth-answer', promptId, value),
+  authCancel: () => ipcRenderer.invoke('akdagent-auth-cancel'),
 })

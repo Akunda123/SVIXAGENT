@@ -278,6 +278,23 @@
         <div class="save-tip" id="custom-tip"></div>
       </div>
     </section>
+
+    <!-- 🆕 2026-10-06：**订阅登录**（OAuth）—— 第一步只读：列出宿主支持的登录制提供方。
+         数据 = 宿主插件写的快照（<DSH_HOME>/auth-bridge/flows.json）。
+         ⛔ 别把它做成"读一次就完"：注册是**异步**的（宿主 boot 后约 1.5 秒才有），状态还会变。 -->
+    <section>
+      <h2 data-i18n="settings.auth.section">订阅登录</h2>
+      <div class="hint" data-i18n="settings.auth.hint">按订阅登录的模型（ChatGPT Plus/Pro · Claude Pro/Max · GitHub Copilot · Kimi 编程套餐 · xAI…）。点右边的按钮开始登录：按提示把验证码填到网页上即可（凭据只保存在本机）。</div>
+      <div class="actions">
+        <button id="btn-auth-refresh" data-i18n="settings.auth.refresh">刷新清单</button>
+      </div>
+      <div class="save-tip" id="auth-status"></div>
+      <!-- 当前这次登录尝试（宿主插件写的 attempt.json）：提示 message/url/code + 要问用户的问题 -->
+      <div id="auth-attempt"></div>
+      <!-- 宽限期提示：宿主一时读不到尝试时**不拆面板**，只在这里说一句（见 loadAuthFlows 的注释） -->
+      <div class="hint" id="auth-recheck"></div>
+      <div id="auth-flows"></div>
+    </section>
   </div>
 
   <!-- 对话设置 -->
@@ -543,6 +560,7 @@
     item.classList.add('active')
     page.classList.add('active')
     if (typeof autoCheckBridgeOnStatusPage === 'function') autoCheckBridgeOnStatusPage(name)
+    if (name === 'model' && typeof loadAuthFlows === 'function') loadAuthFlows()   // 订阅登录清单（只读）
     return true
   }
   document.querySelectorAll('.nav-item').forEach((item) => {
@@ -572,6 +590,353 @@
     renderPresets()
     renderSessionModel()
   }
+
+  /* ── 🆕 2026-10-06：**订阅登录**（OAuth）② —— 清单 + **真去登录** ────────────────
+   * 与宿主插件的通道（**全是文件**；客户端不碰厂商网络，那是宿主与厂商之间的事）：
+   *   `flows.json`（可登录清单）· `attempt.json`（当前尝试：notices / 待回答的 prompt）
+   *   `cmd.json`（→ begin / answer / cancel）
+   * ⚠️ notice 里的 url 用系统浏览器打开；`secret` 型问题用 password 输入框。
+   * ⚠️ 注册是**异步**的（宿主 boot 后约 1.5 秒才有全量）⇒ 每次进模型页都重读，另有「刷新清单」。
+   *
+   * ⛔ 2026-10-07（**用户报**：「清单更新会把焦点对话框顶掉」）：`running` 时每 800 ms 重读一次，
+   *   而这一版**每次都整段重建 DOM** ⇒ 正在输入的提问框（粘贴授权码那个）每 800 ms 被换成新元素
+   *   —— **焦点与已输入的内容一起丢**。两句判据治它：
+   *   ① **快照没变就不重建**（只更新"清单更新于 …"那行文字，纯文本不碰结构）；
+   *   ② 即使真要重建，**同一个提问的输入框复用同一个元素**，并把焦点与光标位置还回去。 */
+  let authPollTimer = null
+  let authLastState = ''
+  let authRenderedSig = ''      // 上一次渲染用的快照指纹（一样 ⇒ 不重建）
+  let authPromptEl = null       // 当前提问的输入元素（跨刷新复用）
+  let authPromptId = null       // 它对应的 promptId
+  /* ⛔ 2026-10-07（用户：「清单自动刷新顶掉了我未完成的操作，它会自己失败」）：
+   *   只要**一次**快照读成 `ok:false` / `idle`（`attempt.json` 一时读不到、宿主正忙…），
+   *   旧逻辑就会**立刻拆掉面板并停掉轮询** ⇒ 用户还没答完的提问界面没了，而宿主那边仍在等
+   *   ⇒ **它自己超时失败**（插件的等待上限 15 分钟）。现在给面板一个**宽限期**：
+   *   先连续几次"读空"都不拆（继续轮询、把提问原样留着），只有在宿主**持续**报空之后才收。 */
+  let authWasActive = false
+  let authGraceTicks = 0
+  const AUTH_GRACE_TICKS = 6    // 6 次轮询 ≈ 5 秒（顺带容忍 App 重启时的瞬时窗口）
+
+  /** 渲染用的快照指纹：**故意不含 `fm.at`**（清单每 5 秒重写一次，时间戳变但内容没变 ⇒ 不该重建）。 */
+  function authSignature(fm, flows, attempt) {
+    const a = attempt && attempt.ok && attempt.state && attempt.state !== 'idle' ? attempt : null
+    return JSON.stringify({
+      f: flows.map((f) => [f.key, f.label || '', !!f.inFlight, (Array.isArray(f.methods) ? f.methods : []).map((m) => m.id + '|' + (m.label || ''))]),
+      t: fm.ok ? (fm.stale ? 'stale' : 'ok') : 'bad:' + (fm.why || ''),
+      a: a ? [a.id, a.state, a.error || '', (a.notices || []).map((n) => (n.message || '') + '|' + (n.url || '') + '|' + (n.code || '')),
+        a.awaiting ? [a.awaiting.id, a.awaiting.kind, a.awaiting.message, a.awaiting.placeholder || '', (a.awaiting.options || []).map((o) => o.id)] : null] : null,
+    })
+  }
+
+  async function loadAuthFlows() {
+    const box = $('auth-flows')
+    const tip = $('auth-status')
+    if (!box || !window.svsettings || typeof window.svsettings.authFlows !== 'function') return
+    let r = null
+    try { r = await window.svsettings.authFlows() } catch (e) { r = { ok: false, why: String((e && e.message) || e) } }
+    const fm = (r && r.flows) || {}
+    tip.textContent = !fm.ok
+      ? I.t('settings.auth.unavailable', fm.why || '?')
+      : (fm.stale ? I.t('settings.auth.stale') : I.t('settings.auth.freshAt', new Date(fm.at || Date.now()).toLocaleTimeString()))
+    /* ⚠️ `I.t` 是**变参**（`t(key, ...args)`，见 settings-preload.js 的 `fill`）——
+     *   别再传数组：两元素数组会被 `String()` 成 `"a,b"` 塞进 `{0}`，而 `{1}` 找不到就**原样留在界面上**
+     *   （2026-10-07 用户截图里那句「登录中：Anthropic,running ({1})」就是这么来的）。 */
+
+    const flowsAll = Array.isArray(fm.flows) ? fm.flows : []
+    /* ⛔ 2026-10-07（**用户指出**：「apikey 不应该在上面提供方写吗？和订阅登录重复了」）：
+     *   宿主那份清单是**全部 39 家**，而其中 35 家**只有 `api-key` 方法**（Amazon Bedrock「AWS credentials…」、
+     *   Ant Ling「Ant Ling API key」…）—— 那些在上面「提供方卡片」里本来就能填，摆在这一区就是**重复**。
+     *   ⇒ 这一区只干一件事：**用订阅账号登录**（有 `oauth` 方法的那几家）。密钥一律回上面的卡片填。 */
+    const flows = flowsAll.filter((f) => (Array.isArray(f.methods) ? f.methods : []).some((m) => m.id === 'oauth'))
+    const attempt = (r && r.attempt) || null
+    /* 一次只跑一个登录（宿主侧就是这规矩）。
+     * ⛔ 2026-10-07 实测（用户日志）：跑着的时候点**别的**提供方 → 宿主静默忽略 → 界面毫无反应，像坏了。
+     *   中途我一度把"跑着就禁掉所有登录按钮"当作解法 ⇒ 用户当场报「为什么我按钮点不动了」= **死胡同**。
+     *   现在的口径：**按钮一律不禁用**，点另一家时由点击处理里**先取消再开始**（见下面的 click 处理），
+     *   正在跑的那一行只加一个「（进行中）」标注。 */
+    const running = !!(attempt && attempt.ok && attempt.state === 'running')
+    /* ── 宽限期（见文件上方 authWasActive 的注释）：**先前有活着的尝试，这次却读不到/读坏** ──
+     *   ⇒ 不拆面板、继续轮询；只有**持续**读不到才认账（那时宿主那边也确实没有了）。
+     *   ⚠️ 判据只看"**读不到/读坏**"（`!attempt.ok`）：宿主**明确**报 `idle` 是可信的（这次登录真的结束了）
+     *   ⇒ 那种情况照常收面板、重画清单（否则清单会被旧内容粘住 —— 实测踩到）。 */
+    const attemptVisible = !!(attempt && attempt.ok && attempt.state && attempt.state !== 'idle')
+    const attemptUnreadable = !attempt || !attempt.ok
+    if (!attemptVisible && attemptUnreadable && authWasActive && authGraceTicks < AUTH_GRACE_TICKS) {
+      authGraceTicks++
+      if ($('auth-recheck')) $('auth-recheck').textContent = I.t('settings.auth.rechecking')
+      startAuthPoll()          // 继续问，别停
+      return                   // ⛔ 关键：这一次不重建 ⇒ 未答完的提问与输入内容原地保留
+    }
+    if (attemptVisible) { authWasActive = true; authGraceTicks = 0 } else { authWasActive = false; authGraceTicks = 0 }
+    /* ⛔ 快照没变 ⇒ 到此为止（上面只更新了那行时间文字）。重建 DOM 会把正在输入的提问框顶掉。 */
+    const sig = authSignature(fm, flows, attempt)
+    if (sig === authRenderedSig) return
+    authRenderedSig = sig
+
+    box.textContent = ''
+    if (!flows.length) {
+      const d = document.createElement('div')
+      d.className = 'hint'
+      d.textContent = flowsAll.length ? I.t('settings.auth.noSubscription') : I.t('settings.auth.empty')
+      box.appendChild(d)
+    } else {
+      for (const f of flows) {
+        const row = document.createElement('div')
+        row.className = 'row'
+        const left = document.createElement('div')
+        const lab = document.createElement('div')
+        lab.className = 'label'
+        lab.textContent = f.label || f.key
+        const hint = document.createElement('div')
+        hint.className = 'hint'
+        hint.textContent = f.key + ((f.inFlight || (running && attempt.key === f.key)) ? '  ' + I.t('settings.auth.inFlight') : '')
+        left.appendChild(lab)
+        left.appendChild(hint)
+        row.appendChild(left)
+        const right = document.createElement('div')
+        /* 按钮也只给订阅登录（`oauth`）—— `api-key` 方法请看上面的提供方卡片 */
+        for (const m of (Array.isArray(f.methods) ? f.methods : []).filter((x) => x.id === 'oauth')) {
+          const b = document.createElement('button')
+          b.textContent = m.label || m.id
+          /* ⛔ 别在这里"有尝试在跑就禁用全部按钮"——2026-10-07 实测：那样整个区**点不动**，
+           *   用户的原话就是「为什么我按钮点不动了」（而宿主那边其实允许我们换一家：先取消再开始即可）。 */
+          b.addEventListener('click', async () => {
+            b.disabled = true
+            /* 保险：这条路走不通时别把按钮留成永久变灰（3 秒后恢复；成功的话行会被重画） */
+            setTimeout(() => { b.disabled = false }, 3000)
+            /* 宿主一次只跑一个：它**会忽略**新的 begin。所以换一家/重试时**先取消当前这次**，
+             * 等它真的收尾（attempt 不再是 running）再下 begin —— 不让用户自己去找「取消登录」。 */
+            if (running) {
+              try { await window.svsettings.authCancel() } catch { /* 忽略 */ }
+              for (let i = 0; i < 15; i++) {
+                await new Promise((r) => setTimeout(r, 200))
+                const cur = await window.svsettings.authFlows().catch(() => null)
+                const st = cur && cur.attempt && cur.attempt.state
+                if (!st || st !== 'running') break
+              }
+            }
+            await window.svsettings.authBegin(f.key, m.id)
+            loadAuthFlows()
+          })
+          right.appendChild(b)
+        }
+        row.appendChild(right)
+        box.appendChild(row)
+      }
+    }
+    renderAuthAttempt(attempt)
+  }
+
+  /** 失败原因可能是**很长一坨**（pi-ai 会把厂商原文 + `stack=` + 每个栈帧都拼进来 —— 实测：
+   *  输错授权码时整段 ≈ 1.5 KB）⇒ 面板只显示**第一行**、去掉 `stack=` 之后的部分，完整原文放 `title`（悬停可看）。
+   *  ⛔ 别退回"原文直接塞进面板"：一次失败就把整块面板撑爆，用户看不到按钮了。 */
+  function shortAuthError(s) {
+    const first = String(s || '').split('\n')[0]
+    const cut = first.replace(/\s*;?\s*stack=[\s\S]*$/, '')
+    return cut.length > 300 ? cut.slice(0, 300) + '…' : cut
+  }
+
+  /** 从 pi-ai 抛出的长文里抠出**厂商自己的错误码**（`"code":"xxx"`）——它比我们猜的准。
+   *  2026-10-07 实测：用户点 openai-codex 的 device_code，OpenAI 直接 403
+   *  `unsupported_country_region_territory`（地区不支持）——面板上当时只有那坨 JSON，看不出所以然。 */
+  function vendorCodeOf(s) {
+    const t = String(s || '')
+    const m = /"code"\s*:\s*"([^"]+)"/.exec(t)
+    if (m) return m[1]
+    const m2 = /\b(unsupported_country_region_territory|invalid_grant|access_denied|expired_token)\b/.exec(t)
+    return m2 ? m2[1] : ''
+  }
+
+  /** attempt 的 `state` 是英文枚举 ⇒ 标题里必须换成**本地语种**的词
+   *  （用户截图里那句「登录中：Anthropic（running）」就是直接把枚举塞进中文句子）。 */
+  const AUTH_STATE_KEY = {
+    running: 'settings.auth.stateRunning',
+    authorized: 'settings.auth.stateAuthorized',
+    cancelled: 'settings.auth.stateCancelled',
+    failed: 'settings.auth.stateFailed',
+  }
+
+  /** 渲染"当前这次尝试"（宿主插件的 attempt.json）；running 时开轮询。 */
+  function renderAuthAttempt(a) {
+    const panel = $('auth-attempt')
+    if (!panel) return
+    /* 先记下旧输入框的焦点与光标：`panel.textContent = ''` 会把它摘出文档 ⇒ 焦点打回 body */
+    const prevInput = authPromptEl
+    const hadFocus = !!prevInput && document.activeElement === prevInput
+    let selA = null
+    let selB = null
+    let focusBack = null
+    try { if (prevInput && prevInput.selectionStart != null) { selA = prevInput.selectionStart; selB = prevInput.selectionEnd } } catch { /* select 没有 selectionStart */ }
+    panel.textContent = ''
+    if ($('auth-recheck')) $('auth-recheck').textContent = ''   // 正常渲染时清掉"正在确认"那句
+    if (!a || !a.ok || !a.state || a.state === 'idle') { stopAuthPoll(); authLastState = ''; authPromptEl = null; authPromptId = null; return }
+
+    const wrap = document.createElement('div')
+    wrap.className = 'row'
+    const left = document.createElement('div')
+    const title = document.createElement('div')
+    title.className = 'label'
+    title.textContent = I.t('settings.auth.attemptTitle', a.label || a.key, I.t(AUTH_STATE_KEY[a.state] || AUTH_STATE_KEY.running))
+    left.appendChild(title)
+
+    for (const n of (Array.isArray(a.notices) ? a.notices : [])) {
+      const msg = document.createElement('div')
+      msg.className = 'hint'
+      msg.textContent = n.message || ''
+      left.appendChild(msg)
+      if (n.code) {
+        const code = document.createElement('div')
+        code.className = 'label'
+        code.textContent = n.code
+        left.appendChild(code)
+      }
+      if (n.url) {
+        const open = document.createElement('button')
+        open.textContent = I.t('settings.auth.openUrl')
+        open.addEventListener('click', () => window.svsettings.openExternal(n.url))
+        left.appendChild(open)
+      }
+    }
+
+    if (a.awaiting) {
+      const q = document.createElement('div')
+      q.className = 'label'
+      q.textContent = a.awaiting.message || ''
+      left.appendChild(q)
+      const opts = Array.isArray(a.awaiting.options) ? a.awaiting.options : []
+      const isSelect = a.awaiting.kind === 'select' && opts.length > 0
+      let input
+      /* 同一个提问 ⇒ **复用同一个元素**（值与光标都在），只有换提问/换控件类型才新建 */
+      if (prevInput && authPromptId === a.awaiting.id && prevInput.tagName === (isSelect ? 'SELECT' : 'INPUT')) {
+        input = prevInput
+        if (isSelect) {
+          /* 选项可能变了：保住用户已经选的那一项 */
+          const keep = input.value
+          input.textContent = ''
+          for (const o of opts) {
+            const op = document.createElement('option')
+            op.value = o.id
+            op.textContent = o.label || o.id
+            input.appendChild(op)
+          }
+          if ([...input.options].some((o) => o.value === keep)) input.value = keep
+        }
+      } else if (isSelect) {
+        input = document.createElement('select')
+        for (const o of opts) {
+          const op = document.createElement('option')
+          op.value = o.id
+          op.textContent = o.label || o.id
+          input.appendChild(op)
+        }
+      } else {
+        input = document.createElement('input')
+        input.type = a.awaiting.kind === 'secret' ? 'password' : 'text'
+        /* 宿主的 `manual_code` 型提问会把**本机回调地址**放在 placeholder 里（如
+         * `http://localhost:53692/callback`）—— 留着它，用户才知道该粘什么回来。 */
+        input.placeholder = a.awaiting.placeholder || ''
+      }
+      left.appendChild(input)
+      authPromptEl = input
+      authPromptId = a.awaiting.id
+      /* ⚠️ 焦点要等**整段挂回文档之后**再还（游离元素上 `.focus()` 是空操作）——见本函数末尾 */
+      if (hadFocus) focusBack = { el: input, a: selA, b: selB }
+      const submit = document.createElement('button')
+      submit.className = 'primary'
+      submit.textContent = I.t('settings.auth.submit')
+      submit.addEventListener('click', async () => {
+        /* ⛔ 2026-10-07 实测（用户 Anthropic 反复失败，`answer.len=0`）：**空着提交会直接掐掉这次登录**
+         *   —— anthropic / openai-codex / openrouter 的粘贴支路与"本机回调"是**赛跑**关系，
+         *   空答案会让回调那一侧立刻收工并抛 `Missing authorization code`：
+         *   用户以为"我什么都没填，应该没影响"，实际把浏览器里正在做的授权也废了。
+         *   ⇒ 空答案**不发**，只提示他去浏览器完成（或把码粘进来）。 */
+        if (!String(input.value || '').trim()) {
+          if ($('auth-recheck')) $('auth-recheck').textContent = I.t('settings.auth.needInput')
+          return
+        }
+        submit.disabled = true
+        await window.svsettings.authAnswer(a.awaiting.id, input.value)
+        input.value = ''
+        loadAuthFlows()
+        /* ⛔ 保险：万一宿主没接这次回答（比如 promptId 已经过期），别让按钮**永久变灰**
+         *   （2026-10-07 用户就遇到"点了之后什么都点不了"）——3 秒后无论如何恢复可点。 */
+        setTimeout(() => { submit.disabled = false }, 3000)
+      })
+      left.appendChild(submit)
+      /* 说清"这一步在等你、久不回答会自动超时"（用户遇到过"它自己失败"，不知道是超时） */
+      const ph = document.createElement('div')
+      ph.className = 'hint'
+      ph.textContent = I.t('settings.auth.promptHint')
+      left.appendChild(ph)
+    } else {
+      authPromptEl = null      // 这次尝试暂时没有提问 ⇒ 别复用旧元素
+      authPromptId = null
+    }
+
+    if (a.state === 'running') {
+      const cancel = document.createElement('button')
+      cancel.textContent = I.t('settings.auth.cancelBtn')
+      cancel.addEventListener('click', async () => {
+        cancel.disabled = true
+        await window.svsettings.authCancel()
+        loadAuthFlows()
+        setTimeout(() => { cancel.disabled = false }, 3000)   // 同上：别留下永久变灰的按钮
+      })
+      left.appendChild(cancel)
+      /* 明确告诉用户"可以换一家"（别自己去猜为什么其它按钮没反应 —— 2026-10-07 用户就卡在这儿） */
+      const switchTip = document.createElement('div')
+      switchTip.className = 'hint'
+      switchTip.textContent = I.t('settings.auth.switchHint')
+      left.appendChild(switchTip)
+      startAuthPoll()
+    } else {
+      stopAuthPoll()
+      const done = document.createElement('div')
+      done.className = 'hint'
+      if (a.state === 'authorized') done.textContent = I.t('settings.auth.authorized')
+      else if (a.state === 'cancelled') done.textContent = I.t('settings.auth.cancelled')
+      else {
+        done.textContent = I.t('settings.auth.failed', shortAuthError(a.error))
+        done.title = String(a.error || '')      // 完整原文（含 stack）留在这儿，悬停可见
+      }
+      left.appendChild(done)
+      /* 厂商自己给了错误码 ⇒ 追加一句人话（地区封锁 / 码无效 / 被拒 / 过期）——别只甩一坨 JSON */
+      if (a.state === 'failed') {
+        const vcode = vendorCodeOf(a.error)
+        if (vcode) {
+          const vh = document.createElement('div')
+          vh.className = 'hint'
+          vh.textContent = I.t('settings.auth.vendorRejected', vcode)
+          left.appendChild(vh)
+        }
+      }
+      /* 失败/取消都不会留下凭据 —— 明确告诉用户"直接再点一次登录"（实测用户会以为"坏了"） */
+      if (a.state !== 'authorized') {
+        const retry = document.createElement('div')
+        retry.className = 'hint'
+        retry.textContent = I.t('settings.auth.retryHint')
+        left.appendChild(retry)
+      }
+      /* 刚登录成功：刷新提供方列表，让新 route / 模型立刻出现（只刷一次，别在轮询里刷） */
+      if (a.state === 'authorized' && authLastState !== 'authorized' && typeof loadProviders === 'function') loadProviders()
+    }
+    authLastState = a.state
+    wrap.appendChild(left)
+    panel.appendChild(wrap)
+    /* 挂回文档之后再把焦点/光标还回去（游离元素上 `.focus()` 无效 —— 这正是用户报"焦点被顶掉"的第二半） */
+    if (focusBack) {
+      try { focusBack.el.focus() } catch { /* 忽略 */ }
+      if (focusBack.a != null) { try { focusBack.el.setSelectionRange(focusBack.a, focusBack.b) } catch { /* select 没有 selectionStart */ } }
+    }
+  }
+
+  function startAuthPoll() { if (!authPollTimer) authPollTimer = setInterval(loadAuthFlows, 800) }
+  function stopAuthPoll() { if (authPollTimer) { clearInterval(authPollTimer); authPollTimer = null } }
+  if ($('btn-auth-refresh')) $('btn-auth-refresh').addEventListener('click', loadAuthFlows)
+  /* ⛔ 语言一变，这几行**动态**文案也必须跟着换（`data-i18n` 只管静态那些）——而且**不管当前在哪一页**：
+   *   DOM 里留着旧语种的文字，i18n 守卫（`test:i18n` 的"无残留汉字"）会红（实测踩到）。
+   *   指纹要先清掉，否则"快照没变就不重建"那条早退会把旧语种留在页面上。 */
+  if (I.onChange) I.onChange(() => { authRenderedSig = ''; loadAuthFlows() })
 
   /* ── 🆕 2026-10-05（⑤）：**本会话模型**：读 `session/list` 的 modelSelection，用宿主目录做选择器 ── */
   let modelCatalog = null

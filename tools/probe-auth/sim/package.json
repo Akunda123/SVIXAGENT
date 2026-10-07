@@ -1,0 +1,8 @@
+{
+  "name": "akd-auth-sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "只读模拟器（dev 用）：拦截 OAuth 端点的 fetch，让 pi-ai 的**真实**登录流在假网络上跑通一次"
+}

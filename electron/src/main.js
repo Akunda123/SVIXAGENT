@@ -30,6 +30,7 @@ const { createPanelBridge } = require('./panel-bridge.js')
 const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge, probeBridgeHeartbeat } = require('./sv-bridge-client.js')
 const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf, pickHostType, ACE_HOST_TYPE } = require('./host-pick.js')
 const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
+const { ensureAuthBridge, readAuthState, writeAuthCmd } = require('./auth-bridge.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
 
@@ -770,7 +771,9 @@ async function ensureMcpRegistration() {  try {
     const text = fs.existsSync(patch)
       ? fs.readFileSync(patch, 'utf8')
       : '# dsh profile patch（由 AKDAgent 客户端维护；用户手改的部分保留）\n'
-    const alreadyRegistered = /id:\s*mcp-akdagent/.test(text)
+    /* ⚠️ 只认**活着的**行（行首 `- id:`）—— 消毒器会把"运行时解析不到"的条目**注释掉**，
+     *   用子串判断会把注释行当成"已注册" ⇒ 永不补回（2026-10-07 订阅登录桥就是被这个形状咬的）。 */
+    const alreadyRegistered = /^\s*-\s*id:\s*mcp-akdagent\s*$/m.test(text)
     const nodeBin = shortPathIfSpaced(resolveNodeBin()).replace(/\\/g, '/')
 
     /* ── 自检（2026-09-26 新增）──────────────────────────────────────────────
@@ -934,6 +937,19 @@ function spawnHost(port) {
   ensureMcpRegistration()
   // P11：MCP 注册的 node 路径必须**不含空格**（旧运行时会按空格切开 command ⇒ MCP 起不来）
   ensureSpaceFreeMcpCommand()
+  /* 订阅登录（OAuth）桥：profile 里挂 `@deepseek-ai/dsh-authorization` 服务 + 我们的只读快照插件。
+   * ⚠️ 与上面两条同类：改的是 **profile**（宿主只在**新起**时读）⇒ 复用孤儿宿主时本次改动不生效。
+   * ⛔ fail-soft：`auth-bridge.js` 保证"名字解析不到就不写那一行" —— 坏 patch 会让宿主整棵插件树加载失败。 */
+  try {
+    const ab = ensureAuthBridge({
+      home: AKDAGENT_DSH_HOME,
+      srcDir: path.join(__dirname, 'plugins', 'akd-auth-bridge'),
+      log: console.log,
+    })
+    if (!ab || !ab.ok) console.error('[akdagent] 订阅登录桥落位失败：' + ((ab && ab.why) || '未知'))
+  } catch (e) {
+    console.error('[akdagent] 订阅登录桥落位异常：' + e.message)
+  }
   env.DSH_HOME = AKDAGENT_DSH_HOME
   // 随应用分发的技能（打包运行时内含 skills/，开发模式下可能不存在则跳过）
   const skillsDir = path.join(dshRoot, 'skills')
@@ -3053,7 +3069,10 @@ function writeCredentials(obj) {
   // ⛔ 不再写/镜像回 `~/.dsh`（源只读）
 }
 
-/** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。 */
+/** 常见 pi-ai 提供方预设（route id → 显示名）。完整目录在 pi-ai 内建 data，这里只列常用。
+ *  ⚠️ 这里的每个 id 必须是 **pi-ai 目录里真实存在的 route**（`getBuiltinProviders()`）——写错一个字母
+ *    就会加出一张"卡片在、模型一个都出不来"的卡（而 `keyEnv` 照样对，因为它是 `route.toUpperCase()+'_API_KEY'`）。
+ *    2026-10-07 查过一遍：12 个 id 与目录逐一核对**全部命中**（没写这个守卫，靠的是人工核 —— 见 docs/待办.md）。 */
 const PI_AI_PROVIDER_PRESETS = [
   'openai', 'anthropic', 'google', 'groq', 'mistral', 'openrouter',
   'xai', 'moonshotai', 'deepseek', 'cerebras', 'together', 'huggingface',
@@ -4408,6 +4427,35 @@ ipcMain.handle('akdagent-audio-decode', async (_e, p, opts) => {
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) }
   }
+})
+
+/* 订阅登录（OAuth）：① 只读快照 + ② 当前尝试（界面一次拿全，少一次竞态）。 */
+ipcMain.handle('akdagent-auth-flows', () => {
+  try {
+    return readAuthState(AKDAGENT_DSH_HOME)
+  } catch (e) {
+    return { ok: false, why: (e && e.message) || String(e) }
+  }
+})
+
+/* 订阅登录：**下命令**给宿主插件（写 cmd.json，插件 400ms 轮询）。
+ * 三个动作：开始一次登录 / 回答一个 prompt / 取消。全程只写文件，不碰网络（网络是宿主与厂商之间的事）。 */
+ipcMain.handle('akdagent-auth-begin', (_e, key, method) => {
+  try {
+    if (!key) return { ok: false, why: 'no-key' }
+    return writeAuthCmd(AKDAGENT_DSH_HOME, 'begin', { key: String(key), method: String(method || 'oauth') })
+  } catch (e) { return { ok: false, why: (e && e.message) || String(e) } }
+})
+ipcMain.handle('akdagent-auth-answer', (_e, promptId, value) => {
+  try {
+    if (!promptId) return { ok: false, why: 'no-prompt' }
+    return writeAuthCmd(AKDAGENT_DSH_HOME, 'answer', { promptId: String(promptId), value: String(value == null ? '' : value) })
+  } catch (e) { return { ok: false, why: (e && e.message) || String(e) } }
+})
+ipcMain.handle('akdagent-auth-cancel', () => {
+  try {
+    return writeAuthCmd(AKDAGENT_DSH_HOME, 'cancel', {})
+  } catch (e) { return { ok: false, why: (e && e.message) || String(e) } }
 })
 
 ipcMain.handle('akdagent-file-stat', (_e, p) => {

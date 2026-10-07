@@ -310,21 +310,28 @@ function healCredentialsFile(home, log, opts) {
   return { existed: true, action: 'quarantined', problems, to }
 }
 
-/** 该 patch 条目指向的插件在当前运行时里能不能加载 */
+/** 该 patch 条目指向的插件在当前运行时里能不能加载
+ *
+ *  ⛔ **2026-10-07 真机事故（发布前查出来的）**：裸包名原先**只查 `dshRoot/node_modules`**，
+ *  而 DSH 加载器是从 **profile 目录**解析插件名的 —— 我们自己的 `akd-auth-bridge` 就落在
+ *  `<home>/profiles/web/node_modules/`（`auth-bridge.js` 的 `resolvableFrom` 也正是这么找的）。
+ *  两者口径不一致的后果：**第二次启动** App 时消毒器把刚写好的那一行判成"运行时不存在"并**注释掉**，
+ *  而 `auth-bridge.js` 的 `hasBridge` 正则又能匹配到被注释的行 ⇒ 永不补回 ⇒ **订阅登录首次启动能用、
+ *  之后每次启动静默失效**（用户机器上实测：日志 `patch 层停用了运行时不存在的插件：akd-auth-bridge`，
+ *  且 `flows.json` 停在上一轮的时间）。
+ *  ⇒ 现在**两处都查**，口径与 `resolvableFrom` 一致；`auth-bridge.js` 侧另有"注释行不算存在 + 自我修复"。
+ */
 function patchNameResolvable(name, profileDir, dshRoot) {
   if (!name) return true
   const n = String(name).trim().replace(/^['"]|['"]$/g, '')
   if (n.startsWith('./') || n.startsWith('../')) {
     return fs.existsSync(path.resolve(profileDir, n))
   }
-  if (n.startsWith('@')) {
-    const [scope, pkg] = n.split('/')
-    return !!pkg && fs.existsSync(path.join(dshRoot, 'node_modules', scope, pkg))
-  }
-  if (/^[a-z0-9@]/i.test(n) && !n.includes('/')) {
-    return fs.existsSync(path.join(dshRoot, 'node_modules', n))
-  }
-  return true   // 认不出的形态不动它
+  const parts = n.split('/')
+  const at = (base) => fs.existsSync(path.join(base, 'node_modules', ...parts))
+  if (n.startsWith('@')) return !!parts[1] && (at(profileDir) || at(dshRoot))   // scope 包：两处都查
+  if (/^[a-z0-9@]/i.test(n) && !n.includes('/')) return at(profileDir) || at(dshRoot)   // 裸名（本事故的根因）
+  return true   // 认不出的形态不动它（保持原判据，别扩大行为变化）
 }
 
 /**

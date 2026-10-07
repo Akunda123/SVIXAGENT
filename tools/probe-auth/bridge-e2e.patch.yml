@@ -1,0 +1,19 @@
+# E2E 覆盖层：**授权服务 + 产品桥插件 + 假网络**（验证"客户端走文件通道能真的登录成功"）
+# 用法（见 README「文件通道 E2E」）：
+#   node node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --patch <本文件> --port 3999 --no-open
+- insert:
+    # ① 挂服务（默认没挂 —— 这是整件事的根因）
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+
+    # ② 产品桥插件：读 flows.json / 写 attempt.json / 收 cmd.json
+    - id: akd-auth-bridge
+      name: 'akd-auth-bridge'
+      config:
+        outDir: !!js dshHomePath('auth-bridge')
+
+    # ③ 假网络：只装 fetch 拦截，**不自己 begin**（由桥插件按 cmd.json 去 begin）
+    - id: akd-auth-sim
+      name: 'akd-auth-sim'
+      config:
+        drive: false
