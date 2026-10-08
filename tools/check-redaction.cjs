@@ -71,7 +71,24 @@ function scanDirs(dirs) {
       try { text = fs.readFileSync(f.full, 'utf8'); } catch { continue; }
       scanned++;
       const found = findSensitive(text, user);
-      if (found.length) hits.push({ file: f.rel.replace(/\\/g, '/'), count: found.length, samples: [...new Set(found.map((h) => h.kind + ': ' + h.snippet))].slice(0, 3) });
+      if (found.length) {
+        /* 🆕 2026-10-08：**按"脱敏后能不能清掉"分流**，而不是无脑判失败。
+         *   起因：裸跑时 6 个命中**全在 `tools/` 里的脱敏工具自身**（它们在定义/举例那些模式：
+         *   `lib-redact.cjs` / `redact-repo.cjs` / `check-publish-redaction.cjs` / `lib-paths.cjs` /
+         *   `check-abs-paths.cjs` / `voice-name-table.cjs`）⇒ 是**自我指涉的假阳性**，
+         *   而发包流程 `--redact-to`（默认源就含 `tools`）会把它们改写掉、复扫 0 命中。
+         *   ⇒ 判据改成可核实的：**把这处文本过一遍 `redactText` 再扫**——
+         *     残留 0 = "发包时会被改写"（提示，不算失败）；**残留 > 0 = 脱敏也盖不住的真泄漏（仍然失败）**。
+         *   ⚠️ 别再退回"文件白名单"：那会让**真的**把用户路径写进这些工具文件时也蒙混过关。 */
+        const residual = findSensitive(redactText(text, user), user);
+        hits.push({
+          file: f.rel.replace(/\\/g, '/'),
+          count: found.length,
+          residual: residual.length,
+          samples: [...new Set(found.map((h) => h.kind + ': ' + h.snippet))].slice(0, 3),
+          residualSamples: [...new Set(residual.map((h) => h.kind + ': ' + h.snippet))].slice(0, 3),
+        });
+      }
     }
   }
   return { hits, scanned, skippedBinary };
@@ -140,10 +157,26 @@ if (!res.hits.length) {
   console.log('✅ 干净：没有发现用户名 / 用户目录路径 / IP / 邮箱');
   process.exit(0);
 }
-console.log('⚠️ 命中 ' + res.hits.length + ' 个文件（发包前请处理）：');
-for (const h of res.hits) {
-  console.log('  · ' + h.file + ' —— ' + h.count + ' 处');
-  for (const s of h.samples) console.log('      ' + s);
+/* 🆕 2026-10-08：分流成两类（判据见 scanDirs 里那段注释） */
+const cleanable = res.hits.filter((h) => h.residual === 0);
+const real = res.hits.filter((h) => h.residual > 0);
+if (cleanable.length && !real.length) {
+  console.log('ℹ️ ' + cleanable.length + ' 个文件里有**可被脱敏改写**的命中（不算失败）：');
+  for (const h of cleanable) console.log('  · ' + h.file + ' —— ' + h.count + ' 处（脱敏后残留 0）');
+  console.log('');
+  console.log('说明：这些命中在**打包脱敏副本时会被改写**（`--redact-to` 的默认源就含 `tools`，复扫要求 0 命中）——');
+  console.log('     典型是脱敏工具**自身**在定义/举例这些模式（自我指涉）。真要发包仍走：');
+  console.log('     node tools/check-redaction.cjs --redact-to dist/knowledge --clean');
+  process.exit(0);
+}
+console.log('⛔ 命中 ' + real.length + ' 个文件**脱敏也盖不住**（真泄漏，必须处理）：');
+for (const h of real) {
+  console.log('  ✗ ' + h.file + ' —— 命中 ' + h.count + ' 处，脱敏后仍剩 ' + h.residual + ' 处');
+  for (const s of h.residualSamples) console.log('      ' + s);
+}
+if (cleanable.length) {
+  console.log('');
+  console.log('（另有 ' + cleanable.length + ' 个文件只是**可被脱敏改写**的命中，未计入失败）');
 }
 console.log('');
 console.log('处理方式（二选一）：');

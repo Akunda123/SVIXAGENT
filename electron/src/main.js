@@ -14,7 +14,7 @@
  */
 'use strict'
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme, screen, shell, dialog, Notification } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme, screen, shell, dialog, Notification, net: electronNet } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const crypto = require('node:crypto')
@@ -33,6 +33,49 @@ const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = re
 const { ensureAuthBridge, readAuthState, writeAuthCmd } = require('./auth-bridge.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
+/* 🆕 2026-10-07：系统代理探测（把"系统里配的代理"变成宿主能吃的 HTTP(S)_PROXY）。
+ * 只在起宿主前探一次并缓存；`networkChildEnv()` 是**唯一**给子进程配网络环境的入口。 */
+const { decideProxy, childEnvWithProxy } = require('./system-proxy.js')
+/* 🆕 2026-10-08：STT 模型下载走 Electron 网络栈（跟随系统代理）。 */
+const { createElectronDownloader } = require('./download-transport.js')
+let proxyDecision = null
+/** 上次探测的时刻 + 重探节流窗口（见 `bringUpHost` 里的重探）。 */
+let networkProbedAt = 0
+const NETWORK_REPROBE_MS = 20000
+/** 子进程要用的 env（在启动时快照的 process.env 基础上叠加代理决定）。
+ *  ⛔ 绝不改 `process.env`：`app.relaunch()` 必须继承启动时的原环境。 */
+function networkChildEnv() {
+  return childEnvWithProxy(process.env, proxyDecision)
+}
+/** 路由指纹：只用来判断"这次探到的和上次是不是同一条路"（不含任何凭据）。 */
+function routeFingerprint(d) {
+  if (!d) return ''
+  return [d.use, d.proxy || '', (d.httpProxy || ''), (d.httpsProxy || '')].join('|')
+}
+/** 探一次网络路由并缓存 + 记日志。
+ *  🆕 2026-10-08：**不再只在启动时探一次** —— `bringUpHost` 每次起宿主前也会调（见那里），
+ *  这样"宿主崩了重试 / 手动重启宿主"这些路径都会重新看一眼系统代理（用户中途开代理的场景）。
+ *  ⚠️ 但它**不会**改变一个已运行宿主的路由：宿主是在 boot 第一步按 env 装 undici dispatcher 的，
+ *     改了代理必须**重启宿主**才生效 —— 所以路由变了这里会明确打一行"需要重启助手"。
+ *  fail-soft：任何异常都退回直连，绝不因此拦住启动。 */
+async function probeNetworkRoute(reason) {
+  const before = routeFingerprint(proxyDecision)
+  try {
+    proxyDecision = await decideProxy({ env: process.env })
+  } catch (e) {
+    proxyDecision = { use: 'direct', detail: '探测系统代理异常（' + ((e && e.message) || e) + '）⇒ 直连', note: [] }
+  }
+  const after = routeFingerprint(proxyDecision)
+  networkProbedAt = Date.now()
+  console.log(`[akdagent] 网络路由（${reason}）：` + proxyDecision.detail
+    + (proxyDecision.proxy ? '（' + proxyDecision.proxy + '）' : ''))
+  if (before && before !== after) {
+    console.log('[akdagent]   · 网络路由**变了**（' + before + ' → ' + after + '）⇒ 已在跑的宿主不会自动切换，'
+      + '需要重启助手才生效（宿主只在 boot 第一步按 env 装代理 dispatcher）')
+  }
+  for (const n of proxyDecision.note || []) if (n) console.log('[akdagent]   · ' + n)
+  return proxyDecision
+}
 
 /* ── 日志安全网（2026-09-19 修「打包版静默退出」）──────────────────────
  * 事故：打包版是 GUI 子系统进程，**没有可写的 stdout/stderr**，任何 `console.log`
@@ -506,7 +549,7 @@ function mcpSelfTestOnce(nodeBin, serverEntry, timeoutMs = MCP_SELFTEST_TIMEOUT_
     }
     const timer = setTimeout(() => finish({ ok: false, why: `${timeoutMs}ms 内没跑完 initialize+tools/list` }), timeoutMs)
     try {
-      child = spawn(nodeBin, [serverEntry], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+      child = spawn(nodeBin, [serverEntry], { env: networkChildEnv(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (e) {
       clearTimeout(timer)
       return finish({ ok: false, why: 'spawn 失败：' + e.message })
@@ -923,7 +966,7 @@ function spawnHost(port) {
   const args = useTsx
     ? ['--import', 'tsx/esm', entry, 'web', '--port', String(port), ...tail]
     : [entry, 'web', '--port', String(port), ...tail]
-  const env = { ...process.env }
+  const env = networkChildEnv()
   /* ⛔ 2026-09-28（方案 D · 与用户自己的 DSH 彻底分离）：**别把用户环境里的 `DSH_*` 继承给内嵌宿主。**
    *   以前是 `{...process.env}` 原样透传（只删了 `DSH_OPEN_INBOX`）⇒ 用户自己设过的 `DSH_*`
    *   （profile / 端口 / 各种开关，或者指向他自己的家目录）会被内嵌宿主吃进去，行为变得不可预测 ——
@@ -1096,6 +1139,10 @@ async function bringUpHost(attempt) {
   /* 🆕 2026-10-07：老的自定义提供方补 `apiKeyEnv`（用户报「保存了也显示未配置」的那个 bug 的产物）。
    * 放在起宿主**之前**：宿主读 settings 的那一刻它就得在。 */
   migratePiProviderKeyEnvs()
+  /* 🆕 2026-10-08（B 组优化）：**起宿主前重探一次网络路由**（不再"只在启动时探一次"）。
+   *   覆盖：宿主崩了要重试、用户中途把代理开起来/换节点、代理进程重启导致端口变了。
+   *   ⚠️ 只在缓存**超过 20 秒**时才重探（避免重试链路上每次都花掉一次可达性探测的时间）。 */
+  if (Date.now() - networkProbedAt > NETWORK_REPROBE_MS) await probeNetworkRoute('spawn')
   const prevHost = loadHostRecord()
   const clientVersion = app.getVersion()
   if (attempt === 0 && prevHost && prevHost.port && await probeHost(prevHost.port)) {
@@ -4976,6 +5023,23 @@ app.whenReady().then(async () => {
     // 客户端界面语言：首次启动按**系统语言**自动选（写入 userData/ui-prefs.json），
     // 之后以该文件为准。必须在建托盘/窗口之前初始化——它们的文案从这里取。
     i18n.init(app)
+    /* 🆕 2026-10-07（用户报「OpenAI Plus 登录 403 地区不受支持，换网络也没用」）：
+     *   **起宿主之前**探一次系统代理 —— 宿主与它拉起的子进程只认环境变量，而 Node 不读
+     *   Windows「系统代理」/ macOS 系统设置 ⇒ 用户设成"系统代理"时助手一直直连出去。
+     *   详细口径见 `electron/src/system-proxy.js` 顶部注释（只看 ProxyEnable、注入前探一次可达性、
+     *   SOCKS/PAC 不采、绝不改 process.env）。**失败一律 fail-soft**：探不到就直连，绝不拦启动。 */
+    await probeNetworkRoute('startup')
+    /* 🆕 2026-10-08（用户「stt 也做成跟系统」）：语音模型下载改走 **Electron net**
+     *   （Chromium 网络栈 ⇒ 天生跟随系统代理，连 PAC / SOCKS 都支持）。
+     *   原来的 Node `https.get` 既不读系统代理、也不读 `HTTP(S)_PROXY` ⇒
+     *   设了"系统代理"的用户**语音模型根本下不下来**（国内尤其明显）。
+     *   fail-soft：注入失败就退回 Node https（日志里说明），绝不因此拦住启动。 */
+    try {
+      sttModel.setDownloadTransport(createElectronDownloader({ net: electronNet, fs }))
+      console.log('[akdagent] STT 模型下载：走 Electron 网络栈（跟随系统代理）')
+    } catch (e) {
+      console.log('[akdagent] STT 下载器接入失败（退回 Node https，可能不跟随代理）：' + ((e && e.message) || e))
+    }
     // 隐藏所有窗口的应用菜单栏（orb/聊天/设置/弹窗都不显示菜单）
     Menu.setApplicationMenu(null)
     createTray()

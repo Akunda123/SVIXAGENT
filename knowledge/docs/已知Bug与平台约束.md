@@ -1,7 +1,7 @@
 # 已知缺陷与平台约束（人读版）
 
 > **本文件由 `node tools/known-bugs.cjs --doc` 从 `tools/known-bugs.json` 生成 —— 不要手改，改 JSON。**
-> 生成时间：2026-09-27 10:26 · 共 21 条
+> 生成时间：2026-10-08 14:27 · 共 23 条
 
 ## 0. 怎么用（三条纪律）
 
@@ -50,8 +50,10 @@
 | `DSH-002` | 🟡 能力缺口 | dsh | 已修复 | 0.1.5-rc.2(0) | 内嵌 host 上「插件包清单」请求贡献者解析不了我们插入的裸包名 ⇒ **每条消息都在 HTTP 前失败**（`REQUEST_EXTENSION`）—— 已由客户端停用该条目修掉 |
 | `IX-006` | 🔴 崩溃 | ix | 存在 | 1.0.1(65537) | `dynamics` **不是组级 automation**（是音符级力度包络）：`getAutomation("dynamics")` 返回**假对象**，在其上按 automation 读点/写点会**毒坏宿主内存 ⇒ 延时崩宿主** |
 | `SV-008` | ⛔ 设计如此 | sv | 设计如此 | ? | 【不是缺陷】实参类型/调用形式不对 ⇒ 宿主弹**模态**脚本错误框（样例 `setAttributes: 无效的输入类型。`），框一弹桥就冻死 |
+| `AKD-MAC-CRED-MODE` | 🔴 崩溃 | dsh | 已修复 | 0.1.5-rc.2(0) | macOS：凭据文件权限 644 ⇒ 宿主 credentials-local 拒绝启动（整棵插件树 load 失败 ⇒ 客户端"闪退"）· 1.1.3 起已修 |
+| `AKD-CRASH-EVIDENCE` | 🟡 能力缺口 | any | 已修复 | 0.1.5-rc.2(0) | 排障取证能力缺口：宿主"就绪前退出"时，重试会把上一次的 stderr 与存活时长擦掉（回传的 host-crash.json 是空的）· 1.1.3 起已修 |
 
-## 🔴 崩溃（3 条）
+## 🔴 崩溃（4 条）
 
 ### IX-001 · Automation 读点类 API：**IX 1.0.0 会冻桥（1.0.1 已修）** —— 只保留一道「版本检测」防线 ⚠️ **2026-09-25 真机补正：这组 API 只对"真正的 automation 对象"安全** —— 把 `dynamics` 当 automation 读点会**毒坏宿主内存、延时崩宿主**（一天两次），见 `IX-006`。
 
@@ -116,7 +118,22 @@
   - 命令：`node tools/known-bugs.cjs --probe IX-006 --confirm`
 - **记账命令**：`node tools/known-bugs.cjs --verified IX-006 --status fixed|partial|open --note "..."`
 
-## 🟡 能力缺口（9 条）
+### AKD-MAC-CRED-MODE · macOS：凭据文件权限 644 ⇒ 宿主 credentials-local 拒绝启动（整棵插件树 load 失败 ⇒ 客户端"闪退"）· 1.1.3 起已修
+
+- **宿主**：dsh · **状态**：已修复 · **复检**：否（设计如此）
+- **涉及 API**：`@deepseek-ai/dsh-credentials-local 的 assertOwnerOnly（宿主 boot 阶段；判据 = (mode & 0o077) !== 0）` · `客户端写 ~/.dsh-akdagent/.credentials.yaml 的所有路径（writeCredentials / ensureHome 的同步与自愈）`
+- **现象**：mac 上宿主**从来没起来过**：日志里连片 `embedded host exited: code=1 signal=null`，每次同一句 `credentials-local: /Users/<u>/.dsh-akdagent/.credentials.yaml is readable beyond its owner (mode 644); run "chmod 600 …" before starting again` + `dsh: plugin tree failed to load … credentials-local`。用户侧只看到"配过 key 之后每次启动都打不开"，与权限毫无关联（那份 host-crash.json 还是空的，见 AKD-CRASH-EVIDENCE）。
+- **影响**：macOS 上**配过 API 密钥的用户必然起不来**（第一次装好能用、配完 key 再打开就废）——1.1.0 / 1.1.1 / 1.1.2 的 mac 包全带此病；Windows 不校验权限位 ⇒ 本地与 CI 都看不出来（我们当时也没有 mac 实机）。
+- **实测版本**：2026-10-07 @ 0.1.5-rc.2
+- **规避 / 正确做法**：
+  - ✅ **1.1.3 起已修（两道保险）**：① 写凭据时显式 `{ mode: 0o600 }`（`writeFileAtomic(p, s, opts)` + `applyMode()`）；② `ensureCredentialsOwnerOnly()` 在 `ensureHome()` 里**起宿主之前**跑，把过宽的权限收紧 ⇒ **已中招用户升级后自动恢复**
+  - 仍未升级的用户：终端里 `chmod 600 ~/.dsh-akdagent/.credentials.yaml`（必要时再 `chmod 700 ~/.dsh-akdagent`）后重开 —— 见交付件 `docs/mac-凭据权限-启动失败-给用户.txt`
+  - 判据与宿主**逐位对齐**：宿主 `GROUP_OTHER_BITS = 63`（0o077）、对 win32 直接 return；我们的 `credentialModeNeedsFix(mode) = (mode & 0o077) !== 0` 同形
+  - 排障口径：看到 `readable beyond its owner` 就是本条；**别**去查代理/网络/地区（我们为此白查过一轮）
+- **复检探针**：无（设计如此 ⇒ 不复检）
+- **记账命令**：`node tools/known-bugs.cjs --verified AKD-MAC-CRED-MODE --status fixed|partial|open --note "..."`
+
+## 🟡 能力缺口（10 条）
 
 ### IX-002 · 音符级 dynamics 曲线：API **不能直接设**（但 **`clone()` 能复制模板包络**）· 也读不出（验证只能靠文件 / recovery 快照）
 
@@ -268,6 +285,21 @@
   - 预期：仍被停用：`kind:'completed'` · 若哪天不写停用项：`kind:'error'` + `REQUEST_EXTENSION`（说明上游仍未修 resolver 的回退行为）
   - ⚠️ 不提供一键探针：只读为主；发一条 prompt 会真调一次模型（隔离 home 有 key 时会产生一次极小的用量）
 - **记账命令**：`node tools/known-bugs.cjs --verified DSH-002 --status fixed|partial|open --note "..."`
+
+### AKD-CRASH-EVIDENCE · 排障取证能力缺口：宿主"就绪前退出"时，重试会把上一次的 stderr 与存活时长擦掉（回传的 host-crash.json 是空的）· 1.1.3 起已修
+
+- **宿主**：any · **状态**：已修复 · **复检**：否（设计如此）
+- **涉及 API**：`userData/host-crash.json（用户唯一会回传的现场）` · `main.js: spawnHost 的 hostStderrTail / hostSpawnedAt / 退出回调的 setTimeout(…, 500)`
+- **现象**：用户回传 `{"code":1,"ranMs":7,"readyBeforeExit":false,"stderrTail":[]}` —— 看着像"只活了 7 毫秒、没有任何输出"。真相：就绪前退出会**立刻重试**（HOST_MAX_ATTEMPTS=2），而第一次的退出回调是 500ms 后才跑；旧实现每次 spawn 都 `hostStderrTail.length = 0`（复用同一个数组）并改写全局 `hostSpawnedAt` ⇒ 第一次的回调读到的是**第二次**的时间与**已被清空**的 stderr ⇒ 现场被自己抹掉。
+- **影响**：每个"宿主起不来"的用户都白回传一份没有信息量的文件（mac 那条 P0 因此被埋了一轮：先怀疑代理/地区/缺模块，最后才靠 `akdagent.log` 定位）。
+- **实测版本**：2026-10-07 @ 0.1.5-rc.2
+- **规避 / 正确做法**：
+  - ✅ **1.1.3 起已修**：每次 spawn 的起始时刻与 stderr 尾巴由**本次闭包**持有（`attemptSeq`/`attemptStartedAt`/`attemptStderr`），报告新增 `attempt`（第几次尝试）与 `logTail`（日志尾部 40 行、先脱敏、只读尾部 64KB）⇒ 回传一份文件就够
+  - 日志唯一写盘点同时补了**落盘前脱敏**（`emit()` 过 `redactForCrash`）—— 因为现在会把日志尾巴交给用户回传
+  - 本机可复现的 A/B：假 DSH 入口（第 1 次立刻 exit 1、第 2 次活 3 秒）⇒ 修前 `ranMs=3 / stderrTail=[]`、修后 `attempt=1 / ranMs=779 / stderrTail=[真错误] / logTail` 有内容
+  - 排障口径：再看到 `stderrTail: []` 且 `ranMs` 是个位数，先确认包版本（1.1.3 之前才有这个病），别当成"宿主静默死亡"
+- **复检探针**：无（设计如此 ⇒ 不复检）
+- **记账命令**：`node tools/known-bugs.cjs --verified AKD-CRASH-EVIDENCE --status fixed|partial|open --note "..."`
 
 ## 📄 文档缺席（2 条）
 
@@ -479,3 +511,11 @@
 
 **SV-008**
 - `2026-09-27` by-design：用户反馈「AI 在调用音符属性时使用了错误的 api」+ 错误框截图（来自用户电脑）。定性：宿主弹模态框是平台设计（同 SV-001 机制）；我们能做的是**预防 + 取证 + 恢复指引** ⇒ 桥加 GATE 预检 / 宿主闸门 / lastop 面包屑，服务端诊断与 stale 文案带恢复三步；离线自测补 30+ 断言（test-ops.lua 的 GATE 段）。
+
+**AKD-MAC-CRED-MODE**
+- `2026-10-07` observed：mac 用户 logic 回传 akdagent.log（726 条）：14 次 code=1 全是凭据权限 644；宿主从未 boot 成功
+- `2026-10-07` fixed：1.1.3：写入显式 0600 + 起宿主前自愈；单测 test-credentials-mode（含模拟 POSIX 桩）+ 守卫 check-credentials-doc F 段 5 条（负向验证过）。⚠️ POSIX 落地只能由 mac 验收
+
+**AKD-CRASH-EVIDENCE**
+- `2026-10-07` observed：mac 用户回传 host-crash.json 只有 code/ranMs/stderrTail，无任何可用信息
+- `2026-10-07` fixed：1.1.3：按 attempt 快照 + attempt/logTail 入报告 + 日志落盘脱敏；守卫 check-credentials-doc 4 条 + check-key-settings-safety ③b（均负向验证过）

@@ -12,6 +12,17 @@ const https = require('node:https')
 const path = require('node:path')
 const fs = require('node:fs')
 
+/* 🆕 2026-10-08（用户「stt 也做成跟系统」）：**下载传输层可注入**。
+ *   默认还是 Node 的 `https.get`，但那个**既不读系统代理、也不读 HTTP(S)_PROXY** ⇒
+ *   设了"系统代理"的用户下不到语音模型（国内尤其明显）。
+ *   main.js 会注入一个走 **Electron `net`**（Chromium 网络栈 ⇒ 天生跟随系统代理，
+ *   连 PAC / SOCKS 都比宿主那条路支持得宽）的下载器，见 `electron/src/download-transport.js`。 */
+let downloadTransport = null
+function setDownloadTransport(fn) {
+  downloadTransport = typeof fn === 'function' ? fn : null
+  return !!downloadTransport
+}
+
 /** 模型定义：id -> { label, nameKey, descKey, kind, repo, files: [[remote, local], ...] }
  *  label = 中文兜底；nameKey/descKey 是 i18n key（设置页按当前界面语言渲染）。 */
 const MODELS = {
@@ -90,6 +101,9 @@ function isModelInstalled(userDataPath, id = 'light') {
 }
 
 function downloadFile(url, dest, onProgress, redirects = 0) {
+  /* 注入了传输层（Electron net / 测试桩）就交给它 —— 它自己处理重定向与 .part 清理。
+   * ⚠️ 只有**默认那条**（Node https）才需要下面的 redirects 递归。 */
+  if (downloadTransport) return downloadTransport(url, dest, onProgress)
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest + '.part')
     const req = https.get(url, (res) => {
@@ -190,4 +204,4 @@ function removeModel(userDataPath, id = 'light') {
   }
 }
 
-module.exports = { MODELS, MODEL_IDS, modelDir, getModelDef, isModelInstalled, downloadModel, removeModel, hfBases, downloadFile }
+module.exports = { MODELS, MODEL_IDS, modelDir, getModelDef, isModelInstalled, downloadModel, removeModel, hfBases, downloadFile, setDownloadTransport }

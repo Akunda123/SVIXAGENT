@@ -68,6 +68,10 @@ function pathTokens(line) {
   for (let i = 0; i < raw.length; i++) {
     let tok = raw[i].replace(/^["']|["']$/g, '');
     if (!tok) continue;
+    /* ⚠️ 2026-10-08：robocopy 的开关写成 `/MIR` `/XD` 这种**斜杠**开头（不是 `-`），
+     *   而 `/MIR` 的形状像个绝对路径 ⇒ 不排掉会误报。只排"斜杠 + 字母且再无第二段"这一个形状
+     *   （真 POSIX 绝对路径至少还有第二段，例如 `/home/x`）。 */
+    if (/^\/[A-Za-z]+$/.test(tok)) continue;
     if (tok.startsWith('-')) {
       /* ⚠️ 2026-10-06：`--exclude` / `--include` / `--filter` 的**下一个 token 是"模式"、不是源路径**
        *   —— 它的语义正是"**不要**同步这个路径"（我们就是靠 `--exclude 'vendor/'` 保住整包里那份
@@ -79,7 +83,7 @@ function pathTokens(line) {
       continue;
     }
     if (tok.includes('$')) continue;            // 变量（含 $T / $d 之类）
-    if (/^(rsync|cp|sudo|echo|ls|test|if|then|fi|do|done)$/.test(tok)) continue;
+    if (/^(rsync|cp|robocopy|Copy-Item|Move-Item|sudo|echo|ls|test|if|then|fi|do|done|exit|Set-Location|Get-ChildItem|Join-Path|Out-Null)$/i.test(tok)) continue;
     if (/[;|&<>]/.test(tok)) continue;
     out.push(tok.replace(/\/+$/, ''));
   }
@@ -139,7 +143,7 @@ if (!fs.existsSync(WF_DIR)) {
     });
     lines.forEach((line, i) => {
       const where = `${f}:${i + 1}`;
-      if (/^\s*(rsync|cp)\b/.test(line)) {
+      if (/^\s*(rsync|cp|robocopy|Copy-Item)\b/i.test(line)) {
         for (const t of pathTokens(line)) checkPath(where, t, i, stagings);
       }
       const m = line.match(/^\s*for\s+\w+\s+in\s+([^;]+?)(?:;|\s*$|;?\s*do)/);

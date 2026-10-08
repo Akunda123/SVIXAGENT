@@ -1,0 +1,199 @@
+name: Build Windows app (x64)
+
+# Windows 出包搬进 CI（2026-10-08 立）。
+#
+# 为什么需要：Windows 包一直是**本机** `npm run dist` —— 要 ~10 分钟、要能连 GitHub（本机得开代理）、
+#   而且"包里的代码对不对"只能靠人肉核（1.1.3 那次我一天手工写了 3 个 asar 核对脚本又删掉）。
+#   mac 侧早就有 `mac-build.yml`（2026-09-26 起），Windows 侧一直缺 ⇒ 这一份补上。
+#
+# ⛔ 前置（**没有它这份跑不起来**，第一次跑之前必须先做）：
+#   和 mac 同样的思路 —— **仓库里不带整包**（`dsh-runtime/**`、`dist/server-runtime*`、`electron/src/vendor/**`
+#   都在 .gitignore 里，其中 models 有几百 MB），所以要有一个"冻结整包"release 资产：
+#     release `build-inputs` 上放一个 `akdagent-win-payload-x64.zip`
+#     内容 = 能跑通 `npm run dist` 的那棵树：dsh-runtime/**（含 node 运行时与 models）、
+#            electron/**（源码除外也行，反正是覆盖的）、electron/node_modules（可选，CI 会自己 npm ci）
+#   生成方式（本机一次性）：
+#     cd electron && npm run dist        # 先保证本机能出包 ⇒ 树是完整的
+#     # 再按 payload 需要的子集压缩（工具/步骤待定：见 docs/待办.md 的"Windows CI"条）
+#   在那之前：手动 `workflow_dispatch` 会**在"下载整包"那步失败**，这是预期的（不是这份脚本的 bug）。
+#
+# 用法：
+#   gh workflow run win-build.yml -f mode=nsis -f release_tag=v1.1.5
+#   只出 artifacts（不挂 release）⇒ release_tag 留空。
+on:
+  workflow_dispatch:
+    inputs:
+      payload_url:
+        description: '整包 zip 的下载地址（默认取 build-inputs release 上的 win64 包）'
+        required: false
+        default: 'https://github.com/Akunda123/SVIXAGENT/releases/download/build-inputs/akdagent-win-payload-x64.zip'
+      mode:
+        description: '出包模式：nsis = 只出安装器（默认）；dir-only = 只出解包目录（快，用来先确认能跑）'
+        required: true
+        default: 'nsis'
+        type: choice
+        options:
+          - nsis
+          - dir-only
+      release_tag:
+        description: '（可选）把产物挂到这个已有的 release 标签上，例如 v1.1.5；留空则只留 artifact'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: 取仓库（脚本以此为准）
+        uses: actions/checkout@v4
+
+      - name: 环境自述
+        shell: pwsh
+        run: |
+          node --version
+          npm --version
+          Get-ComputerInfo | Select-Object OsName, OsVersion, OsArchitecture | Format-List
+
+      - name: 下载整包
+        shell: pwsh
+        env:
+          URL: ${{ inputs.payload_url }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'payload.zip'
+          Write-Host "下载：$env:URL"
+          try {
+            Invoke-WebRequest -Uri $env:URL -OutFile $zip -MaximumRedirection 5
+          } catch {
+            Write-Error ("整包下载失败：$($_.Exception.Message)`n" +
+              "⛔ 这份 workflow 需要一个 build-inputs 资产（见文件头"前置"那段）；没有它这一步必然失败。")
+            exit 1
+          }
+          Write-Host ("整包 zip：" + [math]::Round((Get-Item $zip).Length / 1MB, 1) + " MiB")
+
+      - name: 解开整包
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          Expand-Archive -Path (Join-Path $env:RUNNER_TEMP 'payload.zip') -DestinationPath $T -Force
+          Write-Host "解开到 $T"
+          Get-ChildItem $T | Select-Object -First 20 Name
+
+      - name: 用仓库里最新的源码覆盖整包内的同名件
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          # 与 mac 那份**同样的口径**：只同步"版本库里真的有的"源码目录；
+          #   `electron/src/vendor/**` 被 .gitignore 挡住（要靠 stage-pdfjs 现场落位）⇒ 这里**排除 vendor**
+          #   `dist/knowledge` 是脱敏产物（不进 git）⇒ 用整包里那份，别覆盖
+          foreach ($d in 'electron/src', 'electron/scripts', 'tools', 'sv', 'skills', 'licenses') {
+            if (Test-Path $d) {
+              if ($d -eq 'electron/src') {
+                robocopy $d (Join-Path $T $d) /MIR /XD vendor /NFL /NDL /NJH /NJS /NP | Out-Null
+              } else {
+                robocopy $d (Join-Path $T $d) /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+              }
+              if ($LASTEXITCODE -ge 8) { Write-Error "robocopy ${d} 失败（exit ${LASTEXITCODE}）"; exit 1 }
+              Write-Host "  ✓ 同步 $d"
+            } else {
+              Write-Host "  · 跳过 ${d}（仓库里没有这个目录）"
+            }
+          }
+          foreach ($f in 'electron/package.json', 'electron/package-lock.json', 'electron/electron-builder.yml', 'THIRD-PARTY-NOTICES.md') {
+            if (Test-Path $f) { Copy-Item $f (Join-Path $T $f) -Force; Write-Host "  ✓ 覆盖 $f" }
+          }
+          node -e "console.log('  electron 版本 = ' + require('./electron/package.json').version)"
+          # skills 的真路径是 `<resources>/dsh/skills`（宿主启动时读的就是它）
+          if (Test-Path "$T/dsh-runtime/dsh/skills") {
+            robocopy 'skills' "$T/dsh-runtime/dsh/skills" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+            Write-Host "  ✓ skills → dsh-runtime/dsh/skills"
+          }
+
+      - name: 重建 win32 的 server 运行时（整包里那份是冻住的）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          npm ci --no-audit --no-fund --prefix server
+          npm run build --prefix server
+          $srv = Join-Path $env:RUNNER_TEMP 'srv-win'
+          # 只回填 dist/ 与 node_modules/：**models/ 保留整包那份**（模型在 .gitignore 里，checkout 拿不到）
+          node tools/build-server-runtime.cjs --platform win32 --arch x64 --no-models --out $srv
+          robocopy "$srv/dist" "$T/dist/server-runtime/dist" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+          robocopy "$srv/node_modules" "$T/dist/server-runtime/node_modules" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+          Write-Host "  ✓ 已重建 win32 的 dist + node_modules（models 仍用整包那份）"
+          node -e "console.log('  server 版本 = ' + require('./server/package.json').version)"
+          # 客户端 PDF→PNG 渲染要的 pdfjs（`electron/src/vendor/**` 不进 git，只能现场落位；
+          #   上面 `npm ci --prefix server` 已经把 pdfjs-dist 装好 ⇒ 就地落位再补进树里）
+          node tools/stage-pdfjs.cjs
+          robocopy 'electron/src/vendor' "$T/electron/src/vendor" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+          Write-Host "  ✓ 客户端 pdfjs 已补进树里"
+
+      - name: 重新生成随包文档（脱敏）—— 整包里那份是冻住的
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          node tools/check-redaction.cjs --redact-to (Join-Path $T 'dist/knowledge') --clean
+          Write-Host ("  放进树里：" + (Get-ChildItem (Join-Path $T 'dist/knowledge') -Recurse -File | Measure-Object).Count + " 个文件")
+
+      - name: 出包（electron-builder --win）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          Set-Location (Join-Path $T 'electron')
+          npm ci --no-audit --no-fund
+          if ('${{ inputs.mode }}' -eq 'dir-only') {
+            npx electron-builder --win --x64 --dir
+          } else {
+            npx electron-builder --win nsis --x64
+          }
+          Write-Host "  ✓ 产物在 $T\electron\release"
+
+      - name: 核对产物（版本 / 关键文件逐字节 / unpacked 资产 / 内嵌 server）
+        shell: pwsh
+        if: always()
+        run: |
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          Set-Location $T
+          node tools/check-packaged-app.cjs
+          if ($LASTEXITCODE -ne 0) { Write-Error '打包产物核对未通过（见上面每一行）'; exit 1 }
+
+      - name: 上传产物
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AKDAgent-win-x64
+          path: |
+            ${{ runner.temp }}/tree/electron/release/*.exe
+            ${{ runner.temp }}/tree/electron/release/*.blockmap
+          if-no-files-found: warn
+
+      - name: 上传日志（无论如何）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-build-log
+          path: |
+            ${{ runner.temp }}/tree/electron/release/builder-debug.yml
+            ${{ runner.temp }}/tree/electron/release/*.log
+          if-no-files-found: warn
+
+      - name: （可选）挂到已有 release
+        if: success() && inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          $T = Join-Path $env:RUNNER_TEMP 'tree'
+          $files = Get-ChildItem (Join-Path $T 'electron/release') -Filter '*.exe' | Where-Object { $_.Name -notmatch 'uninstaller' }
+          if (-not $files) { Write-Error '没找到要挂的 exe'; exit 1 }
+          foreach ($f in $files) {
+            gh release upload $env:TAG $f.FullName --clobber -R $env:GITHUB_REPOSITORY
+            Write-Host ("✓ 已挂上 " + $f.Name)
+          }
