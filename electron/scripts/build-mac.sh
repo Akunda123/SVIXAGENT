@@ -126,6 +126,7 @@ for ARCH in "${ARCHS[@]}"; do
   chmod +x "$ELECTRON_DIR/node_modules/app-builder-bin/mac/"* 2>/dev/null || true
   chmod +x "$ELECTRON_DIR/node_modules/7zip-bin/mac/"* 2>/dev/null || true
   # shellcheck disable=SC2086
+  node "$REPO_DIR/tools/stage-markdown.cjs"
   npx electron-builder --mac "--$ARCH" $EXTRA
   say "   ✓ 产物在 electron/release/"
 

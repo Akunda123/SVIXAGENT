@@ -47,6 +47,12 @@
 | `sherpa-onnx-node` | **Apache-2.0** | 语音识别引擎（Node 绑定）| csukuangfj/sherpa-onnx |
 | `sherpa-onnx-win-x64` | **Apache-2.0** | 语音识别引擎（x64 二进制）| csukuangfj/sherpa-onnx |
 | `ws` | MIT | WebSocket | websockets/ws |
+| `markdown-it` 15.0.2 | MIT | 悬浮聊天离线 Markdown 渲染 | [markdown-it/markdown-it](https://github.com/markdown-it/markdown-it) |
+
+Markdown 浏览器构建和上游 LICENSE 由 `tools/stage-markdown.cjs` 从锁定的 npm
+依赖生成，分别随包位于 `src/vendor/markdown-it-15.0.2.min.js` 与
+`src/vendor/markdown-it-LICENSE.txt`，相关依赖的许可证原文位于
+`src/vendor/markdown-licenses/`。不从 CDN 加载。
 
 > **Apache-2.0**：允许商用/再分发，**需**：
 > 1. 保留版权与许可声明；

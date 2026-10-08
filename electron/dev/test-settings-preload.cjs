@@ -88,6 +88,10 @@ const record = (name) => () => {
 }
 
 const api = {
+  getNetwork: () => ipcRenderer.invoke('akdagent-network-get'),
+  saveNetwork: (config) => ipcRenderer.invoke('akdagent-network-save', config),
+  testNetwork: (config) => ipcRenderer.invoke('akdagent-network-test', config),
+  applyNetwork: (revision) => ipcRenderer.invoke('akdagent-network-apply', revision),
   onHostStatus: () => { mark('onHostStatus') },
   requestStatus: record('requestStatus'),
   onGotoPage: () => { mark('onGotoPage') },
@@ -293,5 +297,17 @@ const api = {
 
 /* 测试钩子：直接换掉"宿主那份快照"（authFlows 会回读它） */
 api.__setAuth = (a) => { state.auth = a }
+
+// Isolated UX integration tests use real IPC for the changed workflows. All other
+// legacy settings controls keep their existing non-mutating fixtures.
+if (process.env.AKD_TEST_UX === '1' || process.argv.includes('--akd-test-ux')) {
+  for (const [method, channel] of Object.entries({
+    getProviders: 'akdagent-get-providers', getModelCatalog: 'akdagent-model-catalog',
+    getSessionModel: 'akdagent-session-model', selectSessionModel: 'akdagent-select-session-model',
+    authFlows: 'akdagent-auth-flows',
+  })) api[method] = (...args) => ipcRenderer.invoke(channel, ...args)
+  api.onModelCatalogChanged = (cb) => ipcRenderer.on('akdagent-model-catalog-changed', (_e, p) => cb(p))
+  api.onSessionModel = (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p))
+}
 
 contextBridge.exposeInMainWorld('svsettings', api)

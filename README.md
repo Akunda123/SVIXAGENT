@@ -11,7 +11,9 @@
 |---|---|---|
 | Windows 10+（64 位）· macOS 11+（Apple Silicon） | Synthesizer V Studio **SV1 / SV2** · **Instrument X**（另支持第三方宿主 **ACE Studio**） | **53 个 MCP 工具 · Lua 桥 32 个 op** |
 
-> ⬇️ **下载**：见 [Releases](../../releases) —— Windows `AKDAgent-<版本>-x64.exe` · macOS `AKDAgent-<版本>-arm64.dmg`（更新方式 = 重新分发安装包；客户端**不出网、不自动检测、不自动下载**，无遥测）。
+> ⬇️ **下载**：见 [Releases](../../releases) —— Windows `AKDAgent-<版本>-x64.exe` · macOS `AKDAgent-<版本>-arm64.dmg`（更新方式 = 重新分发安装包；客户端**不自动检测或下载更新**，无遥测）。
+
+> **1.1.3 功能补丁说明**：[代理通道、订阅接入、模型目录、Markdown 与悬浮窗口改进](README-network-subscriptions.md)（含使用方法、兼容处理、测试结果与未验证范围）。
 
 ## 目录
 
@@ -386,7 +388,7 @@
 
 说清这三样最省事：① **现象**（有截图更好）② **你刚做了什么**（从哪一步开始不对）③ **宿主是 SV 还是 IX、什么版本**。
 
-> 客户端**不出网、不自动上报任何数据**（无遥测）—— 反馈只有上面这几个入口。
+> 客户端**不自动上报任何数据**（无遥测）—— 反馈只有上面这几个入口。可选网络测试仅由用户手动触发，访问测试站点，不调用模型。
 
 ---
 
@@ -402,5 +404,8 @@
 
 > **AKDAgent** is an AI assistant built on **DSH**, driving **Synthesizer V Studio / Instrument X** through conversation.
 > **1 Getting started** · **2 Components** · **3 Features** · **4 Caveats & FAQ**
+
+See [the v1.1.3 proxy, subscription and floating-chat patch](README-network-subscriptions.md#english-summary)
+for setup, compatibility, regression evidence and remaining manual acceptance gates.
 
 ---
