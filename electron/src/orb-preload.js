@@ -53,20 +53,27 @@ contextBridge.exposeInMainWorld('svi18n', __i18n)
 
 contextBridge.exposeInMainWorld('akdagent', {
   toggle: () => ipcRenderer.send('akdagent-toggle-chat'),
-  dragStart: () => ipcRenderer.send('akdagent-drag-start'),
-  dragMove: (x, y) => ipcRenderer.send('akdagent-drag-move', x, y),
-  dragEnd: () => ipcRenderer.send('akdagent-drag-end'),
+  dragStart: (id) => ipcRenderer.send('akdagent-drag-start', id),
+  dragMove: (id) => ipcRenderer.send('akdagent-drag-move', id),
+  dragEnd: (id) => ipcRenderer.send('akdagent-drag-end', id),
+  windowResizeStart: (id, edge) => ipcRenderer.send('akdagent-window-resize-start', id, edge),
+  windowResizeMove: (id) => ipcRenderer.send('akdagent-window-resize-move', id),
+  windowResizeEnd: (id) => ipcRenderer.send('akdagent-window-resize-end', id),
+  windowResizeKey: (edge, dx, dy) => ipcRenderer.send('akdagent-window-resize-key', edge, dx, dy),
+  onWindowGeometry: (cb) => ipcRenderer.on('akdagent-window-geometry', (_e, payload) => cb(payload)),
   /** 右键菜单：上报屏幕坐标，主进程弹出原生上下文菜单 */
   showContextMenu: (x, y) => ipcRenderer.send('akdagent-context-menu', x, y),
   /** 主进程（右键菜单「显示/隐藏聊天」）请求切换文本面板 */
   onTogglePanel: (cb) => ipcRenderer.on('akdagent-toggle-orb-panel', () => cb()),
+  onOpenPanel: (cb) => ipcRenderer.on('akdagent-open-orb-panel', () => cb()),
+  openExternal: (url) => ipcRenderer.send('akdagent-open-external', String(url || '')),
   /** SV 工程切换推送（桥主动检测 → 主进程转发）：清空面板、显示切换提示 */
   onProjectSwitched: (cb) => ipcRenderer.on('akdagent-project-switched', (_e, project) => cb(project)),
   /** 宿主类型推送（'sv' | 'instrument-x' | null）：切换悬浮球图标 */
   onHostType: (cb) => ipcRenderer.on('akdagent-host-type', (_e, type) => cb(type)),
   onStatus: (cb) => ipcRenderer.on('akdagent-status', (_e, ready) => cb(ready)),
   /** 动态调整窗口尺寸（主进程保持左下角锚定） */
-  resize: (w, h) => ipcRenderer.send('akdagent-resize', w, h),
+  resize: (w, h, open) => ipcRenderer.send('akdagent-resize', w, h, open),
   /** 点击穿透开关：true=区域外穿透，false=当前区域响应鼠标 */
   setIgnore: (ignore) => ipcRenderer.send('akdagent-set-ignore', ignore),
   /** STT：状态订阅 / 状态查询 / 识别音频（Float32Array 16kHz 单声道） */
@@ -128,4 +135,5 @@ contextBridge.exposeInMainWorld('akdagent', {
   selectSessionModel: (sessionId, provider, model, reasoningEffort) =>
     ipcRenderer.invoke('akdagent-select-session-model', sessionId, provider, model, reasoningEffort),
   onSessionModel: (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p)),
+  onModelCatalogChanged: (cb) => ipcRenderer.on('akdagent-model-catalog-changed', (_e, p) => cb(p)),
 })

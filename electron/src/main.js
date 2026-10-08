@@ -14,7 +14,7 @@
  */
 'use strict'
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme, screen, shell, dialog, Notification } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, nativeTheme, screen, shell, dialog, Notification, session, net: electronNet } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const crypto = require('node:crypto')
@@ -33,6 +33,55 @@ const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = re
 const { ensureAuthBridge, readAuthState, writeAuthCmd } = require('./auth-bridge.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
+const networkSettings = require('./network-settings')
+const { registerNetworkSettings, electronDownloadTransport } = require('./network-settings-ipc')
+const { createSessionBinding } = require('./session-binding')
+const { createOrbWindowController } = require('./orb-window')
+const { provision, createSubscriptionSync, isConfiguredSubscription } = require('./subscription-profiles')
+const subscriptionCatalog = require('./subscription-catalog')
+const subscriptionModels = require('./subscription-models.json')
+// Snapshot only the inherited process environment. Never write global/OS settings.
+const networkInheritedEnv = { ...process.env }
+let activeNetworkPolicy = null
+let networkController = null
+function networkChildEnv() {
+  return networkSettings.childEnvironment(networkInheritedEnv,
+    activeNetworkPolicy || networkSettings.resolvePolicy(networkSettings.schema.defaults(), networkInheritedEnv))
+}
+
+const subscriptionFile = path.join(app.getPath('userData'), 'subscription-profiles.json')
+function subscriptionProfiles() {
+  try { return JSON.parse(fs.readFileSync(subscriptionFile, 'utf8')) || {} } catch { return {} }
+}
+const subscriptionSync = createSubscriptionSync({
+  readState: () => readAuthState(AKDAGENT_DSH_HOME), readSettings,
+  saveSettings: (settings) => {
+    // settings.yaml can contain inline API secrets. Backups need the same 0600
+    // policy as 1.1.3's settings writer, not copyFile's umask-dependent default.
+    backupSettings('.before-subscription')
+    return writeSettings(subscriptionCatalog.expandModels(settings, subscriptionModels))
+  },
+  remember: (provider, label) => {
+    const existing = subscriptionProfiles()
+    if (existing[provider]?.label === label) return
+    if (!writeFileAtomic(subscriptionFile, JSON.stringify({ ...existing, [provider]: { label } }, null, 2) + '\n')) {
+      throw new Error('subscription profile status could not be saved')
+    }
+  },
+  notify: async (result) => {
+    // File settings reload asynchronously in DSH. Await the actual catalog rather
+    // than showing an empty cached dropdown as if the integration had finished.
+    for (const delay of [0, 200, 500, 1000]) {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
+      modelCatalogCache.at = 0
+      const catalog = await readModelCatalog(true).catch(() => null)
+      if (catalog?.groups?.some((g) => g.id === result.provider && g.models?.length)) break
+    }
+    for (const win of [orbWin, settingsWin]) {
+      if (win && !win.isDestroyed()) win.webContents.send('akdagent-model-catalog-changed', result)
+    }
+  },
+})
 
 /* ── 日志安全网（2026-09-19 修「打包版静默退出」）──────────────────────
  * 事故：打包版是 GUI 子系统进程，**没有可写的 stdout/stderr**，任何 `console.log`
@@ -196,6 +245,13 @@ function readSettings() {
   return {}
 }
 
+function backupSettings(suffix) {
+  if (!fs.existsSync(OWNED_SETTINGS_PATH)) return
+  if (!writeFileAtomic(OWNED_SETTINGS_PATH + suffix, fs.readFileSync(OWNED_SETTINGS_PATH, 'utf8'), { mode: 0o600 })) {
+    throw new Error('Could not back up subscription settings')
+  }
+}
+
 function writeSettings(obj) {
   const dir = path.dirname(OWNED_SETTINGS_PATH)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })   // 建的是**我们自己的**目录（不是 ~/.dsh）
@@ -321,7 +377,7 @@ function saveHostRecord(port, pid, session) {
      *   0.1.5-rc.2 的复用确实要同一套会话凭据，但 `cookie` 可以用 `tokenUrl` **现换**（bringUpHost 里就是
      *   这么做的）⇒ 没必要把一份 30 天有效的 `dsh-auth-…` 明文留在 %APPDATA% 里（它对"复用"不是必需的）。
      *   老记录里的 `cookie` 字段被忽略、下次写盘即被清掉。 */
-    const rec = { port, pid: pid || null, at: Date.now(), v: app.getVersion() }
+    const rec = { port, pid: pid || null, at: Date.now(), v: app.getVersion(), network: activeNetworkPolicy?.fingerprint }
     if (session && session.tokenUrl) rec.tokenUrl = session.tokenUrl
     fs.writeFileSync(hostRecordPath(), JSON.stringify(rec), 'utf8')
   }
@@ -506,7 +562,7 @@ function mcpSelfTestOnce(nodeBin, serverEntry, timeoutMs = MCP_SELFTEST_TIMEOUT_
     }
     const timer = setTimeout(() => finish({ ok: false, why: `${timeoutMs}ms 内没跑完 initialize+tools/list` }), timeoutMs)
     try {
-      child = spawn(nodeBin, [serverEntry], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+      child = spawn(nodeBin, [serverEntry], { env: networkChildEnv(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (e) {
       clearTimeout(timer)
       return finish({ ok: false, why: 'spawn 失败：' + e.message })
@@ -923,7 +979,26 @@ function spawnHost(port) {
   const args = useTsx
     ? ['--import', 'tsx/esm', entry, 'web', '--port', String(port), ...tail]
     : [entry, 'web', '--port', String(port), ...tail]
-  const env = { ...process.env }
+  // Catalog-only preload keeps the provider's OAuth, endpoint and mixed wire
+  // protocols intact; it never rewrites the installed SDK or sends a prompt.
+  if (npmTree) {
+    const catalogPreload = subscriptionCatalog.ensureCatalog({ home: AKDAGENT_DSH_HOME, srcDir: __dirname, writeAtomic: writeFileAtomic })
+    args.unshift('--import', catalogPreload)
+    const oldAuth = readAuthState(AKDAGENT_DSH_HOME), settings = readSettings()
+    // Login credentials persist, but the bridge resets attempt.json on boot.
+    // Consume a completed login before that reset; never replay the OAuth flow.
+    const completed = provision(settings, oldAuth?.attempt, oldAuth?.flows)
+    const expanded = subscriptionCatalog.expandModels(completed?.settings || settings, subscriptionModels)
+    if (expanded !== settings) {
+      backupSettings('.before-catalog')
+      if (!writeSettings(expanded)) throw new Error('Could not save expanded subscription model list')
+    }
+    if (completed) {
+      const previous = subscriptionProfiles()
+      if (!writeFileAtomic(subscriptionFile, JSON.stringify({ ...previous, [completed.provider]: { label: completed.label } }, null, 2) + '\n')) throw new Error('Could not save subscription status')
+    }
+  }
+  const env = networkChildEnv()
   /* ⛔ 2026-09-28（方案 D · 与用户自己的 DSH 彻底分离）：**别把用户环境里的 `DSH_*` 继承给内嵌宿主。**
    *   以前是 `{...process.env}` 原样透传（只删了 `DSH_OPEN_INBOX`）⇒ 用户自己设过的 `DSH_*`
    *   （profile / 端口 / 各种开关，或者指向他自己的家目录）会被内嵌宿主吃进去，行为变得不可预测 ——
@@ -1120,7 +1195,7 @@ async function bringUpHost(attempt) {
     /* 复用条件里再加一条**版本一致**（2026-09-26 热修 · 治本）：老客户端起的宿主体内没有
      *  本次的客户端侧修复，复用它 = "升级了但还在跑旧逻辑"。记录里**没有 `v`**（≤1.0.1 写的，
      *  版本戳是本次才加的）一律当不一致 ⇒ 杀掉重起一次，之后记录里就有 `v` 了。 */
-    if (alive.status === 200 && prevHost.v === clientVersion) {
+    if (alive.status === 200 && prevHost.v === clientVersion && prevHost.network === activeNetworkPolicy?.fingerprint) {
       console.log(`[akdagent] 复用上一次的内嵌 host（端口 ${hostPort} · pid ${prevHost.pid || '?'} · v${prevHost.v}）—— 避免起第二个 host`)
     } else if (alive.status === 200) {
       // 版本不一致：**必须**换新宿主，否则升级后的客户端侧逻辑永远不生效
@@ -1216,7 +1291,14 @@ function tailOfLogLines(n) {
       .slice(-n).map((l) => redactForCrash(l).slice(0, 500))
   } catch { return [] }
 }
-let dragOffset = null
+const orbPrefsFile = path.join(app.getPath('userData'), 'orb-ui.json')
+const orbGeometry = createOrbWindowController({
+  getWindow: () => orbWin, cursor: () => screen.getCursorScreenPoint(),
+  workArea: (point) => screen.getDisplayNearestPoint(point).workArea,
+  readPrefs: () => JSON.parse(fs.readFileSync(orbPrefsFile, 'utf8')),
+  writePrefs: (value) => { if (!writeFileAtomic(orbPrefsFile, JSON.stringify(value) + '\n', { mode: 0o600 })) throw new Error('Could not save chat size') },
+  notify: (value) => { if (orbWin && !orbWin.isDestroyed()) orbWin.webContents.send('akdagent-window-geometry', value) },
+})
 
 // ── DSH Agent 代理状态（orb 对话面板的真实对话通道） ────────────────
 let hostPort = null            // 内嵌 host 端口（whenReady 中确定）
@@ -1565,6 +1647,7 @@ function createOrbWindow() {
   orbWin.webContents.on('did-finish-load', () => {
     if (!orbWin || orbWin.isDestroyed()) return
     resendOrbState()
+    orbGeometry.emit()
     // 启动后强制校正位置：确保 orb 贴回工作区右下角（防止上次会话 resize 漂移出界）
     const { workArea } = screen.getDisplayNearestPoint(orbWin.getBounds())
     const w = 64
@@ -1582,14 +1665,18 @@ function createOrbWindow() {
     }, 300)
   })
   orbWin.on('closed', () => {
+    orbGeometry.stop()
     console.log('[akdagent] orb window closed')
     orbWin = null
   })
   // 显示/隐藏（含「隐藏到托盘」）时重建托盘菜单：菜单里那一项要在
   // 「隐藏到托盘 ↔ 显示悬浮球」之间切换文案
   orbWin.on('show', () => refreshTrayMenu())
-  orbWin.on('hide', () => refreshTrayMenu())
-  orbWin.on('render-process-gone', (_e, details) => {
+  orbWin.on('hide', () => { orbGeometry.stop(); refreshTrayMenu() })
+  orbWin.on('blur', () => orbGeometry.stop())
+  orbWin.webContents.on('did-start-loading', () => orbGeometry.stop())
+  orbWin.webContents.on('render-process-gone', (_e, details) => {
+    orbGeometry.stop()
     console.log('[akdagent] orb renderer gone:', JSON.stringify(details))
   })
 }
@@ -3174,6 +3261,7 @@ ipcMain.handle('akdagent-get-providers', () => {
       displayName: p.displayName || route,
       namespace: 'llm-pi-ai',
       kind: 'pi-ai',
+      subscription: !!subscriptionProfiles()[route] || (route === 'openai-codex' && !p.apiKeyEnv),
       apiKeyEnv: keyEnv,
       hasKey: !!keyEnv && docHasApiKey(creds, keyEnv),
       keyWarn: keyEnv ? keyShapeWarning(keyEnv, getCred(creds, keyEnv) || '') : '',   // 🆕 ⑦ 展示侧（只回文本）
@@ -3222,6 +3310,9 @@ let modelCatalogCache = { at: 0, value: null }
 async function readModelCatalog(force = false) {
   if (!force && modelCatalogCache.value && Date.now() - modelCatalogCache.at < 30000) return modelCatalogCache.value
   const v = await dshCall('session/modelCatalog', {}, 15000)
+  // Preserve saved selections, but clearly identify retired SDK entries.
+  v.groups = (v.groups || []).map((group) => ({ ...group, models: (group.models || []).map((m) =>
+    (subscriptionModels.retired[group.id] || []).includes(m.id) ? { ...m, name: i18n.t('ux.model.retired', m.name || m.id) } : m) }))
   modelCatalogCache = { at: Date.now(), value: v }
   return v
 }
@@ -3271,10 +3362,10 @@ ipcMain.handle('akdagent-session-model', async (_e, sessionId) => {
 
 /** 切**本会话**的模型（Session-local，不动 agent-default-model） */
 ipcMain.handle('akdagent-select-session-model', async (_e, sessionId, provider, model, reasoningEffort) => {
-  const sid = sessionId || orbSessionId
-  if (!sid) return { ok: false, error: i18n.t('main.model.noSession') }
-  if (!provider || !model) return { ok: false, error: i18n.t('main.model.notSet') }
+  if (!provider || !model) return { ok: false, error: i18n.t('ux.model.notSet') }
   try {
+    await waitHostReady()
+    const sid = sessionId || await orbSessionBinding.bind({ reveal: true })
     const request = { sessionId: sid, provider, model }
     if (reasoningEffort) request.reasoningEffort = reasoningEffort
     const r = await dshCall('session/selectModel', { request }, 20000)
@@ -3356,6 +3447,9 @@ function migratePiProviderKeyEnvs() {
       const profile = providers[route]
       if (!profile || typeof profile !== 'object') continue
       if (String(profile.apiKeyEnv || '').trim()) continue      // 已经有了 ⇒ 不动
+      // 1.1.3's legacy key-name repair must not reattach an old API key to a
+      // route explicitly provisioned for OAuth on the previous launch.
+      if (isConfiguredSubscription(route, subscriptionProfiles())) continue
       const derived = deriveKeyEnvName(route)
       if (!derived || !CRED_REF_RE.test(derived)) continue
       if (!getCred(creds, derived)) continue                   // 库里没有 ⇒ 不猜
@@ -3493,63 +3587,8 @@ ipcMain.handle('akdagent-set-pi-provider-fields', (_e, route, fields) => {
   return { ok: true, applied, profile: next }
 })
 
-let dragTimer = null
-ipcMain.on('akdagent-drag-start', () => {
-  if (!orbWin) return
-  const [x, y] = orbWin.getPosition()
-  const cursor = screen.getCursorScreenPoint()
-  // 绝对坐标法：记录按下时光标与窗口的偏移（getCursorScreenPoint 为 DIP，与 setPosition 一致）
-  dragOffset = { dx: cursor.x - x, dy: cursor.y - y }
-  // 主进程定时轮询光标定位——完全不依赖渲染层 mousemove 事件流
-  // （窗口移动会污染渲染层事件坐标，快速拖动时事件驱动版会偏移；
-  //   轮询每 8ms 直接问 OS 光标位置，稳定不漂移）
-  clearInterval(dragTimer)
-  dragTimer = setInterval(() => {
-    if (!dragOffset || !orbWin || orbWin.isDestroyed()) return
-    const c = screen.getCursorScreenPoint()
-    const tx = c.x - dragOffset.dx
-    const ty = c.y - dragOffset.dy
-    const [px, py] = orbWin.getPosition()
-    if (tx !== px || ty !== py) {
-      orbWin.setPosition(tx, ty)
-    }
-  }, 8)
-})
-ipcMain.on('akdagent-drag-move', () => {
-  // 渲染层无需传坐标；轮询由 drag-start 启动的定时器驱动
-})
-ipcMain.on('akdagent-drag-end', () => {
-  dragOffset = null
-  clearInterval(dragTimer)
-  dragTimer = null
-})
-
-// ── 动态窗口尺寸（右下角锚定：右缘固定、宽度增长时左移；下缘固定、高度增长时上移） ──
-ipcMain.on('akdagent-resize', (_e, w, h) => {
-  if (!orbWin || orbWin.isDestroyed()) return
-  if (dragOffset) return // 拖动中冻结 resize：窗口尺寸变化会使 dragOffset 失效，球漂移
-  const [cw, ch] = orbWin.getSize()
-  w = Math.max(64, Math.round(w))
-  h = Math.max(64, Math.round(h))
-  if (w === cw && h === ch) return
-  const [x, y] = orbWin.getPosition()
-  // 右下角锚定：宽增左移、高增上移；缩回时右缘/下缘保持
-  let newX = x + cw - w
-  let newY = y - (h - ch)
-  // 关键修复：clamp 到工作区，防止窗口位置漂移出屏幕（球体被切一半）
-  const { workArea } = screen.getDisplayNearestPoint({ x, y })
-  const maxX = workArea.x + workArea.width - w
-  const maxY = workArea.y + workArea.height - h
-  newX = Math.max(workArea.x, Math.min(newX, maxX))
-  newY = Math.max(workArea.y, Math.min(newY, maxY))
-  orbWin.setBounds({ x: newX, y: newY, width: w, height: h })
-})
-
-// ── 点击穿透开关（渲染层根据鼠标位置调用） ──
-ipcMain.on('akdagent-set-ignore', (_e, ignore) => {
-  if (!orbWin || orbWin.isDestroyed()) return
-  orbWin.setIgnoreMouseEvents(!!ignore, { forward: true })
-})
+// Sender-scoped geometry IPC, no polling timer or renderer delta accumulation.
+orbGeometry.register(ipcMain)
 
 // ── DSH Agent 代理（orb 对话面板真实对话通道） ───────────────────────
 /* 契约（2026-09-21 换代：0.1.0-rc.5 的 apiproxy → 0.1.5-rc.2 的 Typert RPC）
@@ -3594,6 +3633,9 @@ function agentRpcId() {
 
 /** 一元 RPC：POST /api/<endpoint>；成功返回 result.value，失败抛错（err.code 带宿主错误码） */
 function dshCall(endpoint, args, timeoutMs = 30000) {
+  if (endpoint === 'session/prompt' && networkController?.isApplying()) {
+    return Promise.reject(new Error(i18n.t('network.error.busy')))
+  }
   return new Promise((resolve, reject) => {
     if (!hostPort) return reject(new Error(i18n.t('main.agent.hostNotReady')))
     const body = JSON.stringify({
@@ -4464,24 +4506,35 @@ function noteLegacySession(segId, sessionId) {
  *  · **旧 v0 日志**：新版读不了/续不了 ⇒ 给这一段新开会话（旧 id 记档），否则一发消息就报错
  *  · 临时段：projectKey=null，同样按需建会话（"不保存"落在"不归属任何工程"，
  *    收编后它会成为该工程的 generation —— 见段表 noteProject()） */
-async function ensureOrbSession() {
+const orbSessionBinding = createSessionBinding({
+  ready: () => waitHostReady(),
+  segmentKey: () => orbSegments.ensureSegment().segId,
+  ensure: () => ensureOrbSessionImpl(),
+  show: () => {
+    showOrbFromTray()
+    if (orbWin && !orbWin.isDestroyed()) orbWin.webContents.send('akdagent-open-orb-panel')
+  },
+})
+function ensureOrbSession() { return orbSessionBinding.bind() }
+async function ensureOrbSessionImpl() {
   const seg = orbSegments.ensureSegment()
   orbSegId = seg.segId
+  const bindCurrent = (id) => orbSegments.activeSegment()?.segId === seg.segId ? bindOrbSession(id) : id
   if (seg.sessionId && await sessionExists(seg.sessionId)) {
     if (await sessionUsable(seg.sessionId)) {
       if (!seg.sessionReady) orbSegments.registerSession(seg.segId, seg.sessionId)  // 重启恢复
-      return bindOrbSession(seg.sessionId)
+      return bindCurrent(seg.sessionId)
     }
     // 读不了的旧会话：同一段换一个新 id（旧 id 留档；段表 registerSession 会更新）
     noteLegacySession(seg.segId, seg.sessionId)
     const freshId = orbSegments.nextSessionId(seg.projectKey)
     const created = await dshCall('session/create', { request: { sessionId: freshId } })
     orbSegments.registerSession(seg.segId, created.sessionId)
-    return bindOrbSession(created.sessionId)
+    return bindCurrent(created.sessionId)
   }
   const created = await dshCall('session/create', { request: { sessionId: seg.sessionId } })
   orbSegments.registerSession(seg.segId, created.sessionId)
-  return bindOrbSession(created.sessionId)
+  return bindCurrent(created.sessionId)
 }
 
 /**
@@ -4558,9 +4611,10 @@ ipcMain.handle('akdagent-audio-decode', async (_e, p, opts) => {
 })
 
 /* 订阅登录（OAuth）：① 只读快照 + ② 当前尝试（界面一次拿全，少一次竞态）。 */
-ipcMain.handle('akdagent-auth-flows', () => {
+ipcMain.handle('akdagent-auth-flows', async () => {
   try {
-    return readAuthState(AKDAGENT_DSH_HOME)
+    const subscription = await subscriptionSync.sync()
+    return { ...readAuthState(AKDAGENT_DSH_HOME), subscription }
   } catch (e) {
     return { ok: false, why: (e && e.message) || String(e) }
   }
@@ -4976,6 +5030,38 @@ app.whenReady().then(async () => {
     // 客户端界面语言：首次启动按**系统语言**自动选（写入 userData/ui-prefs.json），
     // 之后以该文件为准。必须在建托盘/窗口之前初始化——它们的文案从这里取。
     i18n.init(app)
+    // Apply only on startup: saving a route never disrupts an existing turn or pooled socket.
+    const networkStore = networkSettings.createStore(app.getPath('userData'))
+    try { activeNetworkPolicy = networkSettings.resolvePolicy(networkStore.read(), networkInheritedEnv) }
+    catch (e) {
+      // Never quietly fall back to another startup route (subscription endpoints
+      // may be inaccessible or disclose traffic through the wrong connection).
+      console.warn('[network] startup policy unavailable: ' + (e.code || 'read'))
+      throw new Error(i18n.t('network.error.' + (e.code || 'read')))
+    }
+    if (activeNetworkPolicy.chromium) await session.defaultSession.setProxy(activeNetworkPolicy.chromium)
+    // Do not mutate process.env: app.relaunch() must inherit the original launcher
+    // environment, otherwise switching back to "inherit" would retain the previous custom route.
+    sttModel.setDownloadTransport(electronDownloadTransport(electronNet, session.defaultSession))
+    networkController = registerNetworkSettings({
+      ipcMain, session, store: networkStore, inherited: networkInheritedEnv,
+      getActive: () => activeNetworkPolicy,
+      getSender: () => settingsWin && !settingsWin.isDestroyed() ? settingsWin.webContents : null,
+      resolveNodeBin,
+      checkIdle: async () => {
+        if (!hostReady || !muxSocket || muxSocket.readyState !== WebSocket.OPEN) throw networkSettings.codeError('notReady')
+        const state = await dshCall('session/list', { _request: {} }, 5000)
+        if (!Array.isArray(state?.items) || state.items.some((s) => typeof s.running !== 'boolean')) throw networkSettings.codeError('notReady')
+        const auth = readAuthState(AKDAGENT_DSH_HOME)
+        if (state.items.some((s) => s.running) || auth?.attempt?.state === 'running') throw networkSettings.codeError('busy')
+      },
+      askRestart: () => askConfirm({
+        title: i18n.t('network.restart.title'), message: i18n.t('network.restart.message'),
+        detail: i18n.t('network.restart.detail'), okLabel: i18n.t('network.apply'),
+        cancelLabel: i18n.t('network.cancel'), danger: false, icon: '↻',
+      }),
+      restart: () => { app.relaunch(); setTimeout(() => quitApp('network route apply'), 150) },
+    })
     // 隐藏所有窗口的应用菜单栏（orb/聊天/设置/弹窗都不显示菜单）
     Menu.setApplicationMenu(null)
     createTray()
@@ -5017,6 +5103,10 @@ app.whenReady().then(async () => {
         + (hostExitInfo ? `（宿主退出 code=${hostExitInfo.code}）` : '')
         + (tail ? '\n宿主最后一条错误：' + tail : ''))
     }
+    const subscriptionTimer = setInterval(() => {
+      subscriptionSync.sync().catch(() => console.warn('[subscription] configuration sync failed; retrying'))
+    }, 1000)
+    subscriptionTimer.unref()
     adoptOrphanSessions()          // fire-and-forget：把段表外的早期孤儿会话登记进来（能显示/能导出）
     // 启动自检①：宿主版本向前更新时，去查 API 文档站时间戳、提示是否要更新本地 api 文档
     //（非阻塞 fire-and-forget：离线/失败都不影响启动；机制见 skills/sv-scripting/api/_sync.json）
@@ -5149,6 +5239,7 @@ function checkApiDocsVersion() {
       return
     }
     const child = spawn(resolveNodeBin(), [tool, '--startup'], {
+      env: networkChildEnv(),
       cwd: path.dirname(tool),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -5183,6 +5274,7 @@ function checkHostUpgradeNotice() {
     const tool = resolveToolPath('host-version-notice.cjs')
     if (!tool) { console.log('[host-notice] 未找到 tools/host-version-notice.cjs（打包版可能未附带），跳过'); return }
     const child = spawn(resolveNodeBin(), [tool, '--json'], {
+      env: networkChildEnv(),
       cwd: path.dirname(tool),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -5262,6 +5354,7 @@ function spawnSttServer(id) {
     const kind = sttModel.getModelDef(targetId).kind
     console.log(`[akdagent] spawning stt server (model=${targetId} kind=${kind} attempt=${attempt})`)
     const child = spawn(nodeBin, [serverPath, `--port=${STT_PORT}`, `--model=${modelDir}`, `--kind=${kind}`], {
+      env: networkChildEnv(),
       cwd: sttServerCwd(),          // ⚠️ 实盘目录；asar 路径会让 spawn 报 ENOENT（打包版曾因此静默不可用）
       windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'],

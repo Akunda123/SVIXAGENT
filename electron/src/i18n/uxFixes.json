@@ -1,0 +1,50 @@
+{
+  "zh-Hans": {
+    "ux.window.orb": "点击打开聊天；按住悬浮球拖动",
+    "ux.window.resize": "调整聊天框大小 {0}（拖动边框或使用方向键）",
+    "ux.model.notSet": "请先选择提供方和模型。",
+    "ux.model.retired": "{0}（订阅通道已退役）",
+    "ux.subscription.catalogHint": "模型目录核对于 2026-10-08。可选择不代表套餐可用；部分模型可能需要额外额度。不会自动更换默认模型或开启额外付费。",
+    "ux.model.choose": "请选择本会话模型",
+    "ux.model.switchFailed": "切换模型失败，请重试：{0}",
+    "ux.subscription.ready": "订阅登录已接入，可直接在上方或聊天面板选择模型。",
+    "ux.subscription.writeFailed": "登录成功，但模型配置未能保存。请检查配置目录权限后点击刷新清单重试。",
+    "ux.subscription.configured": "订阅登录配置（无需 API 密钥）"
+  },
+  "zh-Hant": {
+    "ux.window.orb": "點擊開啟聊天；按住懸浮球拖曳",
+    "ux.window.resize": "調整聊天框大小 {0}（拖曳邊框或使用方向鍵）",
+    "ux.model.notSet": "請先選擇提供方和模型。",
+    "ux.model.retired": "{0}（訂閱通道已退役）",
+    "ux.subscription.catalogHint": "模型目錄核對於 2026-10-08。可選擇不代表方案可用；部分模型可能需要額外額度。不會自動更換預設模型或開啟額外付費。",
+    "ux.model.choose": "請選擇本工作階段模型",
+    "ux.model.switchFailed": "切換模型失敗，請重試：{0}",
+    "ux.subscription.ready": "訂閱登入已接入，可直接在上方或聊天面板選擇模型。",
+    "ux.subscription.writeFailed": "登入成功，但模型設定未能儲存。請檢查設定目錄權限後按重新整理清單重試。",
+    "ux.subscription.configured": "訂閱登入設定（不需要 API 金鑰）"
+  },
+  "en": {
+    "ux.window.orb": "Click to open chat; drag the orb to move it",
+    "ux.window.resize": "Resize chat {0} (drag the edge or use arrow keys)",
+    "ux.model.notSet": "Select a provider and model first.",
+    "ux.model.retired": "{0} (retired on subscription route)",
+    "ux.subscription.catalogHint": "Catalog checked on 2026-10-08. Listed models may require plan access or extra credits. Defaults and extra billing are never enabled automatically.",
+    "ux.model.choose": "Choose the model for this chat",
+    "ux.model.switchFailed": "Model switch failed. Retry: {0}",
+    "ux.subscription.ready": "Subscription sign-in is connected. Choose a model above or in the chat panel.",
+    "ux.subscription.writeFailed": "Signed in, but the model configuration could not be saved. Check directory permissions, then refresh the list to retry.",
+    "ux.subscription.configured": "Subscription sign-in configured (no API key needed)"
+  },
+  "ja": {
+    "ux.window.orb": "クリックでチャットを開く・球をドラッグして移動",
+    "ux.window.resize": "チャットのサイズを変更 {0}（枠をドラッグ、または矢印キー）",
+    "ux.model.notSet": "プロバイダーとモデルを選択してください。",
+    "ux.model.retired": "{0}（契約アカウントでは提供終了）",
+    "ux.subscription.catalogHint": "モデル一覧は2026-10-08に確認しました。利用にはプランの権限や追加クレジットが必要な場合があります。既定モデルや追加課金を自動で変更しません。",
+    "ux.model.choose": "この会話で使うモデルを選択",
+    "ux.model.switchFailed": "モデルを切り替えられませんでした。もう一度お試しください：{0}",
+    "ux.subscription.ready": "契約アカウントでのログインを設定しました。上部またはチャットパネルでモデルを選択できます。",
+    "ux.subscription.writeFailed": "ログインできましたが、モデル設定を保存できませんでした。設定フォルダーの権限を確認し、一覧を更新して再試行してください。",
+    "ux.subscription.configured": "契約アカウントのログイン設定（API キー不要）"
+  }
+}

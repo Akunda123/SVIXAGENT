@@ -10,6 +10,19 @@
     "node": ">=20"
   },
   "scripts": {
+    "postinstall": "node ../tools/stage-markdown.cjs",
+    "prestart": "node ../tools/stage-markdown.cjs",
+    "stage:markdown": "node ../tools/stage-markdown.cjs",
+    "test:network": "node --test dev/test-network-settings.cjs",
+    "test:network-ui": "electron dev/test-network-ui.cjs",
+    "test:ux": "node --test dev/test-ux-fixes.cjs dev/test-subscription-catalog.cjs dev/test-orb-window.cjs",
+    "pretest:ux-ui": "node ../tools/stage-markdown.cjs",
+    "test:ux-ui": "electron dev/test-ux-ui.cjs",
+    "pretest:orb-ui": "node ../tools/stage-markdown.cjs",
+    "test:orb-ui": "electron dev/test-orb-window-ui.cjs",
+    "predist": "node ../tools/stage-markdown.cjs",
+    "predist:msi": "node ../tools/stage-markdown.cjs",
+    "predist:mac": "node ../tools/stage-markdown.cjs",
     "start": "electron .",
     "verify": "node scripts/verify-embed.mjs",
     "test:i18n": "electron dev/test-i18n.cjs",
@@ -27,6 +40,7 @@
     "electron-builder": "^25.1.0"
   },
   "dependencies": {
+    "markdown-it": "15.0.2",
     "js-yaml": "^4.3.1",
     "sherpa-onnx-node": "^1.13.6",
     "ws": "^8.21.3"

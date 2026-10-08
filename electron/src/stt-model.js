@@ -89,10 +89,19 @@ function isModelInstalled(userDataPath, id = 'light') {
   return true
 }
 
+// Desktop injects Chromium's proxy-aware transport; standalone tools retain https.get.
+let downloadGet = (url, cb) => https.get(url, cb)
+function setDownloadTransport(get) { downloadGet = get }
 function downloadFile(url, dest, onProgress, redirects = 0) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest + '.part')
-    const req = https.get(url, (res) => {
+    let idleTimer
+    const resetIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => req.destroy(new Error('download timeout')), IDLE_TIMEOUT_MS) }
+    const req = downloadGet(url, (res) => {
+      resetIdle()
+      res.on('data', resetIdle)
+      res.once('end', () => clearTimeout(idleTimer))
+      res.once('error', (e) => req.destroy(e))
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         file.close()
         try { fs.unlinkSync(dest + '.part') } catch { /* ignore */ }
@@ -126,10 +135,9 @@ function downloadFile(url, dest, onProgress, redirects = 0) {
     })
     // **空闲超时**：这么久没有新数据就判失败（好让上层换下一个下载源）。
     // 用 socket 空闲而不是总时长 ⇒ 大文件（217 MB）照常能下完，只是"卡住"时不再无限等。
-    req.setTimeout(IDLE_TIMEOUT_MS, () => {
-      req.destroy(new Error(`下载超时（${IDLE_TIMEOUT_MS / 1000}s 无数据）：${url}`))
-    })
+    resetIdle()
     req.on('error', (e) => {
+      clearTimeout(idleTimer)
       file.close()
       try { fs.unlinkSync(dest + '.part') } catch { /* ignore */ }
       reject(e)
@@ -190,4 +198,4 @@ function removeModel(userDataPath, id = 'light') {
   }
 }
 
-module.exports = { MODELS, MODEL_IDS, modelDir, getModelDef, isModelInstalled, downloadModel, removeModel, hfBases, downloadFile }
+module.exports = { MODELS, MODEL_IDS, modelDir, getModelDef, isModelInstalled, downloadModel, removeModel, hfBases, downloadFile, setDownloadTransport }

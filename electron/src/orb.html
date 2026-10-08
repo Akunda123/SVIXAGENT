@@ -14,7 +14,17 @@
     --theme-soft: rgb(160,230,90);  /* 柔和强调文字（opt-btn.allow 等） */
     --dot: #3ddc84;                 /* 状态绿点（host 就绪 + 桥心跳新鲜） */
     --dot-warn: #f0b429;            /* 状态黄点（host 就绪，但桥心跳过期/没跑过桥脚本） */
+    --scrollbar-thumb: rgb(96,96,96);
+    --scrollbar-active: rgb(125,125,125);
   }
+  html { scrollbar-color:var(--scrollbar-thumb) transparent; scrollbar-width:thin; }
+  *::-webkit-scrollbar { width:4px; height:6px; background:transparent; }
+  *::-webkit-scrollbar-track { background:transparent; }
+  *::-webkit-scrollbar-button { display:none; }
+  *::-webkit-scrollbar-thumb { background:var(--scrollbar-thumb); border-radius:4px; }
+  *::-webkit-scrollbar-thumb:hover, *::-webkit-scrollbar-thumb:active { background:var(--scrollbar-active); }
+  @media (forced-colors:active) { html { scrollbar-color:auto; } }
+  @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } /* Accessibility override for existing animated status dots. */ }
   body[data-host="instrument-x"] {
     --theme: #00AEFF;
     --theme-rgb: 0,174,255;
@@ -49,11 +59,13 @@
     width:56px; height:56px; border-radius:50%;
     background:#353837; border:1.5px solid rgba(255,255,255,.35);
     display:flex; align-items:center; justify-content:center;
-    cursor:pointer;
+    cursor:grab; padding:0; color:inherit;
     box-shadow:0 3px 12px rgba(0,0,0,.55), inset 0 0 4px rgba(255,255,255,.06);
     transition:transform .18s ease;
-    /* orb 保留点击展开面板，不做 drag */
+    touch-action:none;
   }
+  #orb:active, #orb-label:active, .chat-head:active { cursor:grabbing; }
+  #orb:focus-visible { outline:2px solid var(--theme); outline-offset:-4px; }
   #orb .logo { width:44px; height:auto; display:block; pointer-events:none; }
   #orb .dot {
     position:absolute; right:1px; bottom:1px; width:13px; height:13px;
@@ -67,6 +79,7 @@
      拖动平移：按住 label 手动拖动窗口（原生 drag 在透明窗口失效，
      改用 mousedown + 主进程绝对坐标定位，所有竞争已冻结） */
   #orb-label {
+    touch-action:none;
     position:absolute; right:40px; top:50%;
     transform:translateY(-50%) scaleX(0); transform-origin:right center;
     z-index:0;
@@ -84,7 +97,7 @@
 
   /* ── 对话面板（圆圈上方，从下往上弹出） ── */
   #chat-overlay {
-    position:absolute; left:0; bottom:68px;
+    position:absolute; left:16px; right:16px; bottom:68px; height:calc(100% - 72px);
     transform-origin:bottom left;
     transform:scaleY(0);
     opacity:0; pointer-events:none;
@@ -92,7 +105,7 @@
   }
   #chat-overlay.open { transform:scaleY(1); opacity:1; pointer-events:auto; }
   #chat-panel {
-    width:340px; height:440px;
+    width:100%; height:100%;
     background:#2e2e2e; border-radius:14px;
     display:flex; flex-direction:column;
     overflow:hidden;
@@ -101,6 +114,7 @@
     font-family:system-ui, sans-serif;
   }
   .chat-head {
+    cursor:grab; touch-action:none; flex-shrink:0;
     display:flex; align-items:center; justify-content:space-between;
     padding:12px 16px;
     border-bottom:1px solid rgba(255,255,255,.08);
@@ -111,6 +125,19 @@
     font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px;
   }
   .chat-head button:hover { background:rgba(255,255,255,.1); }
+  /* Native Windows resizing is unreliable for transparent frameless windows.
+     App-owned edge handles keep the orb's click-through surface intact. */
+  .chat-resize-handle { position:absolute; z-index:10; padding:0; border:0; background:transparent; touch-action:none; }
+  .chat-resize-handle:hover { background:rgba(var(--theme-rgb),.15); }
+  .chat-resize-handle:focus-visible { outline:2px solid var(--theme); outline-offset:-2px; }
+  .edge-n, .edge-s { left:8px; right:8px; height:8px; cursor:ns-resize; }
+  .edge-n { top:-4px; } .edge-s { bottom:-4px; }
+  .edge-e, .edge-w { top:8px; bottom:8px; width:8px; cursor:ew-resize; }
+  .edge-e { right:-4px; } .edge-w { left:-4px; }
+  .edge-ne, .edge-nw, .edge-se, .edge-sw { width:14px; height:14px; }
+  .edge-ne, .edge-sw { cursor:nesw-resize; } .edge-nw, .edge-se { cursor:nwse-resize; }
+  .edge-ne { right:-4px; top:-4px; } .edge-nw { left:-4px; top:-4px; }
+  .edge-se { right:-4px; bottom:-4px; } .edge-sw { left:-4px; bottom:-4px; }
   /* ── 连接状态横幅（host 未就绪时显示"正在连接"，就绪后显示"连接完成"） ── */
   #conn-banner {
     display:flex; align-items:center; gap:6px;
@@ -145,7 +172,7 @@
   #model-row #model-select option, #model-row #model-select optgroup { background:#2b2b2b; color:rgb(210,210,210); }
   #model-row #model-state { flex-shrink:0; color:var(--theme); }
   .chat-body {
-    flex:1; overflow-y:auto; padding:14px 16px;
+    flex:1; min-height:0; overflow-y:auto; padding:14px 16px;
     display:flex; flex-direction:column; gap:8px;
   }
   /* 滚动条：背景空、无上下指示、滑块未选中 96 / 悬停选中 125 */
@@ -201,7 +228,26 @@
    * （普通短消息仍是收缩的小气泡，观感不变）。 */
   .tool-area, .think-row { width:100%; min-width:0; align-self:stretch; }
   .msg.assistant:has(.tool-area:not(:empty)) { align-self:stretch; max-width:100%; }
-  .out-text { white-space:pre-wrap; word-break:break-all; overflow-wrap:anywhere; }
+  .out-text { white-space:normal; word-break:normal; overflow-wrap:anywhere; min-width:0; }
+  .out-text > :first-child { margin-top:0; }
+  .out-text > :last-child { margin-bottom:0; }
+  .out-text p, .out-text ul, .out-text ol, .out-text blockquote { margin:8px 0; }
+  .out-text ul, .out-text ol { padding-left:24px; }
+  .out-text li + li { margin-top:4px; }
+  .out-text h1, .out-text h2, .out-text h3, .out-text h4 { margin:12px 0 6px; line-height:1.4; }
+  .out-text h1 { font-size:19px; } .out-text h2 { font-size:17px; } .out-text h3 { font-size:15px; }
+  .out-text code { font-family:ui-monospace,monospace; background:rgba(0,0,0,.22); padding:1px 4px; border-radius:4px; }
+  .out-text pre { white-space:pre; overflow-x:auto; padding:10px; background:rgba(0,0,0,.22); border-radius:8px; }
+  .out-text pre code { padding:0; background:none; overflow-wrap:normal; }
+  .out-text blockquote { border-left:3px solid var(--theme); padding-left:10px; }
+  .out-text a { color:var(--theme-soft); text-decoration:underline; cursor:pointer; }
+  .out-text a:hover { color:var(--theme); }
+  .out-text a:focus-visible { outline:2px solid var(--theme); outline-offset:2px; }
+  .out-text .md-table { max-width:100%; overflow-x:auto; scrollbar-gutter:stable; }
+  .out-text table { border-collapse:collapse; font-size:12px; }
+  .out-text th, .out-text td { border:1px solid rgba(255,255,255,.14); padding:6px 8px; text-align:left; }
+  .out-text input[type=checkbox] { margin-right:6px; }
+  .msg.assistant:has(.md-table) { align-self:stretch; max-width:100%; }
   .out-text .cursor {
     display:inline-block; width:6px; height:13px; background:rgb(179,179,179);
     vertical-align:-2px; animation:think-spin 0s; opacity:.8;
@@ -318,10 +364,10 @@
 
 <!-- 悬浮球 + hover label（左下锚定） -->
 <div id="orb-zone">
-  <div id="orb" title="Synthesizer V  AI Agent">
+  <button id="orb" type="button" title="Synthesizer V  AI Agent">
     <img class="logo" src="sv-monogram-anim.svg" alt="Synthesizer V  AI Agent">
     <span class="dot"></span>
-  </div>
+  </button>
   <div id="orb-label">
     <img src="akdagent-text.svg" alt="ynthesizer V Studio">
   </div>
@@ -375,6 +421,9 @@
   </div>
 </div>
 
+<script src="vendor/markdown-it-15.0.2.min.js"></script>
+<script src="chat-markdown.js"></script>
+<script src="orb-window-ui.js"></script>
 <script>
   /* akdagent API 由 preload 注入：resize / setIgnore / dragStart / dragMove / dragEnd / onStatus */
   const orb = document.getElementById('orb')
@@ -434,12 +483,15 @@
   let lastAnimAt = 0
   let lastIgnore = true
   let zoneResizeTimer = null
+  let windowGestures = null
+  let chatSize = { width:372, height:512 }
 
   /* ── 动态窗口尺寸（主进程保持左下角锚定） ── */
   function updateLayout() {
-    const w = chatOpen ? 372 : (labelShown ? 190 : 64)
-    const h = chatOpen ? 512 : 64
-    window.akdagent.resize(w, h)
+    if (windowGestures?.isActive()) return
+    const w = chatOpen ? chatSize.width : (labelShown ? 190 : 64)
+    const h = chatOpen ? chatSize.height : 64
+    window.akdagent.resize(w, h, chatOpen)
   }
 
   /* ── 区域外点击穿透：仅 orb/label/对话面板响应鼠标 ── */
@@ -450,14 +502,16 @@
     }
   }
   window.addEventListener('mousemove', (e) => {
+    if (windowGestures?.isActive()) return setIgnore(false)
     const interactive = e.target.closest('#orb, #orb-label, #chat-overlay')
     setIgnore(!interactive)
   })
-  window.addEventListener('mouseleave', () => setIgnore(true))
+  window.addEventListener('mouseleave', () => { if (!windowGestures?.isActive()) setIgnore(true) })
 
   /* ── hover 展开 label（同步调整窗口宽度）；fresh 守卫 + 500ms 防抖，
         窗口 resize 引起的 mouseenter 重入不会重放动画 ── */
   zone.addEventListener('mouseenter', () => {
+    if (windowGestures?.isActive()) return
     const fresh = !zoneHovered
     zoneHovered = true
     labelShown = true
@@ -467,6 +521,7 @@
     if (fresh) restartLabelAnim()
   })
   zone.addEventListener('mouseleave', () => {
+    if (windowGestures?.isActive()) return
     zoneHovered = false
     labelShown = false
     clearTimeout(zoneResizeTimer)
@@ -484,37 +539,6 @@
     }
   }
 
-  /* ── 拖动：按住 label 拖动窗口 ──
-     主进程 drag-start 后启动定时器轮询光标绝对定位（不依赖渲染层 mousemove，
-     避免窗口移动污染事件坐标导致反馈循环漂移）。
-     orb 球不拖动，点击展开面板。 */
-  const orbLabel = document.getElementById('orb-label')
-  let labelDragging = false
-
-  orbLabel.addEventListener('mousedown', (e) => {
-    labelDragging = true
-    setIgnore(false)                 // 强制可交互，防 mouseup 丢失
-    window.akdagent.dragStart()
-    e.preventDefault()
-  })
-  window.addEventListener('mouseup', (e) => {
-    if (labelDragging) {
-      labelDragging = false
-      window.akdagent.dragEnd()
-      // 恢复穿透检测（按鼠标当前位置）
-      const hit = document.elementFromPoint(e.clientX, e.clientY)
-      const interactive = !!(hit && hit.closest && hit.closest('#orb, #orb-label, #chat-overlay'))
-      setIgnore(!interactive)
-    }
-  })
-  // 兜底：拖动中鼠标滑出窗口 → mouseup 丢失 → 强制结束拖动（停掉主进程轮询）
-  window.addEventListener('mouseleave', () => {
-    if (labelDragging) {
-      labelDragging = false
-      window.akdagent.dragEnd()
-    }
-  })
-
   /* ── 点击 orb：开/关对话面板 ── */
   function setChatOpen(open) {
     chatOpen = !!open
@@ -525,14 +549,20 @@
       loadHistory()
     }
   }
-  orb.addEventListener('click', () => {
-    setChatOpen(!chatOpen)
+  windowGestures = AKDWindowGestures.bind({ orb, label: document.getElementById('orb-label'), header: document.querySelector('.chat-head'),
+    overlay: chatOverlay, api: window.akdagent, setIgnore, toggle: () => setChatOpen(!chatOpen), translate: I.t,
+    onEnd: (kind) => { clearTimeout(zoneResizeTimer); if (kind === 'move') requestAnimationFrame(updateLayout) },
+  })
+  I.onChange(() => windowGestures.localize())
+  window.akdagent.onWindowGeometry?.((payload) => {
+    if (payload?.chatSize) { chatSize = payload.chatSize; updateLayout() }
   })
   document.getElementById('chat-close').addEventListener('click', () => {
     setChatOpen(false)
   })
   // 主进程右键菜单「显示/隐藏聊天」→ 切换文本面板
   window.akdagent.onTogglePanel(() => setChatOpen(!chatOpen))
+  window.akdagent.onOpenPanel?.(() => setChatOpen(true))
 
   /* ── 新会话按钮：**在当前工程段内插一个新段**（不清空面板，只画分界线）── */
   let projectLabel = null   // 当前显示的工程名
@@ -590,10 +620,30 @@
   let busy = false                // agent 是否正在跑（**不再用来禁止发送** —— 见 setSendEnabled）
   let sending = false             // 本次发送是否在处理中（只防"同一次提交被重复触发"）
   let historyLoaded = false
+  let historyLoading = false
   let agentReady = false          // host + mux 是否就绪
   let connHideTimer = null
 
   function scrollToBottom() { chatBody.scrollTop = chatBody.scrollHeight }
+
+  function paintAssistant(node, immediate = false) {
+    const paint = () => {
+      node.renderFrame = null
+      const pinned = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight < 90
+      const top = chatBody.scrollTop
+      window.AKDMarkdown.render(node.outEl, node.outText)
+      if (pinned) scrollToBottom()
+      else chatBody.scrollTop = top
+    }
+    if (immediate) { if (node.renderFrame) cancelAnimationFrame(node.renderFrame); paint() }
+    else if (!node.renderFrame) node.renderFrame = requestAnimationFrame(paint)
+  }
+  chatBody.addEventListener('click', (event) => {
+    const link = event.target.closest?.('.out-text a[href]')
+    if (!link) return
+    event.preventDefault()
+    window.akdagent.openExternal?.(link.href)
+  })
 
   function appendMsg(role, text) {
     const m = document.createElement('div')
@@ -700,8 +750,7 @@
           if (!c) continue
           if (c.type === 'text-delta') {
             node.outText += (c.text || '')
-            node.outEl.textContent = node.outText
-            scrollToBottom()
+            paintAssistant(node)
           } else if (c.type === 'reasoning-delta') {
             node.thinkText += (c.text || '')
             node.thinkBody.textContent = node.thinkText
@@ -735,6 +784,7 @@
       case 'turn/end': {
         const kind = d.reason && d.reason.kind
         if (curTurn) {
+          paintAssistant(curTurn, true)
           curTurn.finished = true
           curTurn.thinkHead.querySelector('.spin')?.remove()
           if (curTurn.thinkText) {
@@ -1002,6 +1052,10 @@
    * 写：`akdagent-select-session-model` → `session/selectModel`（Session-local，不动默认模型）。
    * 目录：`akdagent-model-catalog` → 按提供方分组的真目录（<optgroup>）。 */
   let modelCatalogCache = null
+  window.akdagent.onModelCatalogChanged?.(() => {
+    modelCatalogCache = null
+    refreshSessionModel()
+  })
   async function refreshSessionModel() {
     const sel = document.getElementById('model-select')
     const state = document.getElementById('model-state')
@@ -1037,7 +1091,13 @@
       sel.style.display = 'none'
       return
     }
-    sel.innerHTML = ''
+    sel.replaceChildren()
+    if (!next) {
+      const placeholder = document.createElement('option')
+      placeholder.value = ''; placeholder.textContent = I.t('ux.model.choose')
+      placeholder.disabled = true; placeholder.selected = true
+      sel.appendChild(placeholder)
+    }
     for (const g of cat.groups) {
       const og = document.createElement('optgroup')
       og.label = g.name || g.id
@@ -1339,7 +1399,7 @@
     } else {
       node.thinkRow.style.display = 'none'
     }
-    if (text) { node.outText = text; node.outEl.textContent = text }
+    if (text) { node.outText = text; paintAssistant(node, true) }
   }
 
   /* 打开面板时恢复历史：**全量时间线**（跨所有段），段边界画「工程分隔线」，不清空 */
@@ -1367,11 +1427,12 @@
   }
 
   function loadHistory() {
-    if (historyLoaded) return
-    historyLoaded = true
+    if (historyLoaded || historyLoading) return
+    historyLoading = true
     // ⚠️ 新语义：**不再因工程切换清空面板**（stale 恒 false）。历史由主进程按段合并返回。
     window.akdagent.agentHistory().then((r) => {
       if (!r.ok || !Array.isArray(r.events)) return
+      historyLoaded = true
       let lastSegId = null
       for (const ev of r.events) {
         if (!ev || typeof ev !== 'object') continue
@@ -1387,7 +1448,7 @@
           renderHistoryAssistant(ev)
         }
       }
-    })
+    }).catch(() => { historyLoaded = false }).finally(() => { historyLoading = false })
   }
 
   const sendBtn = document.getElementById('chat-send')
@@ -1396,7 +1457,7 @@
   chatStop.addEventListener('click', stopTurn)
   chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle'))
   I.onChange(() => { renderAttach(); chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle')) })
-  chatText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMsg() })
+  chatText.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) sendMsg() })
   window.akdagent.onAgentEvent(onAgentEvent)
   /* 会话绑定由主进程下发（唯一权威）——球全靠 mySessionId 过滤帧：
      只在侧栏面板里打字时，球以前永远不知道是哪个会话 ⇒ 面板的消息在球里看不到（2026-09-17 实测）。

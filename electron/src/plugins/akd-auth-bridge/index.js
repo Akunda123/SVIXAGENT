@@ -164,15 +164,18 @@ export function apply(ctx, config) {
     try { hit = svc.list().find((e) => String(e.key) === String(c.key)) } catch { /* 忽略 */ }
     if (!hit) { log('begin：流里没有 ' + c.key); active = { id: c.id, key: c.key, label: '', method: c.method, state: 'failed', notices: [], prompts: [], awaiting: null, error: 'NO_FLOW' }; publish(); return }
     active = { id: c.id, key: String(hit.key), label: hit.label, method: c.method, state: 'running', notices: [], prompts: [], awaiting: null, error: '' }
+    const owner = active
     publish()
     log('begin：' + active.key + '（' + active.method + '）')
 
     const interaction = {
       notify: (n) => {
+        if (active !== owner || owner.state !== 'running') return
         active.notices.push({ message: String(n && n.message || ''), url: (n && n.url) || '', code: (n && n.code) || '', at: new Date().toISOString() })
         publish()
       },
       prompt: (p) => new Promise((resolve, reject) => {
+        if (active !== owner || owner.state !== 'running') { reject(new Error('已取消')); return }
         const promptId = 'p' + (active.prompts.length + 1)
         const entry = {
           id: promptId,
@@ -187,9 +190,14 @@ export function apply(ctx, config) {
         active.prompts.push(entry)
         active.awaiting = { id: entry.id, kind: entry.kind, message: entry.message, placeholder: entry.placeholder, options: entry.options }
         publish()
-        const timer = setTimeout(() => { pending = null; active.awaiting = null; publish(); reject(new Error('等用户回答超时')) }, ANSWER_WAIT_MS)
+        const timer = setTimeout(() => {
+          if (pending?.owner === owner) pending = null
+          if (active === owner) { active.awaiting = null; publish() }
+          reject(new Error('等用户回答超时'))
+        }, ANSWER_WAIT_MS)
         if (typeof timer.unref === 'function') timer.unref()
         pending = {
+          owner,
           promptId,
           entry,
           resolve: (v) => { clearTimeout(timer); resolve(v) },
@@ -197,20 +205,30 @@ export function apply(ctx, config) {
         }
         /* 宿主侧的取消信号（cancel(key) / 尝试被撤回）也要能打断提问 */
         if (p && p.signal) {
-          const onAbort = () => { if (pending && pending.promptId === promptId) { pending = null; active.awaiting = null; publish(); reject(new Error('已取消')) } }
+          const onAbort = () => {
+            if (pending?.owner === owner && pending.promptId === promptId) {
+              const item = pending; pending = null
+              if (active === owner) { active.awaiting = null; publish() }
+              item.reject(new Error('已取消'))
+            }
+          }
           try { p.signal.addEventListener('abort', onAbort, { once: true }) } catch { /* 忽略 */ }
         }
       }),
     }
 
     Promise.resolve()
-      .then(() => svc.begin({ key: hit.key, method: c.method, interaction }))
+      .then(() => active === owner && owner.state === 'running'
+        ? svc.begin({ key: hit.key, method: c.method, interaction }) : { status: 'cancelled' })
       .then((out) => {
+        if (active !== owner || owner.state !== 'running') return
         const st = out && out.status === 'authorized' ? 'authorized' : 'cancelled'
         finish(st)
         snapshot('after-' + st)
       })
-      .catch((e) => finish('failed', (e && e.code ? e.code + ' — ' : '') + ((e && e.message) || String(e))))
+      .catch((e) => {
+        if (active === owner && owner.state === 'running') finish('failed', (e && e.code ? e.code + ' — ' : '') + ((e && e.message) || String(e)))
+      })
   }
 
   function doAnswer(c) {
