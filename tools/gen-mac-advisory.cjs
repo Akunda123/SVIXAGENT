@@ -81,22 +81,37 @@ function rewrite(file, rules) {
 }
 
 const versionRe = /AKDAgent-\d+\.\d+\.\d+-arm64/g
-const shaBlockRe = /(\d+\.\d+\.\d+ 应该等于：\n\s+)[0-9a-f]{64}/g
-const shaInlineRe = /(\d+\.\d+\.\d+ 应为 )[0-9a-f]{64}/g
+/* ⚠️ 这两条必须**把版本号也换掉**（2026-10-08 实测踩到）：原来写成 `(\d+\.\d+\.\d+ 应该等于：\n\s+)[0-9a-f]{64}`
+ *   并把 `$1` 原样放回 ⇒ **哈希换了、版本号还留着旧的**（"1.1.3 应该等于：0ffe…"）——
+ *   而我的幂等测试用的是**同一个版本**，正好把这个 bug 藏住了。现在把版本单独捕获并写成当前 VERSION。 */
+const shaBlockRe = /(\d+\.\d+\.\d+)( 应该等于：\n\s+)[0-9a-f]{64}/g
+const shaInlineRe = /(\d+\.\d+\.\d+)( 应为 )[0-9a-f]{64}/g
 const applicableRe = /（适用 AKDAgent \d+\.\d+\.\d+ ·/g
 
 rewrite(DOC, [
   ['适用版本', applicableRe, `（适用 AKDAgent ${VERSION} ·`],
   ['dmg/zip 名', versionRe, `AKDAgent-${VERSION}-arm64`],
-  ['sha256 块', shaBlockRe, `$1${sha}`],
+  ['sha256 块', shaBlockRe, `${VERSION}$2${sha}`],
 ])
 rewrite(CMD, [
   ['dmg 名', versionRe, `AKDAgent-${VERSION}-arm64`],
-  ['sha256（应为）', shaInlineRe, `$1${sha}`],
+  ['sha256（应为）', shaInlineRe, `${VERSION}$2${sha}`],
 ])
 rewrite(WX, [
   ['dmg 名', versionRe, `AKDAgent-${VERSION}-arm64`],
 ])
+
+/* 收尾自检：**三份文档里不许再出现别的版本号**（防"改了名字没改版本"这类）
+ *  覆盖的写法：`AKDAgent-<v>-arm64`（名）· `适用 AKDAgent <v>` · `<v> 应该等于` · `<v> 应为` */
+for (const [file, label] of [[DOC, '说明.txt'], [CMD, '.command'], [WX, '微信.txt']]) {
+  const text = read(file)
+  const found = new Set()
+  for (const m of text.matchAll(/AKDAgent-(\d+\.\d+\.\d+)-arm64/g)) found.add(m[1])
+  for (const m of text.matchAll(/适用 AKDAgent (\d+\.\d+\.\d+)/g)) found.add(m[1])
+  for (const m of text.matchAll(/(\d+\.\d+\.\d+) 应(该等于|为)/g)) found.add(m[1])
+  const stale = [...found].filter((v) => v !== VERSION)
+  if (stale.length) die(`${label} 里还残留别的版本号：${stale.join(', ')}（期望只有 ${VERSION}）—— 生成器漏了某处`)
+}
 
 /* ── 交付 zip：Node 自己写（保住执行位）──────────────────────────── */
 function zipWrite(entries, out) {
