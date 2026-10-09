@@ -66,6 +66,7 @@ const assertClean = (p, s) => {
 
 /* ── 改文档：版本号与哈希都是"按形状替换"，不写死旧值 ─────────────── */
 const changes = []
+const rewritten = new Map()      // 文件 → **改完之后的内存文本**（收尾自检必须用它，别回读盘）
 function rewrite(file, rules) {
   const before = read(file)
   assertClean(file, before)
@@ -77,6 +78,7 @@ function rewrite(file, rules) {
     changes.push(`${path.basename(file)}：${what} ×${hits}`)
   }
   if (after !== before && !DRY) fs.writeFileSync(file, after, 'utf8')
+  rewritten.set(path.resolve(file), after)
   return after === before
 }
 
@@ -102,9 +104,12 @@ rewrite(WX, [
 ])
 
 /* 收尾自检：**三份文档里不许再出现别的版本号**（防"改了名字没改版本"这类）
- *  覆盖的写法：`AKDAgent-<v>-arm64`（名）· `适用 AKDAgent <v>` · `<v> 应该等于` · `<v> 应为` */
+ *  覆盖的写法：`AKDAgent-<v>-arm64`（名）· `适用 AKDAgent <v>` · `<v> 应该等于` · `<v> 应为`
+ * ⛔ 2026-10-09（1.1.5 发布时实测）：这里**必须用 rewrite() 留在内存里的文本**，不能 `read(file)` 回读盘 ——
+ *   `--dry-run` 不写盘（上面那行 `!DRY`）⇒ 回读拿到的是**旧内容**，于是 dry-run **必然**报"残留旧版本号"
+ *   （假阳性；上一次 1.1.4 是直接真跑，所以没暴露）。 */
 for (const [file, label] of [[DOC, '说明.txt'], [CMD, '.command'], [WX, '微信.txt']]) {
-  const text = read(file)
+  const text = rewritten.get(path.resolve(file)) ?? read(file)
   const found = new Set()
   for (const m of text.matchAll(/AKDAgent-(\d+\.\d+\.\d+)-arm64/g)) found.add(m[1])
   for (const m of text.matchAll(/适用 AKDAgent (\d+\.\d+\.\d+)/g)) found.add(m[1])
@@ -112,6 +117,7 @@ for (const [file, label] of [[DOC, '说明.txt'], [CMD, '.command'], [WX, '微�
   const stale = [...found].filter((v) => v !== VERSION)
   if (stale.length) die(`${label} 里还残留别的版本号：${stale.join(', ')}（期望只有 ${VERSION}）—— 生成器漏了某处`)
 }
+if (DRY) console.log('\n（dry-run 的收尾自检用的是**内存里改完的文本**，不是回读盘上的旧文件）')
 
 /* ── 交付 zip：Node 自己写（保住执行位）──────────────────────────── */
 function zipWrite(entries, out) {
