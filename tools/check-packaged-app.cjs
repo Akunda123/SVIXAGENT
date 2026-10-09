@@ -50,6 +50,7 @@ const MUST_MATCH = [
   ['src/dsh-home.js', 'electron/src/dsh-home.js'],
   ['src/system-proxy.js', 'electron/src/system-proxy.js'],
   ['src/download-transport.js', 'electron/src/download-transport.js'],
+  ['src/model-list.js', 'electron/src/model-list.js'],
   ['src/stt-model.js', 'electron/src/stt-model.js'],
   ['src/plugins/akd-auth-bridge/index.js', 'electron/src/plugins/akd-auth-bridge/index.js'],
   ['src/plugins/akd-auth-bridge/package.json', 'electron/src/plugins/akd-auth-bridge/package.json'],
@@ -128,6 +129,28 @@ const UNPACKED_DIR = path.dirname(asarPath) + path.sep + 'app.asar.unpacked'
 
 console.log(`asar = ${(fs.statSync(asarPath).size / 1048576).toFixed(2)} MiB · header ${headerSize} B · 数据起点 ${dataStart}`)
 console.log(`unpacked 目录：${fs.existsSync(UNPACKED_DIR) ? path.relative(ROOT, UNPACKED_DIR) : '(不存在 / zip 模式未抠)'}\n`)
+
+/* 🆕 2026-10-08：**包比源码旧 ⇒ 这一跑没有结论，直接跳过**（否则日常跑批会一直红，把真信号淹掉）。
+ *   判据：被核对源文件里最新的 mtime > asar 的 mtime。出包之后（CI / 本机 `npm run dist`）包是新的
+ *   ⇒ 走严格核对；本地改了客户端但还没出包 ⇒ 打印一句说明就 exit 0。
+ *   ⛔ 想强制核对（例如"包明明是新出的却对不上"）：加 `--strict`。 */
+const asarMtime = fs.statSync(asarPath).mtimeMs
+let newestSource = 0
+let newestWhich = ''
+for (const [, repoRel] of MUST_MATCH.concat(MUST_MATCH_UNPACKED)) {
+  const p = path.join(ROOT, repoRel)
+  try {
+    const m = fs.statSync(p).mtimeMs
+    if (m > newestSource) { newestSource = m; newestWhich = repoRel }
+  } catch (_) { /* 仓库里没有这份就不参与 */ }
+}
+if (!argv.includes('--strict') && newestSource > asarMtime) {
+  console.log('包比源码旧 ⇒ 本次跳过核对（源码里有还没出包的改动）。')
+  console.log(`  最新改动：${newestWhich}（${new Date(newestSource).toISOString()}）`)
+  console.log(`  产物时间：${new Date(asarMtime).toISOString()}`)
+  console.log('  出包之后再跑：node tools/check-packaged-app.cjs（CI 里就是这么用的）· 要强制核对加 --strict')
+  process.exit(0)
+}
 
 console.log('== ① 版本（发出去的包是不是仓库这一版）==')
 {

@@ -36,6 +36,8 @@ const util = require('node:util')
 /* 🆕 2026-10-07：系统代理探测（把"系统里配的代理"变成宿主能吃的 HTTP(S)_PROXY）。
  * 只在起宿主前探一次并缓存；`networkChildEnv()` 是**唯一**给子进程配网络环境的入口。 */
 const { decideProxy, childEnvWithProxy } = require('./system-proxy.js')
+/* 🆕 2026-10-08：pi-ai 模型列表清洗（空 name 会让宿主报 INVALID_MODEL_INFO）。 */
+const { sanitizeModelList } = require('./model-list.js')
 /* 🆕 2026-10-08：STT 模型下载走 Electron 网络栈（跟随系统代理）。 */
 const { createElectronDownloader } = require('./download-transport.js')
 let proxyDecision = null
@@ -2393,7 +2395,10 @@ ipcMain.handle('akdagent-get-settings', () => {
     models: Array.isArray(llm.models) ? llm.models : [],
     defaultModel: adm.model || '',
     provider: adm.provider || '',
-    reasoningEffort: adm.reasoningEffort || 'high',
+    /* ⚠️ 空串 = **settings.yaml 里没这个键**（= 跟随提供方默认），不是"高"。
+     * 以前这里伪造成 'high' ⇒ 界面分不清"用户没选"和"用户选了高"，而这两者的宿主语义不同
+     * （见 `akdagent-set-reasoning-effort` 的注释）。 */
+    reasoningEffort: adm.reasoningEffort || '',
     language: locale.preference || 'zh',
     theme: (s['ui-theme'] || {}).preference || 'dark',
   }
@@ -2417,14 +2422,26 @@ ipcMain.handle('akdagent-set-language', (_e, lang) => {
   return { ok: true, language: lang }
 })
 
-/** 更新推理等级（agent-default-model.reasoningEffort） */
+/** 更新推理等级（`agent-default-model.reasoningEffort`）
+ *  🆕 2026-10-08：**空串 = 删掉这个键**（= 跟随提供方默认）。
+ *  为什么必须能删：宿主要按**模型自报的** `reasoning.efforts` 校验（`dsh-llm/lib/index.js:2119-2124`），
+ *  不在表里就抛 `UNSUPPORTED_REASONING_EFFORT`；而各家的表不一样（DeepSeek = `off/low/high/max`）。
+ *  用户手里可能存着一个当前模型不支持的档位（如 `medium`）⇒ 页面给的那一项「跟随提供方默认」
+ *  必须真的能把键去掉（留个空串会被宿主办成"显式空档位"，照样出错）。 */
 ipcMain.handle('akdagent-set-reasoning-effort', (_e, level) => {
   const s = readSettings()
   const adm = s['agent-default-model'] || {}
-  adm.reasoningEffort = level
+  const v = typeof level === 'string' ? level.trim() : ''
+  if (!v) {
+    delete adm.reasoningEffort
+    s['agent-default-model'] = adm
+    if (!writeSettings(s)) return { ok: false }
+    return { ok: true, reasoningEffort: '' }
+  }
+  adm.reasoningEffort = v
   s['agent-default-model'] = adm
   if (!writeSettings(s)) return { ok: false }
-  return { ok: true, reasoningEffort: level }
+  return { ok: true, reasoningEffort: v }
 })
 
 // ── SV 集成（scripts 目录配置 + 桥脚本部署 + Agent 工作目录） ───────
@@ -3106,7 +3123,14 @@ ipcMain.handle('akdagent-write-nofs', (_e, nofsPath, data) => {
   }
 })
 
-/** 添加模型（llm-deepseek.models）；同 id 覆盖更新 */
+/** 添加模型（`llm-deepseek.models`）；同 id 覆盖更新
+ *  🆕 2026-10-08（同一类坑）：DeepSeek 适配器也是 `name: model.name ?? model.id`
+ *  （`dsh-llm-deepseek/lib/index.js:1502`，`??` 不兜空字符串）⇒ 用户只输空格时会被写成
+ *  `name: ""` ⇒ 一样被宿主判 `INVALID_MODEL_INFO`。所以这里也过一遍清洗。
+ *  🆕 2026-10-08（同一天的第三处）：**图片键名 DeepSeek 与 pi-ai 不同** ——
+ *  DeepSeek 读 `inputModalities`（`:1504` 建元数据 / `:1620` 发图前硬拦 / schema `:1879`），
+ *  pi-ai 读 `input`。这里以前写的是 `input` ⇒ DeepSeek 侧**勾了等于没勾**（静默无效）。
+ *  现在交给 `sanitizeModelList({imageKey:'inputModalities'})` 翻译，并顺手迁移老版本留下的 `input`。 */
 ipcMain.handle('akdagent-add-model', (_e, m) => {
   const s = readSettings()
   const llm = s['llm-deepseek'] || {}
@@ -3115,14 +3139,16 @@ ipcMain.handle('akdagent-add-model', (_e, m) => {
   if (!entry.id) return { ok: false, error: i18n.t('main.model.idEmpty') }
   if (m.name) entry.name = String(m.name).trim()
   if (m.description) entry.description = String(m.description).trim()
-  if (m.supportsImage) entry.input = ['text', 'image']
-  const idx = models.findIndex((x) => x.id === entry.id)
-  if (idx >= 0) models[idx] = entry
-  else models.push(entry)
+  if (m.supportsImage !== undefined) entry.supportsImage = m.supportsImage === true
+  const { models: [clean], repaired } = sanitizeModelList([entry], { imageKey: 'inputModalities' })
+  for (const r of repaired) console.log('[akdagent] 模型列表已修正：' + r)
+  const idx = models.findIndex((x) => x.id === clean.id)
+  if (idx >= 0) models[idx] = clean
+  else models.push(clean)
   llm.models = models
   s['llm-deepseek'] = llm
   if (!writeSettings(s)) return { ok: false }
-  return { ok: true, model: entry, models }
+  return { ok: true, model: clean, models, repaired }
 })
 
 /** 删除模型；若为当前默认模型则默认模型置空 */
@@ -3236,7 +3262,8 @@ ipcMain.handle('akdagent-get-providers', () => {
     providers,
     defaultProvider: adm.provider || '',
     defaultModel: adm.model || '',
-    reasoningEffort: adm.reasoningEffort || 'high',
+    /* 空串 = 没写这个键（跟随提供方默认）；界面据此渲染"跟随提供方默认"那一项 */
+    reasoningEffort: adm.reasoningEffort || '',
     language: (s['locale'] || {}).preference || 'zh',
     presets: PI_AI_PROVIDER_PRESETS,
     /* 已配置的凭据 = **refs 里的键**（2026-09-27 修：以前列的是顶层键，新格式下会变成
@@ -3490,19 +3517,25 @@ ipcMain.handle('akdagent-remove-pi-provider', (_e, route) => {
   return { ok: true }
 })
 
-/** 编辑 pi-ai 提供方的模型列表（models 数组） */
+/** 编辑 pi-ai 提供方的模型列表（models 数组）
+ *  🆕 2026-10-08（用户报 `INVALID_MODEL_INFO` provider "bailian" model "qwen3.8-max"）：
+ *  落盘前**必须**过 `sanitizeModelList()` —— 空 `name` 是宿主的硬错，见 `pi-models.js` 顶部注释。
+ *  🆕 2026-10-08：pi-ai 侧图片键是 **`input`**（`dsh-llm-pi-ai/lib/index.js:682/973/1845`），
+ *  界面的 `supportsImage` 得翻译过去，否则勾选框在宿主里也是死键。 */
 ipcMain.handle('akdagent-update-pi-models', (_e, route, models) => {
   const s = readSettings()
   const piAi = s['llm-pi-ai'] || {}
   const providers = { ...(piAi.providers || {}) }
   const p = providers[route]
   if (!p) return { ok: false, error: i18n.t('main.provider.notFound', route) }
-  p.models = Array.isArray(models) ? models : []
+  const { models: clean, repaired } = sanitizeModelList(models, { imageKey: 'input' })
+  p.models = clean
   providers[route] = p
   piAi.providers = providers
   s['llm-pi-ai'] = piAi
   if (!writeSettings(s)) return { ok: false }
-  return { ok: true }
+  for (const r of repaired) console.log('[akdagent] 模型列表已修正：' + r)
+  return { ok: true, repaired }
 })
 
 /** 🆕 2026-09-25（用户选 B）：改 pi-ai 提供方的**覆写字段** —— Base URL / API 协议 / 模型列表。
@@ -3526,7 +3559,11 @@ ipcMain.handle('akdagent-set-pi-provider-fields', (_e, route, fields) => {
     if (empty) {
       if (f in next) { delete next[f]; applied.push('-' + f) }
     } else if (f === 'models') {
-      next.models = Array.isArray(v) ? v : []
+      /* 🆕 2026-10-08：落盘前清洗（空 `name` ⇒ 用 id；非法数值键删掉）—— 见 pi-models.js 顶部注释
+       * 🆕 2026-10-08：图片键按 pi-ai 的口径写 `input`（界面给的是 `supportsImage`） */
+      const { models: clean, repaired: fixed } = sanitizeModelList(v, { imageKey: 'input' })
+      next.models = clean
+      for (const r of fixed) console.log('[akdagent] 模型列表已修正：' + r)
       applied.push('+' + f + ':' + next.models.length)
     } else {
       next[f] = String(v)

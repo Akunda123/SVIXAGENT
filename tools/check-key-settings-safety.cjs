@@ -210,5 +210,109 @@ console.log('\n== ⑦ 密钥"像不像密钥"要给**非阻塞**提示（2026-10
   else fail('设置页没用 r.warn ⇒ 后端提示了但用户看不见');
 }
 
+console.log('\n== ⑧ 模型列表必须清洗后才落盘（2026-10-08：INVALID_MODEL_INFO）==');
+{
+  /* 现场：用户报 `INVALID_MODEL_INFO — adapter returned invalid exact model metadata for provider
+   * "bailian" model "qwen3.8-max"`。根因 = 设置页「显示名称」留空 ⇒ settings.yaml 里那条模型是 `name: ""`；
+   * 宿主判据是「name 必须是非空字符串」（`dsh-llm/lib/index.js:2053`），而两个适配器的兜底
+   * `name: entry.name ?? … ?? entry.id` / `model.name ?? model.id` **都不兜空字符串**（`??` 只兜 null/undefined）
+   * ⇒ 直接硬拒。**2026-10-08 复核补的第三条**：`llm-deepseek` 那条自定义列表（`akdagent-add-model`）
+   * 是同一类坑（只输空格的名字会被写成空串）⇒ 所以清洗必须服务**三条**路径。
+   * **2026-10-08 同一天的第四处（另一个键）**：界面勾的「支持图片」以前落成我们自己的 `supportsImage`
+   * （DeepSeek 那条路还转手写成 `input`），而**两家适配器读的键名不同**：
+   * DeepSeek ⇒ `inputModalities`（`dsh-llm-deepseek/lib/index.js:1504/1620`、schema `:1879`）、
+   * pi-ai ⇒ `input`（`dsh-llm-pi-ai/lib/index.js:682/973/1845`）；`supportsImage` 整个宿主树没人读
+   * ⇒ 勾选框静默无效。现在清洗函数按路由把键翻译过去（见 `model-list.js` 顶部）。 */
+  const PM = path.join(ROOT, 'electron', 'src', 'model-list.js')
+  if (!fs.existsSync(PM)) fail('缺少 electron/src/model-list.js（模型列表清洗）')
+  else {
+    const pm = fs.readFileSync(PM, 'utf8')
+    if (/function sanitizeModelList\(input, opts\)/.test(pm) && /next\.name\s*=\s*id/.test(pm)) ok('sanitizeModelList()：空/缺省 name ⇒ 用模型 ID');
+    else fail('sanitizeModelList 没有"空 name ⇒ 用 id"这条（那正是宿主硬拒的那一条）')
+    if (/delete next\[k\]/.test(pm) && /positiveInt/.test(pm)) ok('非正整数的 contextWindow / maxTokens ⇒ 删键（防 INVALID_MODEL_CONTEXT / _MAX_TOKENS）');
+    else fail('没有删非法数值键 ⇒ 宿主会抛另外两个错')
+    if (/丢掉一个没有 id 的模型条目/.test(pm)) ok('没有合法 id 的条目直接丢掉（不写宿主读不了的）');
+    else fail('没有丢掉无 id 条目')
+    /* 图片键：必须按路由翻译，且两个键名都在（写反了就是静默无效） */
+    if (/IMAGE_KEYS\s*=\s*\{\s*input:\s*'inputModalities',\s*inputModalities:\s*'input'\s*\}/.test(pm)) ok('图片键对照表在（DeepSeek = inputModalities / pi-ai = input）');
+    else fail('缺少图片键对照表 ⇒ 无法按路由翻译（勾选框会静默无效）')
+    if (/next\[imageKey\] = next\.supportsImage \? \['text', 'image'\] : \['text'\]/.test(pm) && /delete next\.supportsImage/.test(pm)) ok('supportsImage（我们界面的键）⇒ 翻译成宿主读的键，且自己绝不落盘');
+    else fail('supportsImage 没有被翻译/清理 ⇒ 死键会写进 settings.yaml')
+    if (/已改写成 \$\{imageKey\}/.test(pm)) ok('老版本写下的另一家的键 ⇒ 迁移并记账');
+
+    const mj = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'main.js'), 'utf8')
+    if (/const \{ sanitizeModelList \} = require\('\.\/model-list\.js'\)/.test(mj)) ok('main.js 引入了清洗函数');
+    else fail('main.js 没引入清洗函数')
+    /* 只数**真调用**（`= sanitizeModelList(`），注释里的示例写法不算 —— 否则删掉一条路也看不出来 */
+    const uses = (mj.match(/= sanitizeModelList\(/g) || []).length
+    if (uses === 3) ok(`三条写模型的路各调用一次清洗（${uses} 处）`);
+    else fail(`sanitizeModelList 真调用 ${uses} 次（应为 3：pi-ai 覆写 / pi-ai 专用 / llm-deepseek）⇒ 有路径没被清洗`)
+    if (/sanitizeModelList\(models, \{ imageKey: 'input' \}\)/.test(mj)
+      && /sanitizeModelList\(v, \{ imageKey: 'input' \}\)/.test(mj)
+      && /sanitizeModelList\(\[entry\], \{ imageKey: 'inputModalities' \}\)/.test(mj)) ok('三条路径都清洗，并各自带上**该路由真正读的**图片键名');
+    else fail('三条路径没清洗齐，或图片键名带错（DeepSeek 是 inputModalities、pi-ai 是 input）')
+    if (!/entry\.input\s*=/.test(mj)) ok('DeepSeek 那条路不再写 `input`（老代码把它当图片键，宿主读的是 inputModalities）');
+    else fail('main.js 还在往 DeepSeek 条目里写 `input` ⇒ 勾选框无效')
+
+    const html = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'settings.html'), 'utf8')
+    if (/name: nameIn\.value\.trim\(\) \|\| id/.test(html)) ok('界面：显示名留空 ⇒ 用模型 ID（不再写 name: ""）');
+    else fail('界面还是原样写 name（留空 = 空串 = 宿主硬拒）')
+    const i18n = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'i18n', 'settings.json'), 'utf8')
+    const ph = (i18n.match(/留空 = 用模型 ID|blank = model ID|空欄 = モデル ID/g) || []).length
+    if (ph === 4) ok('四语种的「显示名称」占位符都写清了"留空 = 用模型 ID"');
+    else fail(`占位符只有 ${ph}/4 处说明"留空 = 用模型 ID" ⇒ 用户看不出留空会怎样`)
+
+    const TEST = path.join(ROOT, 'tools', 'test-model-list.cjs')
+    if (fs.existsSync(TEST) && /qwen3\.8-max/.test(fs.readFileSync(TEST, 'utf8'))) ok('有单测 tools/test-model-list.cjs（含用户那个原始现场）');
+    else fail('缺少模型清洗的单测')
+  }
+}
+
+console.log('\n== ⑨ 写进 settings.yaml 的**值**也必须过宿主的判据（2026-10-08：闭集值不许自由填）==');
+{
+  /* 两处同源事故：界面能写出的值，落在宿主**闭集 schema** 之外 ⇒ 轻则每次调用报错、重则整插件失效。
+   *   ① `agent-default-model.reasoningEffort`：宿主要按**模型自报的** `reasoning.efforts` 校验
+   *      （`dsh-llm/lib/index.js:2119-2124`），不在表里抛 UNSUPPORTED_REASONING_EFFORT；
+   *      DeepSeek 全部模型 = `off/low/high/max`（`dsh-llm-deepseek/lib/index.js:1417-1437`）
+   *      ⇒ 旧界面写死的「中」必然失败、而「关/最高」给不出来。
+   *   ② `llm-pi-ai.providers.<route>.api`：schema 是 `z.union([...])`
+   *      （`dsh-llm-pi-ai/lib/index.js:986`，`supportedProtocols()` 实测三个）
+   *      ⇒ 自由文本框打错一个字，**整个 llm-pi-ai 配置**校验失败（订阅登录的路由一起挂）。 */
+  const html = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'settings.html'), 'utf8')
+  const mj = fs.readFileSync(path.join(ROOT, 'electron', 'src', 'main.js'), 'utf8')
+
+  const effSel = (html.match(/<select id="effort-select">[\s\S]*?<\/select>/) || [''])[0]
+  if (effSel !== '' && !/<option/.test(effSel))
+    ok('推理等级下拉**不写死**选项（按模型自报的档位铺）');
+  else fail('推理等级下拉仍写死了选项（DeepSeek 不支持 medium ⇒ 选「中」必报 UNSUPPORTED_REASONING_EFFORT）')
+  if (/entry\.reasoning\.efforts/.test(html)) ok('档位取自宿主目录的 `reasoning.efforts`（不是我们猜的表）');
+  else fail('没读宿主自报的档位表')
+  if (/add\('', I\.t\('settings\.conv\.effortFollowProvider'\)\)/.test(html) && /delete adm\.reasoningEffort/.test(mj))
+    ok('「跟随提供方默认」这条闭环（界面给空值 ⇒ 主进程删键）');
+  else fail('「跟随提供方默认」不闭环（写空串会被宿主办成"显式空档位"）')
+  if (/if \(value && ids\.indexOf\(value\) < 0\) add\(value, effortLabel\(value\)/.test(html))
+    ok('已存的值不在支持表里 ⇒ 照样列出来（不静默改写用户的选择）');
+  else fail('已存的不受支持的值被静默丢掉了')
+  if ((mj.match(/reasoningEffort: adm\.reasoningEffort \|\| 'high'/g) || []).length === 0)
+    ok('不再把"没选"伪造成 high（那会让界面分不清"跟随默认"与"选了高"）');
+  else fail('仍在伪造 high')
+
+  if (/const PI_API_PROTOCOLS = \['openai-completions', 'openai-responses', 'anthropic-messages'\]/.test(html))
+    ok('API 协议真值表在（三值，与宿主 supportedProtocols() 一致）');
+  else fail('缺少 API 协议真值表 ⇒ 又会退回自由文本')
+  const protoLiterals = (html.match(/'openai-completions'|'openai-responses'|'anthropic-messages'/g) || []).length
+  if (protoLiterals <= 3) ok(`三个协议名只在真值表里出现（共 ${protoLiterals} 处，不再是散落的 placeholder 文本）`);
+  else fail(`协议名散落在 ${protoLiterals} 处 ⇒ 真值表不止一处，改一处漏一处`)
+  if (/<select id="custom-api"><\/select>/.test(html) && /fillSelect\(\$?\('?custom-api'?\)?, PI_API_PROTOCOLS/.test(html))
+    ok('自定义提供方的 api 是闭集下拉');
+  else fail('自定义提供方的 api 还是自由文本框（打错一个字 = 整个 llm-pi-ai 配置失效）')
+  if (!/apiIn = mk\('settings\.model\.overrideApi'/.test(html) && /fillSelect\(sel, PI_API_PROTOCOLS, p\.api \|\| ''/.test(html))
+    ok('覆写那一行的 api 也是闭集下拉（空值 = 不覆写）');
+  else fail('覆写那一行的 api 还是自由文本框')
+  if (/if \(selected && values\.indexOf\(selected\) < 0\) add\(selected, I\.t\('settings\.model\.overrideApiKeep'/.test(html))
+    ok('提供方当前的协议若不在已知三值里 ⇒ 保留为选项（不偷偷改写）');
+  else fail('当前协议会被静默丢掉 ⇒ 保存一次就把别人的协议改了')
+}
+
 console.log(bad ? `\n❌ ${bad} 项不通过` : '\n✅ 密钥与设置写入安全（不哑失败 · 不外泄）');
 process.exit(bad ? 1 : 0);

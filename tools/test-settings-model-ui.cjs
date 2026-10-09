@@ -125,8 +125,13 @@ ok(!/ok = Array\.isArray\(dsModels\) && dsModels\.some/.test(main),
 }
 
 console.log('\nC. 后端语义（supportsImage / 删默认后的兜底）');
-ok(/supportsImage\) entry\.input = \['text', 'image'\]/.test(main),
-  "addModel 的 supportsImage ⇒ input: ['text','image']（图片输入必须靠它）");
+/* ⛔ 2026-10-08 改正：图片键**两家适配器读的名字不一样**（DeepSeek = `inputModalities`，
+ * pi-ai = `input`），而界面给的是我们自己的 `supportsImage` —— 宿主树里没人读它。
+ * 所以这里断言的是**翻译**这条路：DeepSeek 那条必须带 `imageKey: 'inputModalities'`。 */
+ok(/sanitizeModelList\(\[entry\], \{ imageKey: 'inputModalities' \}\)/.test(main),
+  'addModel（DeepSeek）把 supportsImage 翻译成 inputModalities（宿主读的就是它）');
+ok(!/entry\.input\s*=/.test(main),
+  'addModel 不再写 `input`（老写法在 DeepSeek 侧是死键：勾了等于没勾）');
 ok(/if \(adm\.model === id\) \{[\s\S]{0,120}adm\.model = models\.length > 0 \? models\[0\]\.id : ''/.test(main),
   'removeModel 删掉的若是当前默认 ⇒ 自动切到列表第一条（或置空）');
 
@@ -292,6 +297,126 @@ console.log('\nF. 【2026-10-05 报障】模型 ID 的"显示名"护栏（实证
   }
 }
 
-console.log('');
-if (fails) { console.log('===== 结果：' + fails + ' 项失败 ====='); process.exit(1); }
-console.log('===== 结果：全部通过 =====');
+console.log('\nF. 【2026-10-08】推理等级按模型自报的档位 · API 协议是闭集下拉');
+/* 起因两条：
+ *   ① `settings.html` 以前硬编码 低/中/高，而宿主要按**模型自报的** `reasoning.efforts` 校验
+ *      （`dsh-llm/lib/index.js:2119-2124`，不在表里抛 UNSUPPORTED_REASONING_EFFORT），
+ *      DeepSeek 全部模型的表是 `off/low/high/max`（`dsh-llm-deepseek/lib/index.js:1417-1437`）
+ *      ⇒ 「中」必然失败、而「关/最高」给不出来。
+ *   ② `api` 是自由文本框，而宿主 schema 是**闭集** `z.union([...])`
+ *      （`dsh-llm-pi-ai/lib/index.js:986`，`supportedProtocols()` 实测三个）
+ *      ⇒ 打错一个字让**整个 llm-pi-ai 配置**失效（连订阅登录的路由一起挂）。 */
+{
+  const html3 = fs.readFileSync(path.join(SRC, 'settings.html'), 'utf8');
+  const main3 = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8');
+  const settingsDict = JSON.parse(fs.readFileSync(path.join(SRC, 'i18n', 'settings.json'), 'utf8'));
+  const LOC = ['zh-Hans', 'zh-Hant', 'en', 'ja'];
+
+  /* ① 推理等级：不能再硬编码 <option>；选项必须来自宿主导航目录的 efforts */
+  const effortSel = (html3.match(/<select id="effort-select">[\s\S]*?<\/select>/) || [''])[0];
+  ok(effortSel !== '' && !/<option/.test(effortSel), '推理等级下拉不再写死选项（旧的 low/medium/high 已删）');
+  ok(/async function renderEffortSelect\(cur, provider, model\)/.test(html3), 'renderEffortSelect() 在（按模型自报的档位铺选项）');
+  ok(/entry\.reasoning && Array\.isArray\(entry\.reasoning\.efforts\)/.test(html3), '档位取自目录里的 `reasoning.efforts`（宿主自报）');
+  ok(/add\('', I\.t\('settings\.conv\.effortFollowProvider'\)\)/.test(html3), '永远有「跟随提供方默认」那一项（= 删掉该键）');
+  ok(/if \(value && ids\.indexOf\(value\) < 0\) add\(value, effortLabel\(value\)/.test(html3),
+    '已存的值不在表里 ⇒ 照样列出来（不静默改写用户的值）');
+  ok(/settings\.conv\.effortUnsupportedTip/.test(html3) && /settings\.conv\.effortNoReasoning/.test(html3)
+    && /settings\.conv\.effortNoCatalog/.test(html3), '三种"会出错"的情形都有提示行（不支持 / 值非法 / 核对不了）');
+  ok(/safeRedraw\('effort', \(\) => \{ refreshEffort\(\)/.test(html3),
+    '切语种时重排（选项是动态铺的、没有 data-i18n，`I.apply()` 管不到 ⇒ 实测会被 i18n 测试抓到残留）');
+  /* 主进程：空串 = **删键**（跟随提供方默认），且两个 payload 不许再伪造 'high' */
+  ok(/if \(!v\) \{[\s\S]{0,120}delete adm\.reasoningEffort/.test(main3), 'setReasoningEffort：空串 ⇒ 删掉 reasoningEffort 键');
+  const fakeHigh = (main3.match(/reasoningEffort: adm\.reasoningEffort \|\| 'high'/g) || []).length;
+  ok(fakeHigh === 0, `不再把"没选"伪造成 'high'（残留 ${fakeHigh} 处）`);
+
+  /* ② API 协议：两处都必须是闭集下拉，且真值表只有一处 */
+  ok(/const PI_API_PROTOCOLS = \['openai-completions', 'openai-responses', 'anthropic-messages'\]/.test(html3),
+    'PI_API_PROTOCOLS 真值表在（与宿主 supportedProtocols() 一致）');
+  ok(/<select id="custom-api"><\/select>/.test(html3), '自定义提供方的 api 是 <select>（不再是自由文本）');
+  ok(!/id="custom-api" placeholder/.test(html3) && !/apiIn = mk\('settings\.model\.overrideApi'/.test(html3),
+    '覆写那一行也不再是文本框（mk(...overrideApi...) 已换成 fillSelect）');
+  ok(/fillSelect\(apiIn|fillSelect\(sel, PI_API_PROTOCOLS, p\.api \|\| ''/.test(html3), '覆写下拉用 fillSelect 铺（空值项 = 不覆写）');
+  ok(/if \(selected && values\.indexOf\(selected\) < 0\) add\(selected, I\.t\('settings\.model\.overrideApiKeep'/.test(html3),
+    '当前值不在已知三值里 ⇒ 保留为选项（绝不偷偷改写提供方的协议）');
+
+  /* ③ 新文案四语齐全 + 占位符 */
+  const NEED2 = ['settings.model.custom.apiHint', 'settings.model.overrideApiNone', 'settings.model.overrideApiKeep',
+    'settings.conv.effortOff', 'settings.conv.effortMinimal', 'settings.conv.effortXHigh', 'settings.conv.effortMax',
+    'settings.conv.effortFollowProvider', 'settings.conv.effortUnsupported', 'settings.conv.effortScope',
+    'settings.conv.effortUnsupportedTip', 'settings.conv.effortNoReasoning', 'settings.conv.effortNoCatalog'];
+  const lack2 = []
+  for (const k of NEED2) for (const l of LOC) if (!String((settingsDict[l] || {})[k] || '').trim()) lack2.push(l + ':' + k)
+  ok(lack2.length === 0, `新增 ${NEED2.length} 个键四语非空`, lack2.join(','))
+  ok(/\{0\}/.test(String(settingsDict['zh-Hans']['settings.model.overrideApiKeep'] || ''))
+    && /\{0\}/.test(String(settingsDict['zh-Hans']['settings.conv.effortScope'] || '')),
+    '带占位符的两条文案有 {0}（否则用户看不到"当前值/哪个模型"）');
+}
+
+console.log('\nG. 实证 renderEffortSelect()：选项**真的**跟着模型自报的档位走');
+/* 这一节不停留在"源码看着对"：把页里那段函数抠出来，喂假目录 + 假 DOM 真跑一遍。
+ * 判据来自宿主真实形态：DeepSeek 自报 `['off','low','high','max']`
+ * （`dsh-llm-deepseek/lib/index.js:1417-1437`）——**没有 medium**。 */
+const gDone = (async () => {
+  const html4 = fs.readFileSync(path.join(SRC, 'settings.html'), 'utf8');
+  const from = html4.indexOf('const EFFORT_I18N');
+  const to = html4.indexOf('async function refreshEffort');
+  ok(from > 0 && to > from, '抠得出 EFFORT_I18N + renderEffortSelect 那一段');
+  const src = html4.slice(from, to);
+  const mkSel = () => ({ innerHTML: '', children: [], value: '', appendChild(o) { this.children.push(o) } });
+  const run = async (catalog, cur) => {
+    const sel = mkSel();
+    const tip = { textContent: '', style: {} };
+    const doc = { createElement: () => ({ value: '', textContent: '' }) };
+    const $ = (id) => (id === 'effort-select' ? sel : (id === 'effort-tip' ? tip : null));
+    const I = { t: (k, ...a) => k + (a.length ? ':' + a.join(',') : '') };
+    // eslint-disable-next-line no-new-func
+    const f = new Function('$', 'I', 'loadModelCatalog', 'document',
+      src + '\nreturn renderEffortSelect')(($), I, async () => catalog, doc);
+    await f(cur, 'deepseek-official', 'deepseek-v4-flash');
+    return { vals: sel.children.map((o) => o.value), texts: sel.children.map((o) => o.textContent), tip: tip.textContent, selected: sel.value };
+  };
+  const DS = {
+    ok: true,
+    default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    groups: [{
+      id: 'deepseek-official', name: 'DeepSeek',
+      models: [{ id: 'deepseek-v4-flash', name: 'Flash', reasoning: { efforts: [{ id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' }], defaultEffort: 'high' } }],
+    }],
+  };
+  /* ⚠️ 这一段必须**异步**跑（抠出来的 renderEffortSelect 是 async），而 CommonJS 没有顶层 await
+   *   ⇒ 收尾（打印结果/退出码）搬进 finish()，由这段最后调用（见文件末尾）。 */
+  const a = await run(DS, 'high');
+  ok(JSON.stringify(a.vals) === JSON.stringify(['', 'off', 'low', 'high', 'max']),
+    'DeepSeek 模型 ⇒ 选项 = 跟随默认 + off/low/high/**max**（**没有 medium**）', a.vals);
+  ok(a.selected === 'high' && a.tip.startsWith('settings.conv.effortScope'), '当前值被选中，并提示"档位来自该模型"', a.tip);
+  ok(a.texts[0] === 'settings.conv.effortFollowProvider', '第一项是「跟随提供方默认」（空值）', a.texts[0]);
+
+  const b = await run(DS, 'medium');   // 老用户可能存着这个
+  ok(b.vals.indexOf('medium') > 0, '存着 medium（不在表里）⇒ **照样列出来**（不静默丢）', b.vals);
+  ok(b.texts.some((t) => t.startsWith('settings.conv.effortMedium') && t.includes('settings.conv.effortUnsupported')),
+    '并用「（当前模型不支持）」标出来', b.texts);
+  ok(b.tip === 'settings.conv.effortUnsupportedTip', '提示行说清会报什么错', b.tip);
+
+  const c = await run({ ...DS, groups: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'Flash' }] }] }, 'high');
+  ok(c.vals.length === 8, '模型不支持推理（没有 reasoning）⇒ 列出宿主认识的全部档位 + 跟随默认', c.vals);
+  ok(c.tip === 'settings.conv.effortNoReasoning', '并提示"这个模型不支持推理等级"', c.tip);
+
+  const d = await run(null, 'high');
+  ok(d.vals.length === 8 && d.tip === 'settings.conv.effortNoCatalog', '目录读不到 ⇒ 全部档位 + 明说"核对不了"', d.tip);
+
+  const e = await run(DS, '');
+  ok(e.selected === '' && !/effortUnsupportedTip|effortNoCatalog/.test(e.tip), '空值（跟随默认）不需要警告', e.tip);
+})();
+
+function finish() {
+  console.log('');
+  if (fails) { console.log('===== 结果：' + fails + ' 项失败 ====='); process.exit(1); }
+  console.log('===== 结果：全部通过 =====');
+}
+
+/* G 节是异步的 ⇒ 由它自己收尾（正常/抛错两条路都要走到 finish） */
+gDone.then(finish, (e) => {
+  console.log('  [FAIL] G 节自己抛了：' + ((e && e.message) || e));
+  fails++;
+  finish();
+});

@@ -260,9 +260,15 @@
           <input type="text" id="custom-keyenv" placeholder="MY_OPENAI_API_KEY">
         </div>
         <div class="frow">
-          <span class="flabel" data-i18n="settings.model.custom.api">API 协议（openai-completions / anthropic-messages / …，自定义必填）</span>
-          <input type="text" id="custom-api" placeholder="openai-completions">
+          <span class="flabel" data-i18n="settings.model.custom.api">API 协议（自定义必填）</span>
+          <!-- ⛔ 必须是**闭集选择**（2026-10-08）：宿主 schema 是
+               `api: z.union(["openai-completions","openai-responses","anthropic-messages"])`
+               （`dsh-llm-pi-ai/lib/index.js:986`，`supportedProtocols()` 实测就这三个）
+               ⇒ 自由文本框打错一个字，**整个 llm-pi-ai 的配置校验失败**（连订阅登录的路由一起挂）。
+               选项由 JS 从 PI_API_PROTOCOLS 铺（页内只有一处真值表）。 -->
+          <select id="custom-api"></select>
         </div>
+        <div class="hint" data-i18n="settings.model.custom.apiHint">三选一：openai-completions（OpenAI 兼容）/ openai-responses / anthropic-messages</div>
         <div class="frow">
           <span class="flabel" data-i18n="settings.model.custom.baseUrl">Base URL（自定义必填）</span>
           <input type="text" id="custom-baseurl" placeholder="https://api.example.com/v1">
@@ -334,12 +340,14 @@
           <div class="label" data-i18n="settings.conv.reasoningEffort">推理等级</div>
           <div class="hint">agent-default-model.reasoningEffort</div>
         </div>
-        <select id="effort-select">
-          <option value="low" data-i18n="settings.conv.effortLow">低</option>
-          <option value="medium" data-i18n="settings.conv.effortMedium">中</option>
-          <option value="high" data-i18n="settings.conv.effortHigh">高</option>
-        </select>
+        <!-- ⛔ 选项**不写死**：由 renderEffortSelect() 按当前默认模型自报的档位生成。
+             背景（2026-10-08）：宿主要按模型自报的 `reasoning.efforts` 校验
+             （`dsh-llm/lib/index.js:2119-2124`），不在表里就抛 UNSUPPORTED_REASONING_EFFORT；
+             而 DeepSeek 全部模型的表是 off/low/high/max（`dsh-llm-deepseek/lib/index.js:1417-1437`）
+             ⇒ 旧的三项「低/中/高」里，「中」必然失败，且给不出「关/最高」。 -->
+        <select id="effort-select"></select>
       </div>
+      <div class="save-tip" id="effort-tip"></div>
     </section>
 
     <section>
@@ -549,6 +557,31 @@
    * ⚠️ 这里管的是**客户端**界面文案（悬浮球 / 设置窗 / 托盘），
    *    和对话设置页里 DSH 的 locale.preference 是两套独立设置。 */
   const I = window.svi18n || { t: (k) => k, apply: () => {}, onChange: () => {}, locale: 'zh-Hans' }
+
+  /* ── pi-ai 的 **API 协议真值表**（页面里只有这一处）────────────────────────────
+   * 🆕 2026-10-08：宿主 schema 是**闭集** —— `api: z.union(["openai-completions",
+   *   "openai-responses","anthropic-messages"])`（`dsh-llm-pi-ai/lib/index.js:986`；
+   *   `supportedProtocols()` 实测就这三个）⇒ 所以这两处界面（自定义提供方 / 覆写已有提供方）
+   *   一律**用下拉**，不许自由文本框：打错一个字会让**整个 llm-pi-ai 的配置校验失败**
+   *   （不只是这一家 —— 订阅登录那些路由也一起吃挂）。
+   * ⚠️ 别从代码里"推断"这个表；它跟着随包 SDK 走（改 SDK 时这里也要跟着改）。 */
+  const PI_API_PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
+  /** 铺一个"闭集"下拉；`noneLabel` 给空值项（'' = 不覆写 / 让宿主用它自己的） */
+  function fillSelect(sel, values, selected, noneLabel) {
+    if (!sel) return
+    sel.innerHTML = ''
+    const add = (v, text) => {
+      const o = document.createElement('option')
+      o.value = v
+      o.textContent = text
+      sel.appendChild(o)
+    }
+    if (noneLabel !== undefined) add('', noneLabel)
+    for (const v of values) add(v, v)
+    /* 当前值不在已知集合里 ⇒ **照样列出来**（绝不偷偷把用户的值改写成一个"合法"值） */
+    if (selected && values.indexOf(selected) < 0) add(selected, I.t('settings.model.overrideApiKeep', selected))
+    sel.value = selected || ''
+  }
 
   /* ── 左侧导航切换 ── */
   function activatePage(name) {
@@ -953,6 +986,74 @@
     }
     return modelCatalog
   }
+
+  /* ── 推理等级：选项按**当前默认模型自报的档位**生成 ───────────────────────────────
+   * 背景（2026-10-08）：这里以前硬编码 低/中/高，而宿主每次调用前按**该模型自报的**
+   * `reasoning.efforts` 校验（`dsh-llm/lib/index.js:2119-2124`），不在表里就抛
+   * `UNSUPPORTED_REASONING_EFFORT`。DeepSeek 全部模型的表是 `off/low/high/max`
+   * （`dsh-llm-deepseek/lib/index.js:1417-1437`；`thinking: disabled` 时更只有 `off`）
+   * ⇒ 旧列表里的「中」在 DeepSeek 上**必然**失败，而「关 / 最高」我们根本给不出来。
+   * 口径：① 选项 = 该模型的 efforts；② 永远多一项「跟随提供方默认」= **删掉这个键**
+   * （宿主 `defaultEffort` 的语义）；③ 已存的值不在表里 ⇒ **照样列出来并标出来**，绝不偷偷改写；
+   * ④ 目录读不到 / 目录里没有这个模型 ⇒ 列出宿主认识的全部档位，并明说"核对不了"。 */
+  const EFFORT_I18N = {
+    off: 'settings.conv.effortOff', minimal: 'settings.conv.effortMinimal', low: 'settings.conv.effortLow',
+    medium: 'settings.conv.effortMedium', high: 'settings.conv.effortHigh',
+    xhigh: 'settings.conv.effortXHigh', max: 'settings.conv.effortMax',
+  }
+  const ALL_EFFORT_IDS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  const effortLabel = (id, name) => (EFFORT_I18N[id] ? I.t(EFFORT_I18N[id]) : (name || id))
+
+  async function renderEffortSelect(cur, provider, model) {
+    const sel = $('effort-select')
+    if (!sel) return
+    const value = String(cur || '')
+    const cat = await loadModelCatalog(false)
+    const groups = cat && Array.isArray(cat.groups) ? cat.groups : null
+    let prov = provider || ''
+    let mod = model || ''
+    let entry = null
+    let scopeName = ''
+    if (groups) {
+      if (!prov && cat.default && cat.default.provider) { prov = cat.default.provider; mod = cat.default.model || '' }
+      const g = groups.find((x) => x && x.id === prov)
+      if (g) {
+        scopeName = g.name || g.id
+        entry = (g.models || []).find((m) => m && m.id === mod) || null
+      }
+    }
+    const efforts = entry && entry.reasoning && Array.isArray(entry.reasoning.efforts) ? entry.reasoning.efforts : null
+    const ids = efforts ? efforts.map((e) => e.id) : ALL_EFFORT_IDS
+    sel.innerHTML = ''
+    const add = (v, text) => {
+      const o = document.createElement('option')
+      o.value = v
+      o.textContent = text
+      sel.appendChild(o)
+    }
+    add('', I.t('settings.conv.effortFollowProvider'))
+    for (const e of (efforts || ALL_EFFORT_IDS.map((id) => ({ id })))) add(e.id, effortLabel(e.id, e.name))
+    /* 已存的值不在表里 ⇒ **照样列出来**并在文案上标出来（不许偷偷把用户的值改成"合法"值） */
+    if (value && ids.indexOf(value) < 0) add(value, effortLabel(value) + ' ' + I.t('settings.conv.effortUnsupported'))
+    sel.value = value
+    const tip = $('effort-tip')
+    if (tip) {
+      let msg = ''
+      if (!cat || !groups || (groups.length && !entry)) msg = I.t('settings.conv.effortNoCatalog')
+      else if (entry && !entry.reasoning) msg = I.t('settings.conv.effortNoReasoning')
+      else if (value && ids.indexOf(value) < 0) msg = I.t('settings.conv.effortUnsupportedTip')
+      else if (efforts) msg = I.t('settings.conv.effortScope', (scopeName ? scopeName + ' / ' : '') + (mod || '?'))
+      tip.textContent = msg
+      tip.style.display = msg ? '' : 'none'
+    }
+  }
+  /** 按"当前默认模型"重渲染一次（切了默认提供方/模型、或刚改完档位时调） */
+  async function refreshEffort() {
+    try {
+      const d = await window.svsettings.getProviders()
+      await renderEffortSelect(d.reasoningEffort || '', d.defaultProvider || '', d.defaultModel || '')
+    } catch { /* 宿主没起 / 别的宿主拉起设置页：不冒未捕获 rejection，保持原样 */ }
+  }
   async function renderSessionModel() {
     const textEl = $('session-model-text')
     const sel = $('session-model-select')
@@ -995,6 +1096,8 @@
        *   `agent-default-model`**（宿主自己把它记为默认）⇒ 本页上面那些"默认模型"显示必须重取，
        *   否则界面会自相矛盾（会话已是新模型，默认还显示旧值）。 */
       await loadProviders()
+      /* 默认模型变了 ⇒ 推理等级的**可选项也跟着变**（每个模型自报的档位不同） */
+      await refreshEffort()
     }
   }
   /* 主进程推来的变化（切模型后 / 换会话后） */
@@ -1260,7 +1363,12 @@
             return                                   // ⚠️ 先不添加：让用户看清"改成什么了"再点一次
           }
           addWarn.style.display = 'none'
-          const model = { id, name: nameIn.value.trim(), description: descIn.value.trim(), supportsImage: imgCb.checked }
+          /* ⛔ 2026-10-08（用户报 `INVALID_MODEL_INFO` provider "bailian" model "qwen3.8-max"）：
+           *   以前这里原样写 `name: nameIn.value.trim()` ⇒ 显示名留空就是 **`name: ""`**，
+           *   而宿主的判据是「name 必须是非空字符串」（`dsh-llm/lib/index.js:2053`）——
+           *   pi-ai 那边的兜底是 `entry.name ?? … ?? entry.id`，**`??` 不兜空字符串** ⇒ 直接硬拒。
+           *   ⇒ 留空就用**模型 ID** 当显示名（主进程落盘前还会再过一遍 sanitizePiModels 兜底）。 */
+          const model = { id, name: nameIn.value.trim() || id, description: descIn.value.trim(), supportsImage: imgCb.checked }
           if (isPiAi) {
             const r = await window.svsettings.setPiProviderFields(p.id, { models: [...(p.models || []), model] })
             if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.addFailed')); return }
@@ -1302,7 +1410,21 @@
           return inp
         }
         baseUrlIn = mk('settings.model.overrideBaseUrl', 'settings.model.overrideBaseUrlPh', p.baseURL)
-        apiIn = mk('settings.model.overrideApi', 'settings.model.overrideApiPh', p.api)
+        /* ⛔ API 协议是**闭集**：用下拉，不用文本框（写错 = 整个 llm-pi-ai 配置失效）。
+         *    '' = 不覆写（保存时后端会**删掉**这个键，回提供方内建默认）。 */
+        {
+          const row = document.createElement('div')
+          row.className = 'frow'
+          const lb = document.createElement('span')
+          lb.className = 'flabel'
+          lb.textContent = I.t('settings.model.overrideApi')
+          const sel = document.createElement('select')
+          fillSelect(sel, PI_API_PROTOCOLS, p.api || '', I.t('settings.model.overrideApiNone'))
+          row.appendChild(lb)
+          row.appendChild(sel)
+          box.appendChild(row)
+          apiIn = sel
+        }
         body.appendChild(box)
       }
 
@@ -1354,6 +1476,8 @@
           if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.saveFailed')); return }
         }
         loadProviders()
+        /* 换了默认提供方/模型 ⇒ 推理等级的可选项跟着变（旧值若不受支持会在提示行里标出来） */
+        refreshEffort()
       })
       actions.appendChild(saveBtn)
       const closeBtn = document.createElement('button')
@@ -1461,7 +1585,8 @@
       $('custom-route').value = ''
       $('custom-name').value = ''
       $('custom-keyenv').value = ''
-      $('custom-api').value = ''
+      /* 协议下拉复位到**宿主支持的默认那一个**（不是空值：自定义提供方没有"内建默认"可退） */
+      $('custom-api').value = PI_API_PROTOCOLS[0]
       $('custom-baseurl').value = ''
       $('custom-key').value = ''
       $('custom-form').style.display = 'none'
@@ -1589,6 +1714,8 @@
   $('btn-always-top').addEventListener('click', () => window.svsettings.toggleAlwaysTop())
   $('btn-orb-reset').addEventListener('click', () => window.svsettings.resetOrbPosition())
   $('btn-bridge-doc').addEventListener('click', (e) => { e.preventDefault(); window.svsettings.openBridgeDoc() })
+  /* 自定义提供方的协议下拉：铺那三个真值（页面只有 PI_API_PROTOCOLS 一处真值表） */
+  fillSelect($('custom-api'), PI_API_PROTOCOLS, PI_API_PROTOCOLS[0])
   /* 关于页的「反馈 / 联系」三处链接（B 站 / 邮箱 / GitHub）：统一交给主进程开系统浏览器
      （渲染进程是 sandbox，不许自己开；主进程只放行 http(s) 与 mailto:） */
   document.querySelectorAll('a.extlink').forEach((a) => {
@@ -1602,13 +1729,22 @@
   // 对话设置：语言 + 推理等级（可编辑，写 settings.yaml）
   window.svsettings.getProviders().then((d) => {
     $('lang-select').value = d.language || 'zh'
-    $('effort-select').value = d.reasoningEffort || 'high'
-  })
+    /* 推理等级的选项**按当前默认模型自报的档位**生成（见 renderEffortSelect 顶部注释）。
+     * d.reasoningEffort 现在**空串 = 没写这个键**（= 跟随提供方默认），不再伪造成 'high'。 */
+    return renderEffortSelect(d.reasoningEffort || '', d.defaultProvider || '', d.defaultModel || '')
+  }).catch(() => {})
   $('lang-select').addEventListener('change', async (e) => {
     await window.svsettings.setLanguage(e.target.value)
   })
   $('effort-select').addEventListener('change', async (e) => {
-    await window.svsettings.setReasoningEffort(e.target.value)
+    try {
+      const r = await window.svsettings.setReasoningEffort(e.target.value)
+      if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.saveFailed')); return }
+      await refreshEffort()
+    } catch (err) {
+      /* 别的宿主拉起设置页 / 宿主没起：不许冒未捕获 rejection（其余 IPC 同一纪律） */
+      window.alert(I.t('settings.common.saveFailed'))
+    }
   })
 
   /* ── 客户端界面语言（悬浮球 / 设置窗 / 托盘；与 DSH 的 locale.preference 无关） ──
@@ -2282,6 +2418,9 @@
     safeRedraw('stt', () => { if (sttData) renderStt(sttData) })
     safeRedraw('credSource', renderCredSource)          // 🆕 ③：凭据来源（组合文案，必须重排）
     safeRedraw('sessionModel', () => { renderSessionModel().catch(() => {}) })   // 🆕 ⑤：本会话模型
+    /* 🆕 2026-10-08：推理等级的选项是**动态铺的**（按模型自报的档位）⇒ 没有 data-i18n，
+     * `I.apply()` 管不到它，必须自己重排一次；否则切语种后这里留着旧语种的字（实测被 i18n 测试抓到）。 */
+    safeRedraw('effort', () => { refreshEffort().catch(() => {}) })
   })
 </script>
 </body>
