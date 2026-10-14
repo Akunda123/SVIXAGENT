@@ -1,0 +1,16 @@
+{
+  "sourceRoots": ["electron/src"],
+  "uxContract": "UX-CONTRACT.md",
+  "ownership": {"Select/Listbox": "native"},
+  "requiredCapabilities": ["Select/Listbox", "Form", "Scrollbar", "Toast", "CRUD"],
+  "requiredCommands": ["network-unit", "network-ui", "localization"],
+  "commands": {
+    "network-unit": "npm --prefix electron run test:network",
+    "network-ui": "npm --prefix electron run test:network-ui",
+    "localization": "npm --prefix electron run test:i18n"
+  },
+  "evidence": {
+    "crudFullFlow": "dist/network-test-runtime/evidence/network-verification.json",
+    "failurePaths": "dist/network-test-runtime/evidence/network-verification.json"
+  }
+}

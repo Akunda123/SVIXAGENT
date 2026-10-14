@@ -15,6 +15,8 @@
     "test:i18n": "electron dev/test-i18n.cjs",
     "check:i18n": "node dev/check-i18n-residue.cjs",
     "test:settings-ui": "electron dev/test-settings-clicks.cjs",
+    "test:network": "node --test dev/test-network-settings.cjs",
+    "test:network-ui": "electron dev/test-network-ui.cjs",
     "test:badge": "electron dev/test-badge-layout.cjs",
     "test:host-pick": "node dev/test-host-pick.cjs",
     "test:panel-dual": "node ../tools/test-panel-dual.cjs",

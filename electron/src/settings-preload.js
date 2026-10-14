@@ -92,6 +92,10 @@ contextBridge.exposeInMainWorld('svsettings', {
 
   /* 设置读写（settings.yaml） */
   getSettings: () => ipcRenderer.invoke('akdagent-get-settings'),
+  getNetwork: () => ipcRenderer.invoke('akdagent-network-get'),
+  saveNetwork: (config) => ipcRenderer.invoke('akdagent-network-save', config),
+  testNetwork: (config) => ipcRenderer.invoke('akdagent-network-test', config),
+  applyNetwork: (revision) => ipcRenderer.invoke('akdagent-network-apply', revision),
   setDefaultModel: (modelId) => ipcRenderer.invoke('akdagent-set-default-model', modelId),
   setLanguage: (lang) => ipcRenderer.invoke('akdagent-set-language', lang),
   setReasoningEffort: (level) => ipcRenderer.invoke('akdagent-set-reasoning-effort', level),
@@ -145,6 +149,7 @@ contextBridge.exposeInMainWorld('svsettings', {
     ipcRenderer.invoke('akdagent-select-session-model', sessionId, provider, model, reasoningEffort),
   /** 主进程推来的"本会话模型已变"（切模型后 / 换会话后） */
   onSessionModel: (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p)),
+  onModelCatalogChanged: (cb) => ipcRenderer.on('akdagent-model-catalog-changed', (_e, p) => cb(p)),
 
   /* 🆕 2026-10-06：**订阅登录**（OAuth）——
    *   ① `authFlows()` 读清单 + 当前尝试（宿主插件写的 `flows.json` / `attempt.json`）

@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('akdagent', {
   showContextMenu: (x, y) => ipcRenderer.send('akdagent-context-menu', x, y),
   /** 主进程（右键菜单「显示/隐藏聊天」）请求切换文本面板 */
   onTogglePanel: (cb) => ipcRenderer.on('akdagent-toggle-orb-panel', () => cb()),
+  onOpenPanel: (cb) => ipcRenderer.on('akdagent-open-orb-panel', () => cb()),
+  openExternal: (url) => ipcRenderer.send('akdagent-open-external', String(url || '')),
   /** SV 工程切换推送（桥主动检测 → 主进程转发）：清空面板、显示切换提示 */
   onProjectSwitched: (cb) => ipcRenderer.on('akdagent-project-switched', (_e, project) => cb(project)),
   /** 宿主类型推送（'sv' | 'instrument-x' | null）：切换悬浮球图标 */
@@ -128,4 +130,5 @@ contextBridge.exposeInMainWorld('akdagent', {
   selectSessionModel: (sessionId, provider, model, reasoningEffort) =>
     ipcRenderer.invoke('akdagent-select-session-model', sessionId, provider, model, reasoningEffort),
   onSessionModel: (cb) => ipcRenderer.on('akdagent-session-model', (_e, p) => cb(p)),
+  onModelCatalogChanged: (cb) => ipcRenderer.on('akdagent-model-catalog-changed', (_e, p) => cb(p)),
 })

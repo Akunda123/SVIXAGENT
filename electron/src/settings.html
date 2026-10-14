@@ -14,8 +14,11 @@
     --muted: rgb(140,140,140);
     --accent: #79d825;
     --danger: #e5484d;
+    --error-text: #ffb3b6;
     --hover: rgba(255,255,255,.1);
     --active: rgba(121,216,37,.15);
+    --scrollbar: #606060;
+    --scrollbar-hover: #7d7d7d;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -48,6 +51,7 @@
     padding: 9px 10px; border-radius: 8px;
     color: var(--body); cursor: pointer; font-size: 12.5px;
     margin-bottom: 2px; transition: background .15s ease;
+    text-align: left; background: transparent; border: none;
   }
   .nav-item:hover { background: var(--hover); }
   .nav-item.active { background: var(--active); color: var(--accent); font-weight: 600; }
@@ -55,7 +59,7 @@
   #nav .nav-foot { padding: 10px 10px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 
   /* ── 右侧内容区 ── */
-  #main { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+  #main { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px 20px; scrollbar-gutter: stable; }
   .page { display: none; }
   .page.active { display: block; }
   h1 { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
@@ -185,12 +189,35 @@
   }
 
   /* ── 滚动条：与悬浮球对话面板一致 ── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
+  * { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-button { display: none; }
-  ::-webkit-scrollbar-thumb { background: rgb(96,96,96); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover,
-  ::-webkit-scrollbar-thumb:active { background: rgb(125,125,125); }
+  ::-webkit-scrollbar-thumb:active { background: var(--scrollbar-hover); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--danger); }
+  .network-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .network-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .network-field input, .network-field select { width: 100%; min-width: 0; }
+  .network-wide { grid-column: 1 / -1; }
+  .network-route { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .network-route:last-child { border: 0; }
+  .network-route dt { font-size: 11px; color: var(--body); margin-bottom: 4px; }
+  .network-route dd { color: var(--text); overflow-wrap: anywhere; -webkit-user-select: text; }
+  .network-endpoint { font-family: ui-monospace, monospace; }
+  .network-feedback { font-size: 12px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; padding-top: 8px; }
+  .network-feedback.bad { color: var(--error-text); }
+  .network-feedback.ok { color: var(--accent); }
+  #network-editor { margin-top: 12px; }
+  #network-profile-actions { margin-top: 10px; }
+  #page-network .hint { line-height: 1.6; margin-top: 6px; font-size: 12px; color: var(--body); }
+  [hidden] { display: none !important; }
+  @media (max-width: 620px) { .network-grid { grid-template-columns: 1fr; } #nav { width: 128px; } #main { padding: 14px 12px; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (forced-colors: active) { * { scrollbar-color: auto; } button:focus-visible, input:focus-visible, select:focus-visible { outline-color: Highlight; } }
 </style>
 </head>
 <body>
@@ -201,11 +228,12 @@
 <!-- 左侧导航 -->
 <div id="nav">
   <div class="brand">AKDAgent</div>
-  <div class="nav-item" data-page="model" data-i18n="settings.nav.model">模型设置</div>
-  <div class="nav-item" data-page="conv" data-i18n="settings.nav.conv">对话设置</div>
-  <div class="nav-item" data-page="sv" data-i18n="settings.nav.sv">SV 集成</div>
-  <div class="nav-item" data-page="status" data-i18n="settings.nav.status">状态</div>
-  <div class="nav-item" data-page="about" data-i18n="settings.nav.about">关于</div>
+  <button type="button" class="nav-item" data-page="model" data-i18n="settings.nav.model">模型设置</button>
+  <button type="button" class="nav-item" data-page="network" data-i18n="network.title">网络与代理</button>
+  <button type="button" class="nav-item" data-page="conv" data-i18n="settings.nav.conv">对话设置</button>
+  <button type="button" class="nav-item" data-page="sv" data-i18n="settings.nav.sv">SV 集成</button>
+  <button type="button" class="nav-item" data-page="status" data-i18n="settings.nav.status">状态</button>
+  <button type="button" class="nav-item" data-page="about" data-i18n="settings.nav.about">关于</button>
   <div class="spacer"></div>
   <div class="nav-foot" id="ver">v1.0.0</div>
 </div>
@@ -285,6 +313,7 @@
     <section>
       <h2 data-i18n="settings.auth.section">订阅登录</h2>
       <div class="hint" data-i18n="settings.auth.hint">按订阅登录的模型（ChatGPT Plus/Pro · Claude Pro/Max · GitHub Copilot · Kimi 编程套餐 · xAI…）。点右边的按钮开始登录：按提示把验证码填到网页上即可（凭据只保存在本机）。</div>
+      <p class="hint" data-i18n="ux.subscription.catalogHint">模型目录核对于 2026-10-08。可选择不代表套餐可用；部分模型可能需要额外额度。不会自动更换默认模型或开启额外付费。</p>
       <div class="actions">
         <button id="btn-auth-refresh" data-i18n="settings.auth.refresh">刷新清单</button>
       </div>
@@ -295,6 +324,76 @@
       <div class="hint" id="auth-recheck"></div>
       <div id="auth-flows"></div>
     </section>
+  </div>
+
+  <div class="page" id="page-network">
+    <h1 data-i18n="network.title">网络与代理</h1>
+    <p class="sub" data-i18n="network.sub">为 AKDAgent 选择网络通道，不改变系统代理。</p>
+    <section>
+      <h2 data-i18n="network.current">当前连接</h2>
+      <dl>
+        <div class="network-route"><dt data-i18n="network.active">正在使用</dt><dd id="network-active">—</dd></div>
+        <div class="network-route"><dt data-i18n="network.saved">已保存</dt><dd id="network-saved">—</dd></div>
+      </dl>
+      <p id="network-pending" class="hint"></p>
+    </section>
+    <form id="network-form" novalidate>
+      <section>
+        <h2 data-i18n="network.channel">通道选择</h2>
+        <div class="network-field">
+          <label for="network-route" data-i18n="network.route">下次启动使用</label>
+          <select id="network-route" aria-describedby="network-route-help network-feedback" disabled></select>
+          <p class="hint" id="network-route-help" data-i18n="network.routeHelp">原有设置保持原行为。系统选项仅读取 Windows 固定 HTTP/HTTPS 代理，不支持 PAC/SOCKS。</p>
+        </div>
+      </section>
+      <section>
+        <h2 data-i18n="network.profiles">自定义代理通道</h2>
+        <div class="network-field">
+          <label for="network-profile" data-i18n="network.editProfile">编辑通道</label>
+          <select id="network-profile" disabled></select>
+        </div>
+        <div id="network-profile-actions" class="actions">
+          <button type="button" id="network-add" data-i18n="network.add" disabled>添加通道</button>
+          <button type="button" id="network-remove" data-i18n="network.remove" disabled>移除通道</button>
+        </div>
+        <div id="network-editor" class="network-grid" hidden>
+          <div class="network-field network-wide">
+            <label for="network-name" data-i18n="network.name">通道名称</label>
+            <input id="network-name" type="text" maxlength="64" autocomplete="off" aria-describedby="network-feedback">
+          </div>
+          <div class="network-field">
+            <label for="network-protocol" data-i18n="network.protocol">代理协议</label>
+            <select id="network-protocol" aria-describedby="network-feedback"><option value="http">HTTP</option><option value="https">HTTPS</option></select>
+          </div>
+          <div class="network-field">
+            <label for="network-port" data-i18n="network.port">端口</label>
+            <input id="network-port" type="text" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="7897" aria-describedby="network-feedback">
+          </div>
+          <div class="network-field network-wide">
+            <label for="network-host" data-i18n="network.host">地址（不含协议）</label>
+            <input id="network-host" type="text" maxlength="253" autocomplete="off" spellcheck="false" placeholder="127.0.0.1" aria-describedby="network-feedback">
+          </div>
+        </div>
+        <p id="network-empty" class="hint" data-i18n="network.empty">尚未添加通道。可添加本地或远程 HTTP/HTTPS 代理。</p>
+        <p class="hint" data-i18n="network.profileHelp">最多 20 个。HTTP/HTTPS 指代理服务器协议；本版本不保存账号密码，不支持 SOCKS。</p>
+      </section>
+      <section>
+        <h2 data-i18n="network.actions">测试与应用</h2>
+        <div class="actions">
+          <button type="button" id="network-test" data-i18n="network.test" disabled>测试所选通道</button>
+          <button type="submit" id="network-save" class="primary" data-i18n="network.save" disabled>保存配置</button>
+          <button type="button" id="network-discard" data-i18n="network.discard" disabled>放弃未保存修改</button>
+        </div>
+        <p class="hint" data-i18n="network.testHelp">测试会向 Cloudflare 发出无密钥的 HTTPS 请求，不调用模型、不消耗 token，也不会保存通道。</p>
+        <p class="hint" data-i18n="network.draftHelp">修改仅在点击保存后写入；关闭设置窗口会丢弃未保存修改。</p>
+        <div class="network-feedback" id="network-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div class="actions" style="margin-top:12px">
+          <button type="button" id="network-apply" data-i18n="network.apply" aria-describedby="network-apply-help" disabled>应用并重启 AKDAgent</button>
+        </div>
+        <p class="hint" id="network-apply-help" data-i18n="network.applyHelp">先保存，待对话与登录结束后再应用；确认后仅重启 AKDAgent，不关闭 SV。</p>
+      </section>
+    </form>
+    <p class="sub" data-i18n="network.scope">本地 SV/DSH 连接始终绕过代理。外部浏览器和 Codex 使用各自的网络设置。</p>
   </div>
 
   <!-- 对话设置 -->
@@ -558,7 +657,9 @@
     document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'))
     document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'))
     item.classList.add('active')
+    document.querySelectorAll('.nav-item').forEach((n) => { if (n === item) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current') })
     page.classList.add('active')
+    window.AKDNetworkUI?.onPage(name)
     if (typeof autoCheckBridgeOnStatusPage === 'function') autoCheckBridgeOnStatusPage(name)
     if (name === 'model' && typeof loadAuthFlows === 'function') loadAuthFlows()   // 订阅登录清单（只读）
     return true
@@ -649,6 +750,9 @@
      *   ⇒ 这一区只干一件事：**用订阅账号登录**（有 `oauth` 方法的那几家）。密钥一律回上面的卡片填。 */
     const flows = flowsAll.filter((f) => (Array.isArray(f.methods) ? f.methods : []).some((m) => m.id === 'oauth'))
     const attempt = (r && r.attempt) || null
+    if (r?.subscription) {
+      tip.textContent = I.t(r.subscription.ok ? 'ux.subscription.ready' : 'ux.subscription.writeFailed')
+    }
     /* 一次只跑一个登录（宿主侧就是这规矩）。
      * ⛔ 2026-10-07 实测（用户日志）：跑着的时候点**别的**提供方 → 宿主静默忽略 → 界面毫无反应，像坏了。
      *   中途我一度把"跑着就禁掉所有登录按钮"当作解法 ⇒ 用户当场报「为什么我按钮点不动了」= **死胡同**。
@@ -918,7 +1022,10 @@
         left.appendChild(retry)
       }
       /* 刚登录成功：刷新提供方列表，让新 route / 模型立刻出现（只刷一次，别在轮询里刷） */
-      if (a.state === 'authorized' && authLastState !== 'authorized' && typeof loadProviders === 'function') loadProviders()
+      if (a.state === 'authorized' && authLastState !== 'authorized' && typeof loadProviders === 'function') {
+        modelCatalog = null
+        loadProviders()
+      }
     }
     authLastState = a.state
     wrap.appendChild(left)
@@ -972,7 +1079,13 @@
     /* 选择器：宿主目录里的**全部**可选模型（按提供方分组） */
     const cat = await loadModelCatalog(false)
     if (!cat || !Array.isArray(cat.groups) || !cat.groups.length) { sel.style.display = 'none'; return }
-    sel.innerHTML = ''
+    sel.replaceChildren()
+    if (!next) {
+      const placeholder = document.createElement('option')
+      placeholder.value = ''; placeholder.textContent = I.t('ux.model.choose')
+      placeholder.disabled = true; placeholder.selected = true
+      sel.appendChild(placeholder)
+    }
     for (const g of cat.groups) {
       const og = document.createElement('optgroup')
       og.label = g.name || g.id
@@ -987,9 +1100,18 @@
     }
     sel.style.display = ''
     sel.onchange = async () => {
+      if (sel.disabled) return
       const [provider, model] = String(sel.value).split('\u0000')
-      const r = await window.svsettings.selectSessionModel(null, provider, model)
-      if (!r || r.ok === false) { window.alert((r && r.error) || I.t('settings.common.saveFailed')); renderSessionModel(); return }
+      sel.disabled = true
+      textEl.setAttribute('role', 'status'); textEl.setAttribute('aria-live', 'polite')
+      let r
+      try { r = await window.svsettings.selectSessionModel(null, provider, model) }
+      catch { r = { ok: false, error: I.t('settings.common.saveFailed') } }
+      finally { sel.disabled = false }
+      if (!r || r.ok === false) {
+        textEl.textContent = I.t('ux.model.switchFailed', (r?.error || I.t('settings.common.saveFailed')).slice(0, 300))
+        return
+      }
       textEl.textContent = I.t('settings.model.sessionSwitched', `${provider} / ${model}`)
       /* ⚠️ 2026-10-05 实测（对运行中的宿主直接打端点验的）：`session/selectModel` **会连带更新
        *   `agent-default-model`**（宿主自己把它记为默认）⇒ 本页上面那些"默认模型"显示必须重取，
@@ -1004,6 +1126,10 @@
       if (el && p && p.provider) el.textContent = I.t('settings.model.sessionModel', `${p.provider} / ${p.model}`)
     })
   }
+  window.svsettings.onModelCatalogChanged?.(() => {
+    modelCatalog = null
+    loadProviders()
+  })
 
   /** 🆕 2026-10-05（③）：把"这份凭据住在哪个家"显示出来（只显示**键名**，永不显示值） */
   function renderCredSource() {
@@ -1099,8 +1225,8 @@
     info.appendChild(name)
     const sub = document.createElement('div')
     sub.className = 'provider-sub'
-    sub.textContent = p.hasKey
-      ? I.t('settings.model.keyConfigured', p.apiKeyEnv)
+    sub.textContent = p.subscription ? I.t('ux.subscription.configured')
+      : p.hasKey ? I.t('settings.model.keyConfigured', p.apiKeyEnv)
       : I.t('settings.model.keyNotConfigured')
     info.appendChild(sub)
     /* 🆕 2026-10-05（⑦ 展示侧）：**已存在**的密钥看起来不对时也要说一句（以前只在保存那一刻提示）
@@ -2284,5 +2410,7 @@
     safeRedraw('sessionModel', () => { renderSessionModel().catch(() => {}) })   // 🆕 ⑤：本会话模型
   })
 </script>
+<script src="network-schema.js"></script>
+<script src="network-settings-ui.js"></script>
 </body>
 </html>

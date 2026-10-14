@@ -29,7 +29,7 @@ const LOCALE_LABELS = {
   ja: '日本語',
 }
 /** 字典文件（去掉 .json）→ 供哪个窗口用 */
-const NAMESPACES = ['common', 'settings', 'orb', 'keyPrompt', 'svSetup']
+const NAMESPACES = ['common', 'settings', 'orb', 'keyPrompt', 'svSetup', 'network', 'uxFixes']
 
 let prefsPath = null
 let locale = DEFAULT_LOCALE
@@ -148,7 +148,7 @@ function dictFor(namespace) {
   ensureLoaded()
   const ns = NAMESPACES.includes(namespace) ? namespace : 'common'
   const picked = {}
-  const wanted = ns === 'common' ? ['common'] : ['common', ns]
+  const wanted = ns === 'common' ? ['common', 'network', 'uxFixes'] : ['common', 'network', 'uxFixes', ns]
   const keys = new Set()
   for (const n of wanted) {
     const d = dicts[n] || {}
