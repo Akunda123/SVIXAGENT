@@ -74,6 +74,7 @@ function extractFromZip(zip, innerRel) {
 
 let asarPath = null
 let cleanupTmp = null
+const FROM_ZIP = !!ZIP        // **zip 模式**（mac 包）：下面的"包比源码旧"门禁对它有假阳性，见那段注释
 if (ZIP) {
   if (!fs.existsSync(ZIP)) { console.error('zip 不存在：' + ZIP); process.exit(2) }
   const inner = 'AKDAgent.app/Contents/Resources/app.asar'
@@ -144,12 +145,21 @@ for (const [, repoRel] of MUST_MATCH.concat(MUST_MATCH_UNPACKED)) {
     if (m > newestSource) { newestSource = m; newestWhich = repoRel }
   } catch (_) { /* 仓库里没有这份就不参与 */ }
 }
-if (!argv.includes('--strict') && newestSource > asarMtime) {
+if (!argv.includes('--strict') && !FROM_ZIP && newestSource > asarMtime) {
   console.log('包比源码旧 ⇒ 本次跳过核对（源码里有还没出包的改动）。')
   console.log(`  最新改动：${newestWhich}（${new Date(newestSource).toISOString()}）`)
   console.log(`  产物时间：${new Date(asarMtime).toISOString()}`)
   console.log('  出包之后再跑：node tools/check-packaged-app.cjs（CI 里就是这么用的）· 要强制核对加 --strict')
   process.exit(0)
+}
+/* ⛔ 2026-10-10（1.1.5 发版时实测）：**zip 模式不能走这个门禁** ——
+ *   解包出来的 asar 时间继承的是 zip 条目里的 DOS 时间（**没有时区**：CI runner 是 UTC，
+ *   解包工具按**本机时区**（UTC+8）落盘）⇒ 产物时间看起来比真实早 8 小时，
+ *   于是"包比源码旧"永远成立 ⇒ mac 包的核对**静默跳过**（1.1.5 就撞上了，加 `--strict` 才跑出结论）。
+ *   zip 是我们**要审计的那个产物本身**（用户下载回来的那份），时间不可靠 ⇒ 一律严格核对。 */
+if (FROM_ZIP && !argv.includes('--strict')) {
+  console.log('zip 模式：跳过"包比源码旧"的门禁（条目时间是 DOS 时间、时区不可靠）⇒ 直接严格核对。')
+  console.log(`  解包产物时间（仅供参考）：${new Date(asarMtime).toISOString()}`)
 }
 
 console.log('== ① 版本（发出去的包是不是仓库这一版）==')
