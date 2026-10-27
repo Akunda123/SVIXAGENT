@@ -100,11 +100,27 @@ PANELUI.refreshSoon = function () {
 /* ① 存储顺序 = **新在前**（用户 2026-09-16：「直接新str+老str不行吗」）——
    于是"加一行"就是 `新 + 老` 的字符串拼接，**只改 TextArea 的值、不重建面板**。
    （重建 refreshSidePanel 会重排版 + 滚动回顶 + 闪一下；纯内容更新不需要它。） */
-PANELUI.displayLog = function () { return String(PANELUI.log || '') }
+/* ⚠️ 2026-10-27 **日志上限砍到 1200 字符**（原来 20000）：
+   SV2 2.2.1 在把长文本交给侧栏控制的 TextArea 时会写坏堆 ⇒ 0xc0000409 / 0xc0000374 直接杀宿主。
+   实测：scriptData 里 1 万字节日志的工程一开面板就崩；清空 scriptData 的同一工程不崩。
+   完整日志请读 %TEMP%\akdagent-panel-log-<host>.txt（桥一直在写）。 */
+/* [版本策略 2026-10-27] 面板版本 = 产品版本（本版 1.1.6 ⇒ versionNumber 116）。 */
+PANELUI.LOG_MAX = 5000
+PANELUI.displayLog = function () {
+  var s = String(PANELUI.log || '')
+  return s.length > PANELUI.LOG_MAX ? s.slice(0, PANELUI.LOG_MAX) : s
+}
 
 /* 桥写来的 log 是**时间正序**（它按写入顺序追加）⇒ 显示前倒成"新在前" */
 PANELUI.logFromBridge = function (chronological) {
-  var lines = String(chronological || '').split('\n')
+  var s = String(chronological || '')
+  if (s.length > PANELUI.LOG_MAX) {                       // 只保留最新尾部（上限 5 KB）
+    var cut = s.slice(-(PANELUI.LOG_MAX - 40))
+    var nl = cut.indexOf('\n')                           // 按行边界切，别断半个字
+    if (nl >= 0 && nl < cut.length - 1) cut = cut.slice(nl + 1)
+    s = '…（更早的记录未存储，完整历史见悬浮球）\n' + cut
+  }
+  var lines = s.split('\n')
   lines.reverse()
   return lines.join('\n')
 }
@@ -140,7 +156,7 @@ PANELUI.renderLog = function () { PANELUI.wSet(PANELUI.widgets.log, PANELUI.disp
 PANELUI.append = function (text) {
   if (typeof text !== 'string' || !text) return
   PANELUI.log = PANELUI.log ? (text + '\n' + PANELUI.log) : text   // 新 + 老
-  if (PANELUI.log.length > 20000) PANELUI.log = PANELUI.log.slice(0, 20000)
+  if (PANELUI.log.length > PANELUI.LOG_MAX) PANELUI.log = PANELUI.log.slice(0, PANELUI.LOG_MAX)
   // ⚠️ 只改值，**不 refresh**：内容更新不该重建面板（否则滚动回顶、闪屏、打断打字）
   PANELUI.renderLog()
   PANELUI.dirty = true
@@ -497,8 +513,10 @@ function getSidePanelSectionState() {
 
 function getClientInfo() {
   try {
+    // 面板版本 = 产品版本（用户 2026-10-27 定：桥与面板统一跟随产品版本；本版 1.1.6）
+    // SV 要求 versionNumber 是整数 ⇒ 1.1.6 记作 116
     return { name: 'AKDAgent', category: 'AKDAgent', author: 'AKDAgent',
-             versionNumber: 30, minEditorVersion: 65536, type: 'SidePanelSection' }
+             versionNumber: 116, minEditorVersion: 65536, type: 'SidePanelSection' }
   } catch (e) {
     return { name: 'AKDAgent', category: 'AKDAgent', type: 'SidePanelSection', minEditorVersion: 65536 }
   }

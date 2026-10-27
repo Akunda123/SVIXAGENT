@@ -92,13 +92,15 @@ local function trace(msg)
   end
 end
 
+local SCRIPT_TAG = "1.1.6"   -- 显示在 SV 脚本菜单里：便于区分"正常版 / 诊断版 / 备份"
+
 function getClientInfo()
   if not _gcTraced then
     _gcTraced = true
     trace("getClientInfo 被调用 —— 宿主已加载本文件")
   end
   return {
-    name = "AKDAgent Bridge (Lua)",
+    name = "AKDAgent 桥 " .. SCRIPT_TAG .. " (Lua)",
     category = "Agent",
     author = "AKDAgent",
     versionNumber = 1,
@@ -131,7 +133,18 @@ local CFG = {
   --    再点一次"运行"**不会**替换掉旧实例（实测 2026-09-12：旧实例 09:07 起一直活着，
   --    09:19 的"运行"没有产生新 boot）—— 于是"明明改了却没生效"。
   --    有了版本号，`ping`/心跳里就能一眼看出跑的是哪一版。
-  VERSION        = "1.0.2",   -- 1.0.2 = 内容同 1.0.1 最后一轮（宿主模态框三道防线 + crash 闸 + 内容检测 + toneShift 夹值），
+  -- [1.1.6 2026-10-27] 面板日志上限 20000 → 5000 字符（写进 scriptData 的那份，超出不存）。
+  --   根因已定位：长文本交给侧栏 TextArea 会让 SV2 2.2.1 堆损坏崩宿主；清空 scriptData 同工程不崩。
+  -- [1.1.6 2026-10-27] PANEL.detect 判定一次后不再触碰 project 对象。
+  --   触发链已实测：桥在跑 + 打开侧栏面板 ⇒ 立刻 0xc0000374；桥不跑则安全。
+  -- [1.1.6 2026-10-27] **移除启动时的全工程遍历**。实测遍历 691 音符/58 音高线的工程
+  --   会让 SV2 2.2.1 触发 0xc0000374 堆损坏（每个调用都 ok，但宿主随后崩）。故 measure 恒返回 -1（不拦）。
+  -- [1.0.3 2026-10-27] 修「大工程(≥820KB)+面板 ⇒ SV2 2.2.1 崩(0xc0000409/BEX64)」：
+  --   ① mirrorStatus 不再每 1.2s 写 scriptData（10s 节流 + 值变才写）
+  --   ② 工程 notes≥500 或 curves≥40 ⇒ 面板中继整体禁用（面板显示"桥未连接"，但宿主不崩）
+  -- [版本策略 2026-10-27 · 用户定] **桥与面板统一跟随产品版本号**（本次起 = 1.1.6）。
+  --   以后：客户端升版本 ⇒ 桥/面板跟着改成同一个号；不升版本就不动它们。
+  VERSION        = "1.1.6",   -- [历史] 1.0.2 = 内容同 1.0.1 最后一轮（宿主模态框三道防线 + crash 闸 + 内容检测 + toneShift 夹值），
                               --          **只是把版本号统一到 1.0.2**（用户 2026-09-27 澄清：「改成同版本号」= 产品/桥/面板/
                               --          改过的 skill 一起升到 **1.0.2**，不是留在 1.0.1）⇒ 桥 1.0.2 · 面板 1.0.2-js · 产品 1.0.2。
                               -- 1.0.1 = **宿主模态框事故的三道防线**（2026-09-27，用户真机反馈
@@ -273,6 +286,12 @@ local CFG = {
                               --             和弦里同 onset 的音不再互相误删（旧行为：后写的把先写的当旧版删掉，只剩 1 条）
                               --          0.3.17 = 新增只读 op get_layout（当前组布局报告：重叠/缝隙/短缝 + 策略）
   POLL_MS        = 300,      -- 请求轮询间隔
+  -- [2026-10-27] 面板中继节流 + 规模闸（修 SV2 2.2.1 在 820KB+ 工程上 0xc0000409/BEX64 崩溃）
+  --   根因：原先每 4 拍（≈1.2s）往 project scriptData 写 bridgeAt/bridgeVer/clientAt；
+  --   工程大时 SV2 要把变更同步给 JS 面板宿主，撞固定缓冲区 ⇒ __fastfail 杀进程。
+  PANEL_STATUS_MIN_SEC = 10,    -- 状态镜像最小写入间隔（秒）；值没变则不写
+  PANEL_MAX_NOTES      = 500,   -- 工程音符数 ≥ 此值 ⇒ 面板中继整体禁用（宁降级不崩）
+  PANEL_MAX_CURVES     = 40,    -- 音高线条数 ≥ 此值 ⇒ 同上
   HB_MS          = 5000,     -- 心跳间隔
   MAX_DONE       = 64,       -- 响应缓存条数（供重复请求重发）
   LOG_MAX_BYTES  = 262144,   -- 日志超过则重建
@@ -328,7 +347,11 @@ local PANEL = {
   helloLogged = false,      -- 是否已把「桥连接成功」写进面板信息框
   disabledLogged = false,
   maxBytes = 262144,        -- panel jsonl 上限（超过则重写为空，避免无限增长）
-  logMax = 20000,           -- 面板信息框保留的最大字符数（取尾部）
+  logMax = 5000,            -- [1.1.6 2026-10-27] 面板信息框上限：20000 → 5000（超出的部分不存）
+  -- ⚠️ 为什么砍到 1200：SV2 2.2.1 把长文本交给侧栏 TextArea 时会写坏堆
+  --   （0xc0000409 缓冲区溢出 / 0xc0000374 堆损坏，直接杀宿主）。实测：scriptData 里
+  --   1 万字节日志的工程一开面板就崩；把 scriptData 清空的同一工程不崩。
+  --   完整日志仍在 %TEMP%\akdagent-panel-log-<host>.txt（桥一直在写）。
 }
 local OP_NAMES = {}
 
@@ -5248,11 +5271,37 @@ end
 -- 纪律：① 全程 pcall，面板出任何问题都不得影响桥；② SV1 无 scriptData ⇒ 自动禁用并记一次日志；
 --       ③ jsonl 只追加；④ 桥停了面板自然停更（用户能看到"最后一条是什么时候"）。
 
+-- 工程规模测量（只读；用于规模闸）
+function PANEL.measure(proj)
+  -- 1.1.6：**不做全工程遍历**。实测（2026-10-27）：遍历 691 音符/58 音高线的工程时，
+  --   每次调用都返回 ok，但之后 SV2 2.2.1 立刻以 0xc0000374（堆损坏 / ntdll）崩掉 ⇒
+  --   在宿主修掉这个 bug 之前，桥**绝不遍历工程**。规模闸因此停用（返回 -1 = 未知 ⇒ 不拦）。
+  return { notes = -1, curves = -1 }
+end
+
 function PANEL.detect()
+  -- 1.1.6 [2026-10-27]: 判定一次后**不再触碰 project 对象**.
+  --   实测: 桥在跑(即使不写 scriptData) + 侧栏面板被实例化 => SV2 2.2.1 立刻
+  --   0xc0000374(堆损坏) 崩. 空闲时每 600ms 的 SC("getProject") 是唯一的跨宿主访问点.
+  if PANEL.decided then return PANEL.enabled end
+  PANEL.decided = true
   local proj = SC("getProject")
   if proj == nil then PANEL.enabled = false return false end
   local ok = (proj.getScriptData ~= nil) and (proj.setScriptData ~= nil)
   PANEL.enabled = ok and true or false
+  -- 规模闸（2026-10-27 v2）：只有在 PANEL.measure 能安全拿到规模时才拦；当前 measure 恒返回 -1 ⇒ 不拦
+  if PANEL.enabled and not PANEL.sizeChecked then
+    PANEL.sizeChecked = true
+    PANEL.size = PANEL.measure(proj)
+    if PANEL.size.notes >= CFG.PANEL_MAX_NOTES or PANEL.size.curves >= CFG.PANEL_MAX_CURVES then
+      PANEL.enabled = false
+      PANEL.bigProject = true
+      PANEL.disabledLogged = true
+      log("panel: 工程较大（notes=" .. tostring(PANEL.size.notes) .. " curves=" .. tostring(PANEL.size.curves) ..
+          " >= " .. tostring(CFG.PANEL_MAX_NOTES) .. "/" .. tostring(CFG.PANEL_MAX_CURVES) ..
+          "）⇒ 面板中继已禁用（避免 SV2 崩溃；桥与全部 MCP 工具照常工作）")
+    end
+  end
   if not PANEL.enabled and not PANEL.disabledLogged then
     PANEL.disabledLogged = true
     log("panel: 本宿主没有 project scriptData ⇒ 面板中继禁用")
@@ -5434,15 +5483,11 @@ end
 -- 用户 2026-09-15：面板顶部要显示这两个状态。桥每 ~2s 刷一次；桥一停就不再刷新
 -- ⇒ 面板据此显示"桥：⚠️ 已停（最后 N 分钟前）"。
 function PANEL.mirrorStatus()
-  if not PANEL.enabled then return end
-  PANEL.sdSet("akdagent.panel.bridgeAt", os.time())
-  PANEL.sdSet("akdagent.panel.bridgeVer", CFG.VERSION)
-  local online, age = PANEL.clientStatus()
-  if online then
-    PANEL.sdSet("akdagent.panel.clientAt", os.time() - (age or 0))
-  else
-    PANEL.sdSet("akdagent.panel.clientAt", 0)
-  end
+  -- 1.1.6 [2026-10-27]: 周期性状态镜像已暂停.
+  --   原因: SV2 2.2.1 在 820KB+ 工程上, 桥一写 project scriptData 就可能触发
+  --   0xc0000409(缓冲区溢出) / 0xc0000374(堆损坏) 杀进程. 宿主修好之前不写.
+  --   影响: 面板顶部显示"桥未连接"; 内容事件(append/ask)仍走事件驱动写入.
+  return
 end
 
 -- 在线状态变化时提示一次（不刷屏）：由桥的轮询链调用

@@ -5170,6 +5170,44 @@ app.whenReady().then(async () => {
   }
 })
 
+/* ── 窗口/导航加固（1.1.6 · 2026-10-27）─────────────────────────────────────
+ * 两条标准纵深防御缺口（Electron 官方 security checklist 的前两项），不是"已知在用的漏洞"：
+ *   ① `window.open()` / `<a target="_blank">` ⇒ 默认会**新建一个 BrowserWindow**（带 preload）；
+ *   ② `location.href = "https://…"` ⇒ 会把**带 preload 的窗口**导航到外部页面。
+ * 做法：用 `web-contents-created` 全局拦（对现有与将来新增的窗口/webContents 都生效）：
+ *   · 新窗口一律 deny —— 要开外链走 `akdagent-open-external`（那里有 http(s)/mailto 白名单）；
+ *   · 页面内导航只允许 file:// 且限定在 app 目录（外加 about:blank / devtools://）。
+ */
+function __isInternalUrl(u) {
+  try {
+    const s = String(u || "")
+    if (s === "about:blank" || s.indexOf("devtools://") === 0) return true
+    // 内嵌 DSH 前端跑在回环上（聊天窗就是 http://127.0.0.1:<port>/…）⇒ 必须放行
+    if (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?([\/?#]|$)/i.test(s)) return true
+    if (!/^file:/i.test(s)) return false
+    let rel = s.replace(/^file:\/\//i, "")
+    if (/^\/[A-Za-z]:/.test(rel)) rel = rel.slice(1)      // file:///C:/… → C:/…（Windows）
+    try { rel = decodeURIComponent(rel) } catch { /* 保留原样 */ }
+    const abs = path.resolve(rel.replace(/\//g, path.sep))
+    const root = path.resolve(__dirname)
+    return abs === root || abs.indexOf(root + path.sep) === 0
+  } catch { return false }
+}
+app.on("web-contents-created", (_e, contents) => {
+  try {
+    contents.setWindowOpenHandler(({ url }) => {
+      console.log("[akdagent] 拒绝新窗口: " + String(url).slice(0, 120))
+      return { action: "deny" }
+    })
+  } catch { /* 老 Electron 没有这个 API 就跳过 */ }
+  try {
+    contents.on("will-navigate", (ev, url) => {
+      if (__isInternalUrl(url)) return
+      ev.preventDefault()
+      console.log("[akdagent] 拦下站外导航: " + String(url).slice(0, 120))
+    })
+  } catch { /* 同上 */ }
+})
 app.on('window-all-closed', () => {
   console.log('[akdagent] window-all-closed (all windows gone)')
   quitApp('窗口全关（悬浮球与设置窗都没了）')
