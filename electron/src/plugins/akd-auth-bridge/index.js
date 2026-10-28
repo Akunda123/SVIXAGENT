@@ -36,6 +36,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import ag from './antigravity-auth.cjs'
 
 export const name = 'akd-auth-bridge'
 export const inject = []   // 不声明依赖：服务不在时也要能写出"我在等"的状态（探测用 ctx.get）
@@ -98,23 +99,34 @@ export function apply(ctx, config) {
     let flows = []
     let why = ''
     try { flows = svc.list() } catch (e) { why = (e && e.message) || String(e) }
+    const list = flows.map((e) => ({
+      key: String(e.key),
+      label: e.label,
+      inFlight: !!e.inFlight,
+      methods: (e.methods || []).map((m) => ({ id: m.id, label: m.label })),
+    }))
+    // 确保 Antigravity 流始终出现在清单中
+    if (!list.some((e) => e.key === 'antigravity' || e.key === 'llm-pi-ai/antigravity')) {
+      list.push({
+        key: 'antigravity',
+        label: 'Google (Antigravity)',
+        inFlight: !!(active && active.state === 'running' && (active.key === 'antigravity' || active.key === 'llm-pi-ai/antigravity')),
+        methods: [{ id: 'oauth', label: 'OAuth 登录' }],
+      })
+    }
     writeAtomic(files.flows, {
       state: why ? 'list-failed' : 'ok',
       tag,
       at: new Date().toISOString(),
-      count: flows.length,
+      count: list.length,
       why,
-      flows: flows.map((e) => ({
-        key: String(e.key),
-        label: e.label,
-        inFlight: !!e.inFlight,
-        methods: (e.methods || []).map((m) => ({ id: m.id, label: m.label })),
-      })),
+      flows: list,
     })
   }
 
   /* ── 尝试（attempt）：一次一个；界面照 attempt.json 渲染 ─────────────── */
   let active = null          // 正在跑的那次
+  let antigravityAbort = null
   /* ⛔ boot 时**认领但不重放**盘上那条命令（2026-10-06 实测踩到：重启宿主会把上一次留下的 `begin`
    *   又跑一遍 ⇒ 等于"开机自动发起一次登录"；更糟的是旧的 `answer`——prompt id 每轮都从 p1 重来，
    *   一条陈旧的 secret 可能被当成本轮 p1 的答案消费掉）。所以只处理比挂载时 id **更新**的命令。 */
@@ -160,12 +172,6 @@ export function apply(ctx, config) {
       log('begin ' + c.key + '：先取消正在跑的 ' + active.key + '（一次只跑一个，直接 begin 会被忽略）')
       cancelActive()
     }
-    let hit = null
-    try { hit = svc.list().find((e) => String(e.key) === String(c.key)) } catch { /* 忽略 */ }
-    if (!hit) { log('begin：流里没有 ' + c.key); active = { id: c.id, key: c.key, label: '', method: c.method, state: 'failed', notices: [], prompts: [], awaiting: null, error: 'NO_FLOW' }; publish(); return }
-    active = { id: c.id, key: String(hit.key), label: hit.label, method: c.method, state: 'running', notices: [], prompts: [], awaiting: null, error: '' }
-    publish()
-    log('begin：' + active.key + '（' + active.method + '）')
 
     const interaction = {
       notify: (n) => {
@@ -203,6 +209,38 @@ export function apply(ctx, config) {
       }),
     }
 
+    /* ── Antigravity (Google OAuth 2.0) 适配分支 ── */
+    if (c.key === 'antigravity' || c.key === 'llm-pi-ai/antigravity') {
+      active = { id: c.id, key: 'antigravity', label: 'Google (Antigravity)', method: c.method || 'oauth', state: 'running', notices: [], prompts: [], awaiting: null, error: '' }
+      publish()
+      log('begin Antigravity (Google OAuth)')
+      antigravityAbort = new AbortController()
+      const dshHome = path.dirname(outDir)
+
+      ag.executeLogin({
+        home: dshHome,
+        onNotice: (n) => interaction.notify(n),
+        onPrompt: (p) => interaction.prompt(p),
+        signal: antigravityAbort.signal,
+      }).then(() => {
+        antigravityAbort = null
+        finish('authorized')
+        snapshot('after-authorized')
+      }).catch((e) => {
+        antigravityAbort = null
+        const isCancelled = e && (e.name === 'AbortError' || /取消|cancelled/i.test(e.message))
+        finish(isCancelled ? 'cancelled' : 'failed', (e && e.message) || String(e))
+      })
+      return
+    }
+
+    let hit = null
+    try { hit = svc.list().find((e) => String(e.key) === String(c.key)) } catch { /* 忽略 */ }
+    if (!hit) { log('begin：流里没有 ' + c.key); active = { id: c.id, key: c.key, label: '', method: c.method, state: 'failed', notices: [], prompts: [], awaiting: null, error: 'NO_FLOW' }; publish(); return }
+    active = { id: c.id, key: String(hit.key), label: hit.label, method: c.method, state: 'running', notices: [], prompts: [], awaiting: null, error: '' }
+    publish()
+    log('begin：' + active.key + '（' + active.method + '）')
+
     Promise.resolve()
       .then(() => svc.begin({ key: hit.key, method: c.method, interaction }))
       .then((out) => {
@@ -229,7 +267,11 @@ export function apply(ctx, config) {
 
   function cancelActive() {
     if (!active || active.state !== 'running') return
-    try { svc.cancel(active.key) } catch (e) { log('cancel 抛错：' + (e && e.message)) }
+    if (antigravityAbort) {
+      try { antigravityAbort.abort() } catch { /* 忽略 */ }
+      antigravityAbort = null
+    }
+    try { if (svc) svc.cancel(active.key) } catch (e) { log('cancel 抛错：' + (e && e.message)) }
     if (pending) { const p = pending; pending = null; try { p.reject(new Error('已取消')) } catch { /* 忽略 */ } }
     finish('cancelled')
   }
