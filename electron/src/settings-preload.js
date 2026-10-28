@@ -154,4 +154,10 @@ contextBridge.exposeInMainWorld('svsettings', {
   authBegin: (key, method) => ipcRenderer.invoke('akdagent-auth-begin', key, method),
   authAnswer: (promptId, value) => ipcRenderer.invoke('akdagent-auth-answer', promptId, value),
   authCancel: () => ipcRenderer.invoke('akdagent-auth-cancel'),
+
+  /* Antigravity (Google OAuth 2.0) 专属方法 */
+  antigravityStatus: () => ipcRenderer.invoke('akdagent-antigravity-status'),
+  antigravityLogin: () => ipcRenderer.invoke('akdagent-antigravity-login'),
+  antigravityLogout: () => ipcRenderer.invoke('akdagent-antigravity-logout'),
+  antigravityRefresh: () => ipcRenderer.invoke('akdagent-antigravity-refresh'),
 })

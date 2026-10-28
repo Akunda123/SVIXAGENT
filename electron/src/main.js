@@ -31,6 +31,7 @@ const { querySvProjectName, querySvHostType, startProjectEventWatch, probeBridge
 const { HOSTS, pickActiveHost, orderCandidates, typeOf: hostTypeOf, pickHostType, ACE_HOST_TYPE } = require('./host-pick.js')
 const { ensureHome, normalizeCredentialsDoc, CRED_REF_RE, writeFileAtomic } = require('./dsh-home.js')
 const { ensureAuthBridge, readAuthState, writeAuthCmd } = require('./auth-bridge.js')
+const antigravityAuth = require('./antigravity-auth.js')
 const fileIpc = require('./file-ipc.js')
 const util = require('node:util')
 /* 🆕 2026-10-07：系统代理探测（把"系统里配的代理"变成宿主能吃的 HTTP(S)_PROXY）。
@@ -3206,8 +3207,176 @@ const PI_AI_PROVIDER_PRESETS = [
   'xai', 'moonshotai', 'deepseek', 'cerebras', 'together', 'huggingface',
 ]
 
+/**
+ * 从提供方 API 动态读取可用模型列表（不写死，以 API 响应为准）
+ * @param {string} baseURL
+ * @param {string} [apiKey]
+ * @returns {Promise<Array<{id: string, name: string, supportsImage?: boolean, description?: string}>>}
+ */
+async function fetchModelsFromApi(baseURL, apiKey) {
+  if (!baseURL) return []
+  try {
+    const root = baseURL.replace(/\/+$/, '')
+    const url = root.endsWith('/v1') ? `${root}/models` : `${root}/v1/models`
+    const headers = {}
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 4000)
+    const res = await fetch(url, { headers, signal: controller.signal })
+    clearTimeout(timer)
+    if (!res.ok) return []
+    const json = await res.json()
+    const rawList = Array.isArray(json.data) ? json.data : (Array.isArray(json.models) ? json.models : [])
+    const models = rawList.map((m) => {
+      const id = String(m.id || m.name || '').trim()
+      if (!id) return null
+      const name = String(m.display_name || m.name || id).trim()
+      const supportsImage = !!(
+        m.supports_images ||
+        (m.supported_mime_types && (m.supported_mime_types['image/png'] || m.supported_mime_types['image/jpeg'] || m.supported_mime_types['image/webp'])) ||
+        (Array.isArray(m.input) && m.input.includes('image')) ||
+        (Array.isArray(m.inputModalities) && m.inputModalities.includes('image'))
+      )
+      const item = { id, name }
+      if (supportsImage) item.supportsImage = true
+      if (m.description) item.description = String(m.description).trim()
+      if (Number.isSafeInteger(m.context_length || m.max_context_length)) {
+        item.contextWindow = m.context_length || m.max_context_length
+      }
+      return item
+    }).filter(Boolean)
+    return models
+  } catch (e) {
+    return []
+  }
+}
+
+/** 检查该路由是否有对应的 OAuth 授权凭据 */
+function docHasOAuthRecord(creds, route) {
+  if (route === 'antigravity' || route === 'antigravity-tools') {
+    const data = antigravityAuth.loadTokenData(AKDAGENT_DSH_HOME)
+    return !!(data && data.access_token)
+  }
+  if (!creds || typeof creds !== 'object') return false
+  const recs = creds.records && typeof creds.records === 'object' ? creds.records : null
+  if (!recs) return false
+  const hit = recs['llm-pi-ai/' + route]
+  return !!(hit && (hit.kind === 'grant' || (hit.payload && hit.payload.access_token)))
+}
+
+/**
+ * 自动同步已完成订阅登录（OAuth）的提供方及动态模型（以 API 与宿主目录为准，绝不写死）
+ * ⚠️ 只有用户显式登录（授权成功）后才激活对应配置；未登录不占用预设。
+ */
+async function syncOAuthProviders() {
+  try {
+    const s = readSettings()
+    const piAi = s['llm-pi-ai'] || {}
+    const piProviders = { ...(piAi.providers || {}) }
+    const eff = effectiveCredentials()
+    const creds = eff.doc && typeof eff.doc === 'object' ? eff.doc : {}
+    const records = (creds.records && typeof creds.records === 'object') ? creds.records : {}
+    let changed = false
+
+    // 1. Antigravity: 仅当用户真正登录成功后，才激活配置与动态拉取模型列表
+    const agToken = antigravityAuth.loadTokenData(AKDAGENT_DSH_HOME)
+    const isAgLoggedIn = !!(agToken && agToken.access_token)
+    const agKeyVal = getCred(creds, 'ANTIGRAVITY_TOOLS_API_KEY') || ''
+    const agBaseURL = agKeyVal.startsWith('http') ? agKeyVal : 'http://127.0.0.1:8045/v1'
+
+    if (isAgLoggedIn) {
+      const targetBase = (piProviders['antigravity'] && piProviders['antigravity'].baseURL) || agBaseURL
+      const cur = piProviders['antigravity'] || {}
+      // 动态向 API 拉取模型列表（不写死，以 API 响应为准）
+      let live = await fetchModelsFromApi(targetBase, agToken.access_token)
+      if (!live.length && Array.isArray(cur.models) && cur.models.length) {
+        live = cur.models
+      }
+      const { models: clean } = sanitizeModelList(live, { imageKey: 'input' })
+      piProviders['antigravity'] = {
+        displayName: cur.displayName || 'Google (Antigravity)',
+        api: cur.api || 'openai-completions',
+        baseURL: targetBase,
+        apiKeyEnv: cur.apiKeyEnv || 'ANTIGRAVITY_TOOLS_API_KEY',
+        models: clean,
+      }
+      changed = true
+
+      if (!getCred(creds, 'ANTIGRAVITY_TOOLS_API_KEY')) {
+        setCred(creds, 'ANTIGRAVITY_TOOLS_API_KEY', targetBase)
+        writeCredentials(creds)
+      }
+    }
+
+    // 2. 检查其他订阅制提供方 (Anthropic, GitHub Copilot, OpenAI, Kimi, xAI, OpenRouter)
+    let hostCatalog = null
+    try { hostCatalog = await dshCall('session/modelCatalog', {}, 4000) } catch {}
+    const hostGroups = (hostCatalog && Array.isArray(hostCatalog.groups)) ? hostCatalog.groups : []
+
+    const OAUTH_ROUTES = {
+      'anthropic': 'Anthropic (Claude Pro/Max)',
+      'github-copilot': 'GitHub Copilot',
+      'openai-codex': 'OpenAI (ChatGPT Plus/Pro)',
+      'kimi-coding': 'Kimi 编程套餐',
+      'xai': 'xAI (Grok)',
+      'openrouter': 'OpenRouter',
+    }
+
+    for (const [route, label] of Object.entries(OAUTH_ROUTES)) {
+      const rec = records['llm-pi-ai/' + route]
+      const isAuth = rec && (rec.kind === 'grant' || (rec.payload && rec.payload.access_token))
+      if (isAuth && !piProviders[route]) {
+        // 从宿主 API 目录动态获取模型
+        const g = hostGroups.find((x) => x && x.id === route)
+        const models = (g && Array.isArray(g.models)) ? g.models.map((m) => ({
+          id: m.id,
+          name: m.name || m.id,
+          description: m.description || '',
+        })) : []
+        const { models: clean } = sanitizeModelList(models, { imageKey: 'input' })
+        piProviders[route] = {
+          displayName: label,
+          apiKeyEnv: route.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_API_KEY',
+          models: clean,
+        }
+        changed = true
+      }
+    }
+
+    if (changed) {
+      piAi.providers = piProviders
+      s['llm-pi-ai'] = piAi
+      writeSettings(s)
+      modelCatalogCache.at = 0
+    }
+
+    // 3. 若当前尚未选择默认模型，自动设为已授权提供方的第一个模型
+    const adm = s['agent-default-model'] || {}
+    if (!adm.provider || !adm.model) {
+      const pickRoute = piProviders['antigravity'] ? 'antigravity' : Object.keys(piProviders)[0]
+      if (pickRoute && piProviders[pickRoute]) {
+        const prov = piProviders[pickRoute]
+        const firstM = (prov.models && prov.models[0] && prov.models[0].id) || ''
+        if (firstM) {
+          s['agent-default-model'] = {
+            provider: pickRoute,
+            model: firstM,
+            reasoningEffort: adm.reasoningEffort || 'medium',
+          }
+          writeSettings(s)
+          console.log(`[akdagent] 自动选择默认模型：${pickRoute} / ${firstM}`)
+          checkAgentModelConfigured()
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[akdagent] syncOAuthProviders 异常：' + e.message)
+  }
+}
+
 /** 读取所有提供方（DeepSeek 专用 + pi-ai routes）及密钥状态 */
-ipcMain.handle('akdagent-get-providers', () => {
+ipcMain.handle('akdagent-get-providers', async () => {
+  await syncOAuthProviders()
   const s = readSettings()
   /* 界面上的"已配置"必须按**宿主实际会读的那份**判（2026-09-27 改）——
    * 以前只看源 `~/.dsh` ⇒ 出现"界面说已配置、宿主其实没 key"（假象源头见 effectiveCredentials）。 */
@@ -3242,14 +3411,17 @@ ipcMain.handle('akdagent-get-providers', () => {
   for (const [route, profile] of Object.entries(piProviders)) {
     const p = profile || {}
     const keyEnv = p.apiKeyEnv || ''
+    const isOAuth = docHasOAuthRecord(creds, route)
+    const hasKey = isOAuth || (!!keyEnv && docHasApiKey(creds, keyEnv))
     providers.push({
       id: route,
       displayName: p.displayName || route,
       namespace: 'llm-pi-ai',
       kind: 'pi-ai',
+      authKind: isOAuth ? 'oauth' : 'key',
       apiKeyEnv: keyEnv,
-      hasKey: !!keyEnv && docHasApiKey(creds, keyEnv),
-      keyWarn: keyEnv ? keyShapeWarning(keyEnv, getCred(creds, keyEnv) || '') : '',   // 🆕 ⑦ 展示侧（只回文本）
+      hasKey,
+      keyWarn: (isOAuth || !keyEnv) ? '' : keyShapeWarning(keyEnv, getCred(creds, keyEnv) || ''),
       models: Array.isArray(p.models) ? p.models : [],
       baseURL: p.baseURL || '',
       api: p.api || '',
@@ -3292,10 +3464,53 @@ ipcMain.handle('akdagent-get-providers', () => {
  *       ⇒ **会话模型直接从 `next` 读**（不必去追 `model/selection` 事件流）
  */
 let modelCatalogCache = { at: 0, value: null }
+
+function augmentModelCatalog(catalog) {
+  const cat = catalog && typeof catalog === 'object' ? { ...catalog } : { groups: [] }
+  const groups = Array.isArray(cat.groups) ? [...cat.groups] : []
+  const s = readSettings()
+  const piProviders = (s && s['llm-pi-ai'] && s['llm-pi-ai'].providers) || {}
+
+  for (const [route, p] of Object.entries(piProviders)) {
+    if (!p) continue
+    let existing = groups.find((g) => g && g.id === route)
+    const models = Array.isArray(p.models) ? p.models.map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+      description: m.description || '',
+    })) : []
+    if (!existing) {
+      if (models.length > 0) {
+        groups.push({
+          id: route,
+          name: p.displayName || route,
+          models,
+        })
+      }
+    } else {
+      const hasId = new Set((existing.models || []).map((m) => m && m.id))
+      for (const m of models) {
+        if (!hasId.has(m.id)) {
+          existing.models = existing.models || []
+          existing.models.push(m)
+        }
+      }
+    }
+  }
+  cat.groups = groups
+  return cat
+}
+
 /** 读模型目录（默认 30s 缓存：它要问宿主，别每次点开设置都打一遍） */
 async function readModelCatalog(force = false) {
   if (!force && modelCatalogCache.value && Date.now() - modelCatalogCache.at < 30000) return modelCatalogCache.value
-  const v = await dshCall('session/modelCatalog', {}, 15000)
+  let v = null
+  try {
+    v = await dshCall('session/modelCatalog', {}, 15000)
+  } catch (e) {
+    v = { groups: [] }
+  }
+  v = augmentModelCatalog(v)
   modelCatalogCache = { at: Date.now(), value: v }
   return v
 }
@@ -4642,9 +4857,13 @@ ipcMain.handle('akdagent-audio-decode', async (_e, p, opts) => {
 })
 
 /* 订阅登录（OAuth）：① 只读快照 + ② 当前尝试（界面一次拿全，少一次竞态）。 */
-ipcMain.handle('akdagent-auth-flows', () => {
+ipcMain.handle('akdagent-auth-flows', async () => {
   try {
-    return readAuthState(AKDAGENT_DSH_HOME)
+    const state = readAuthState(AKDAGENT_DSH_HOME)
+    if (state && state.attempt && state.attempt.state === 'authorized') {
+      await syncOAuthProviders()
+    }
+    return state
   } catch (e) {
     return { ok: false, why: (e && e.message) || String(e) }
   }
@@ -4668,6 +4887,75 @@ ipcMain.handle('akdagent-auth-cancel', () => {
   try {
     return writeAuthCmd(AKDAGENT_DSH_HOME, 'cancel', {})
   } catch (e) { return { ok: false, why: (e && e.message) || String(e) } }
+})
+
+/* ── Antigravity (Google OAuth 2.0) 专属 IPC ── */
+ipcMain.handle('akdagent-antigravity-status', async () => {
+  try {
+    const data = antigravityAuth.loadTokenData(AKDAGENT_DSH_HOME)
+    if (!data || !data.access_token) {
+      return { ok: true, loggedIn: false }
+    }
+    const expiresAt = Number(data.expires_at) || 0
+    const isExpired = !!(expiresAt && Date.now() >= expiresAt)
+    return {
+      ok: true,
+      loggedIn: true,
+      email: data.email || '',
+      name: data.name || '',
+      project: data.project || '',
+      expiresAt,
+      isExpired,
+      updatedAt: data.updated_at || '',
+    }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('akdagent-antigravity-login', async () => {
+  try {
+    const res = await antigravityAuth.executeLogin({
+      home: AKDAGENT_DSH_HOME,
+      openBrowser: (url) => shell.openExternal(url),
+    })
+    await syncOAuthProviders()
+    return { ok: true, ...res }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('akdagent-antigravity-logout', async () => {
+  try {
+    antigravityAuth.clearTokenData(AKDAGENT_DSH_HOME)
+    const s = readSettings()
+    const piAi = s['llm-pi-ai'] || {}
+    if (piAi.providers && piAi.providers['antigravity']) {
+      delete piAi.providers['antigravity']
+      s['llm-pi-ai'] = piAi
+    }
+    const adm = s['agent-default-model'] || {}
+    if (adm.provider === 'antigravity') {
+      adm.provider = ''
+      adm.model = ''
+      s['agent-default-model'] = adm
+    }
+    writeSettings(s)
+    modelCatalogCache.at = 0
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('akdagent-antigravity-refresh', async () => {
+  try {
+    const res = await antigravityAuth.getValidAccessToken(AKDAGENT_DSH_HOME)
+    return res
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
 })
 
 ipcMain.handle('akdagent-file-stat', (_e, p) => {

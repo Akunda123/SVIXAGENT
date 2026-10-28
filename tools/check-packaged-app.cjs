@@ -54,6 +54,8 @@ const MUST_MATCH = [
   ['src/stt-model.js', 'electron/src/stt-model.js'],
   ['src/plugins/akd-auth-bridge/index.js', 'electron/src/plugins/akd-auth-bridge/index.js'],
   ['src/plugins/akd-auth-bridge/package.json', 'electron/src/plugins/akd-auth-bridge/package.json'],
+  ['src/plugins/akd-auth-bridge/antigravity-auth.js', 'electron/src/plugins/akd-auth-bridge/antigravity-auth.js'],
+  ['src/plugins/akd-auth-bridge/antigravity-auth.cjs', 'electron/src/plugins/akd-auth-bridge/antigravity-auth.cjs'],
 ]
 /* 被 asarUnpack 出来的资产（在 <解包>/resources/app.asar.unpacked/…，与仓库同一份内容） */
 const MUST_MATCH_UNPACKED = [

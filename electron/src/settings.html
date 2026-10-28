@@ -650,14 +650,18 @@
   let authGraceTicks = 0
   const AUTH_GRACE_TICKS = 6    // 6 次轮询 ≈ 5 秒（顺带容忍 App 重启时的瞬时窗口）
 
+  let currentAgStatus = null
+
   /** 渲染用的快照指纹：**故意不含 `fm.at`**（清单每 5 秒重写一次，时间戳变但内容没变 ⇒ 不该重建）。 */
   function authSignature(fm, flows, attempt) {
     const a = attempt && attempt.ok && attempt.state && attempt.state !== 'idle' ? attempt : null
+    const ag = currentAgStatus
     return JSON.stringify({
       f: flows.map((f) => [f.key, f.label || '', !!f.inFlight, (Array.isArray(f.methods) ? f.methods : []).map((m) => m.id + '|' + (m.label || ''))]),
       t: fm.ok ? (fm.stale ? 'stale' : 'ok') : 'bad:' + (fm.why || ''),
       a: a ? [a.id, a.state, a.error || '', (a.notices || []).map((n) => (n.message || '') + '|' + (n.url || '') + '|' + (n.code || '')),
         a.awaiting ? [a.awaiting.id, a.awaiting.kind, a.awaiting.message, a.awaiting.placeholder || '', (a.awaiting.options || []).map((o) => o.id)] : null] : null,
+      ag: ag ? [ag.loggedIn, ag.email, ag.project] : null,
     })
   }
 
@@ -667,6 +671,9 @@
     if (!box || !window.svsettings || typeof window.svsettings.authFlows !== 'function') return
     let r = null
     try { r = await window.svsettings.authFlows() } catch (e) { r = { ok: false, why: String((e && e.message) || e) } }
+    let agStatus = null
+    try { if (window.svsettings.antigravityStatus) agStatus = await window.svsettings.antigravityStatus() } catch { /* 忽略 */ }
+    currentAgStatus = agStatus
     const fm = (r && r.flows) || {}
     tip.textContent = !fm.ok
       ? I.t('settings.auth.unavailable', fm.why || '?')
@@ -720,9 +727,28 @@
         const lab = document.createElement('div')
         lab.className = 'label'
         lab.textContent = f.label || f.key
+
+        const isAg = f.key === 'antigravity' || f.key === 'llm-pi-ai/antigravity'
+        const isAgLoggedIn = isAg && agStatus && agStatus.loggedIn
+
+        if (isAgLoggedIn) {
+          const badge = document.createElement('span')
+          badge.className = 'badge ok'
+          badge.style.marginLeft = '8px'
+          badge.style.fontSize = '12px'
+          badge.innerHTML = '<span class="dot"></span><span>' + I.t('settings.auth.stateAuthorized') + '</span>'
+          lab.appendChild(badge)
+        }
+
         const hint = document.createElement('div')
         hint.className = 'hint'
-        hint.textContent = f.key + ((f.inFlight || (running && attempt.key === f.key)) ? '  ' + I.t('settings.auth.inFlight') : '')
+        let hintText = f.key
+        if (isAgLoggedIn) {
+          hintText += ` · ${agStatus.email || 'Google User'}${agStatus.project ? ' (' + agStatus.project + ')' : ''}`
+        }
+        hintText += ((f.inFlight || (running && attempt.key === f.key)) ? '  ' + I.t('settings.auth.inFlight') : '')
+        hint.textContent = hintText
+
         left.appendChild(lab)
         left.appendChild(hint)
         row.appendChild(left)
@@ -730,7 +756,7 @@
         /* 按钮也只给订阅登录（`oauth`）—— `api-key` 方法请看上面的提供方卡片 */
         for (const m of (Array.isArray(f.methods) ? f.methods : []).filter((x) => x.id === 'oauth')) {
           const b = document.createElement('button')
-          b.textContent = m.label || m.id
+          b.textContent = isAgLoggedIn ? I.t('settings.auth.relogin') : (m.label || m.id)
           /* ⛔ 别在这里"有尝试在跑就禁用全部按钮"——2026-10-07 实测：那样整个区**点不动**，
            *   用户的原话就是「为什么我按钮点不动了」（而宿主那边其实允许我们换一家：先取消再开始即可）。 */
           b.addEventListener('click', async () => {
@@ -753,6 +779,20 @@
           })
           right.appendChild(b)
         }
+
+        if (isAgLoggedIn) {
+          const logoutBtn = document.createElement('button')
+          logoutBtn.textContent = I.t('settings.auth.logout')
+          logoutBtn.style.color = 'var(--danger)'
+          logoutBtn.style.marginLeft = '6px'
+          logoutBtn.addEventListener('click', async () => {
+            logoutBtn.disabled = true
+            try { await window.svsettings.antigravityLogout() } catch { /* 忽略 */ }
+            loadAuthFlows()
+          })
+          right.appendChild(logoutBtn)
+        }
+
         row.appendChild(right)
         box.appendChild(row)
       }
@@ -1126,6 +1166,10 @@
   function renderProviders() {
     const list = $('provider-list')
     list.innerHTML = ''
+    if (openEditId === null && Array.isArray(providersData.providers)) {
+      const def = providersData.providers.find((x) => x.isDefault) || providersData.providers.find((x) => x.hasKey)
+      if (def) openEditId = def.id
+    }
     for (const p of providersData.providers) {
       list.appendChild(buildProviderCard(p))
     }
@@ -1154,10 +1198,16 @@
       const span = document.createElement('span')
       span.textContent = (m.name && m.name !== m.id) ? `${m.name}（${m.id}）` : m.id
       chip.appendChild(span)
-      cb.addEventListener('change', () => {
+      cb.addEventListener('change', async () => {
         wrap.querySelectorAll('.model-check').forEach((c) => c.classList.remove('selected'))
         chip.classList.add('selected')
         onPick(m.id)
+        try {
+          await window.svsettings.setDefaultProvider(p.id, m.id)
+          await window.svsettings.selectSessionModel(null, p.id, m.id).catch(() => {})
+          renderSessionModel()
+          refreshEffort()
+        } catch { /* 忽略 */ }
       })
       wrap.appendChild(chip)
     }
@@ -1203,7 +1253,7 @@
     const sub = document.createElement('div')
     sub.className = 'provider-sub'
     sub.textContent = p.hasKey
-      ? I.t('settings.model.keyConfigured', p.apiKeyEnv)
+      ? (p.authKind === 'oauth' ? I.t('settings.model.oauthConfigured') : I.t('settings.model.keyConfigured', p.apiKeyEnv))
       : I.t('settings.model.keyNotConfigured')
     info.appendChild(sub)
     /* 🆕 2026-10-05（⑦ 展示侧）：**已存在**的密钥看起来不对时也要说一句（以前只在保存那一刻提示）
@@ -1271,10 +1321,16 @@
           cb.type = 'radio'
           cb.name = 'model-' + p.id
           cb.checked = m.id === selectedModel
-          cb.addEventListener('change', () => {
+          cb.addEventListener('change', async () => {
             selectedModel = m.id
             grid.querySelectorAll('.model-check').forEach((c) => c.classList.remove('selected'))
             chip.classList.add('selected')
+            try {
+              await window.svsettings.setDefaultProvider(p.id, m.id)
+              await window.svsettings.selectSessionModel(null, p.id, m.id).catch(() => {})
+              renderSessionModel()
+              refreshEffort()
+            } catch { /* 忽略 */ }
           })
           chip.appendChild(cb)
           const span = document.createElement('span')

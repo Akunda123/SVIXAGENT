@@ -26,7 +26,7 @@ const path = require('node:path')
 const PLUGIN_ID = 'akd-auth-bridge'
 const SERVICE_ID = 'authorization'
 const SERVICE_NAME = '@deepseek-ai/dsh-authorization'
-const PLUGIN_FILES = ['package.json', 'index.js']
+const PLUGIN_FILES = ['package.json', 'index.js', 'antigravity-auth.js', 'antigravity-auth.cjs']
 
 /**
  * 从 `dir` 起**向上**找 `<dir>/node_modules/<name>`（与 Node 的解析顺序一致，但不加载模块、
