@@ -39,7 +39,8 @@ const MARKER = 'NODE-STAGING.json'
 
 /* 与当前随包分发的 node 对齐；**升级时要和 build-runtime.ps1 / 打包验证一起改**。
    win 版本 = 本机 node（v24.13.0）；darwin 用同一个版本，保证 NAPI/ABI 与 STT 预编译件一致。 */
-const DEFAULT_VERSION = process.env.AKDAGENT_NODE_VERSION || 'v24.13.0'
+/* 🆕 2026-10-29：默认版本升到 v24.22.1 —— CVE-2026-111497（brotli OOB write）等 Oct-2026 Node 七连的修复版。 */
+const DEFAULT_VERSION = process.env.AKDAGENT_NODE_VERSION || 'v24.22.1'
 
 const argv = process.argv.slice(2)
 const opt = (name, def) => {
@@ -194,6 +195,8 @@ function reuseStore(){
   if (!m) return false;                                  // 没台账 ⇒ 不知道是哪个平台，宁可不复用
   if (m.platform !== PLATFORM || m.arch !== ARCH) return false;
   if (m.sizeBytes !== st.size) { say('   ! store 里的文件大小与台账不符 ⇒ 重新下载'); return false; }
+  /* 🆕 2026-10-29：**版本对不上也要重下** —— 否则升了 DEFAULT_VERSION 也会静默复用旧二进制（1.1.7 的 mac 包就是这么带着 24.13.0 出去的）。 */
+  if (String(m.version || '') !== String(VERSION)) { say('   ! store 里是 ' + (m.version || '?') + '，要的是 ' + VERSION + ' ⇒ 重新下载'); return false }
   return true;
 }
 
