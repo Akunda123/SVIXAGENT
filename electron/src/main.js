@@ -733,6 +733,54 @@ function notifyOrb(level, text) {
  * 用户不可能知道要去配模型 —— 只能报"又 error 了"。这里开机就说清楚。
  * @returns {boolean} 配置是否可用（读不到设置时返回 true，不打扰）
  */
+/** 🆕 2026-10-29：**默认模型自愈**（模型清单是运行时拉的 ⇒ 官方上新/改名/退役时，用户存的那个 id 可能已失效）。
+ *  触发条件**很窄**：目录里查得到该提供方、且存的 id 不在其中（= 真的失效）。
+ *  改写优先级：`deepseek-flash`（官方稳定的 Flash 别名）→ 任何含 flash 的 → 目录里第一个。
+ *  ⛔ 不碰用户自定义模型列表（那以用户为准）；读不到目录 ⇒ 什么都不改。 */
+function pickModelFromCatalogGroup(group, preferred) {
+  const models = (group && Array.isArray(group.models)) ? group.models : []
+  const ids = models.map((m) => m && m.id).filter(Boolean)
+  if (!ids.length) return ""
+  const want = String(preferred || '').trim()
+  if (want && ids.includes(want)) return want
+  if (ids.includes('deepseek-flash')) return 'deepseek-flash'
+  const flash = ids.find((x) => /flash/i.test(x))
+  return flash || ids[0]
+}
+
+async function healDefaultModel() {
+  try {
+    const s = readSettings()
+    const adm = s['agent-default-model'] || {}
+    const provider = String(adm.provider || "")
+    const model = String(adm.model || "")
+    if (!provider || !model) return false
+    /* 用户给这个提供方配了自定义列表 ⇒ 以用户为准，不介入 */
+    const custom = provider === 'deepseek-official'
+      ? ((s['llm-deepseek'] || {}).models || [])
+      : (((s['llm-pi-ai'] || {}).providers || {})[provider] || {}).models || []
+    if (Array.isArray(custom) && custom.some((m) => m && m.id === model)) return false
+    const cat = await readModelCatalog(false)
+    const groups = (cat && Array.isArray(cat.groups)) ? cat.groups : []
+    const g = groups.find((x) => x && x.id === provider)
+    if (!g) return false                       // 目录里没这个提供方 ⇒ 不猜
+    const ids = (g.models || []).map((m) => m && m.id).filter(Boolean)
+    if (!ids.length || ids.includes(model)) return false
+    const next = pickModelFromCatalogGroup(g, "")
+    if (!next) return false
+    const s2 = readSettings()
+    const prev = s2['agent-default-model'] || {}
+    s2['agent-default-model'] = Object.assign({}, prev, { provider, model: next })
+    const wrote = writeSettings(s2)
+    if (wrote === false) return false
+    console.log('[akdagent] 默认模型自愈：' + provider + ' / ' + model + ' → ' + next + '（原因：该 id 已不在宿主目录里）')
+    try { notifyOrb('warn', i18n.t('main.model.healed', model, next)) } catch { /* 球没起来就算了 */ }
+    return true
+  } catch (e) {
+    console.log('[akdagent] 默认模型自愈跳过：' + (e && e.message ? e.message : e))
+    return false
+  }
+}
 function checkAgentModelConfigured() {
   try {
     const s = readSettings()
@@ -1323,11 +1371,41 @@ let bridgeLogKey = ''           // 日志去重：只按"状态"（level+code）
 const ACE_LOCAL_DIR = process.env.LOCALAPPDATA || path.join(HOME_DIR, 'AppData', 'Local')
 const ACE_BRIDGE_JSON = path.join(ACE_LOCAL_DIR, 'Timedomain', 'ACE Studio', 'mcp-bridge.json')
 const ACE_PROBE_TIMEOUT_MS = 4000
+/* 🆕 2026-10-29（用户要求）：**ACE 的 CLI 位置可配**。
+ *   背景：原先只能自动探测 Program Files / LOCALAPPDATA 三个常见位置（见 aceCliCandidates），
+ *   装到自定义目录或便携版时客户端探不到、服务端工具也找不到 CLI；而客户端探到了也没法告诉服务端。
+ *   做法：存 settings.yaml 的 `ace.cliPath`（空 = 自动探测）。服务端 `server/src/ace/index.ts`
+ *   读**同一份** settings.yaml（它本来就读 `~/.dsh-akdagent/settings.yaml` 取 sv.scriptsDirs），
+ *   ⇒ 不需要改 MCP 注册 YAML、也不必依赖环境变量。 */
+const ACE_CONFIG_KEY = 'ace'
+const ACE_CLI_NAME = process.platform === 'win32' ? 'acestudio-cli.exe' : 'acestudio-cli'
+
+function getAceConfig() {
+  try {
+    const s = readSettings()
+    const a = s[ACE_CONFIG_KEY] && typeof s[ACE_CONFIG_KEY] === 'object' ? s[ACE_CONFIG_KEY] : {}
+    return { cliPath: typeof a.cliPath === 'string' ? a.cliPath.trim() : '' }
+  } catch { return { cliPath: '' } }
+}
+
+function setAceConfig(cfg) {
+  const s = readSettings()
+  const prev = s[ACE_CONFIG_KEY] && typeof s[ACE_CONFIG_KEY] === 'object' ? s[ACE_CONFIG_KEY] : {}
+  s[ACE_CONFIG_KEY] = Object.assign({}, prev, { cliPath: String((cfg && cfg.cliPath) || '').trim() })
+  return writeSettings(s)
+}
 
 /** ACE CLI 的候选位置 —— **不许写死绝对路径**（check-abs-paths 会拦；也要照顾自定义安装目录） */
 function aceCliCandidates() {
   const out = []
   const push = (p) => { if (p && !out.includes(p)) out.push(p) }
+  /* ① 用户在设置页指定的（最高优先）：既接受"exe 全路径"，也接受"ACE 安装目录" */
+  const configured = getAceConfig().cliPath
+  if (configured) {
+    let p = configured
+    try { if (fs.existsSync(p) && fs.statSync(p).isDirectory()) p = path.join(p, ACE_CLI_NAME) } catch { /* 不存在就按原样试 */ }
+    push(p)
+  }
   if (process.env.AKDAGENT_ACE_CLI) push(process.env.AKDAGENT_ACE_CLI)   // 测试/特殊安装用
   const bases = [
     [process.env.ProgramFiles, ['ACE Studio']],
@@ -1340,6 +1418,22 @@ function aceCliCandidates() {
   }
   return out
 }
+/** 解析结果：{cmd, source, exists} —— 设置页据此回显"用的是哪个 / 在不在" */
+function resolveAceCliInfo() {
+  const list = aceCliCandidates()
+  const configured = getAceConfig().cliPath
+  for (const c of list) {
+    try {
+      if (fs.existsSync(c)) {
+        const source = configured && (c === configured || path.dirname(c) === configured) ? 'configured'
+          : (c === process.env.AKDAGENT_ACE_CLI ? 'env' : 'auto')
+        return { cmd: c, source, exists: true }
+      }
+    } catch { /* 试下一个 */ }
+  }
+  return { cmd: list.length ? list[0] : '', source: configured ? 'configured' : 'auto', exists: false }
+}
+
 function findAceCli() {
   for (const p of aceCliCandidates()) {
     try { if (fs.existsSync(p)) return p } catch { /* 试下一个 */ }
@@ -2241,6 +2335,30 @@ ipcMain.on('akdagent-request-status', () => { pushHostStatusToSettings() })
 /* ACE Studio 状态（设置页状态区那一行）：拉一次当前状态 + 按钮触发一次**真探针**（CLI，异步）。
  * 为什么按钮才深探：CLI 是个 ~10MB 的进程，真跑一次要 spawn（实测 ~61ms，冷启动可能被 AV 拖慢）
  * ⇒ 5s 轮询里只做免费的"桥文件在不在"，用户点按钮才去问一次"到底可不可达"。 */
+/** 读取 ACE CLI 配置 + 当前解析结果（设置页加载/保存后都调这个） */
+ipcMain.handle('akdagent-get-ace-config', () => {
+  const cfg = getAceConfig()
+  return { cliPath: cfg.cliPath, resolved: resolveAceCliInfo(), status: aceStatusPayload() }
+})
+
+/** 保存 ACE CLI 路径（空字符串 = 恢复自动探测） */
+ipcMain.handle('akdagent-set-ace-cli-path', (_e, p) => {
+  const raw = String(p == null ? '' : p).trim()
+  let cliPath = raw
+  if (raw) {
+    /* 允许填"目录"：自动补成目录下的 acestudio-cli(.exe) */
+    try { if (fs.existsSync(raw) && fs.statSync(raw).isDirectory()) cliPath = path.join(raw, ACE_CLI_NAME) } catch { /* 保留原样，交给回显判 exists */ }
+    let ok = false
+    try { ok = fs.existsSync(cliPath) } catch { ok = false }
+    if (!ok) return { ok: false, error: i18n.t('main.ace.pathMissing'), cliPath: getAceConfig().cliPath, resolved: resolveAceCliInfo() }
+  }
+  const wrote = setAceConfig({ cliPath })
+  if (wrote === false) return { ok: false, error: i18n.t('main.ace.saveFailed'), cliPath: getAceConfig().cliPath, resolved: resolveAceCliInfo() }
+  /* 立刻用新路径重探一次状态并推给设置页（省得用户再点"检查"） */
+  try { applyAceState({ force: true }) } catch { /* 探针失败不影响保存 */ }
+  return { ok: true, cliPath: getAceConfig().cliPath, resolved: resolveAceCliInfo(), status: aceStatusPayload() }
+})
+
 ipcMain.handle('akdagent-ace-status', () => {
   try { probeAceCliDeep() } catch { /* 探针失败也先把当前状态回给界面 */ }
   return aceStatusPayload()
@@ -3026,11 +3144,18 @@ ipcMain.handle('akdagent-pick-directory', async (_e, opts) => {
   const o = opts && typeof opts === 'object' ? opts : {}
   const defaultPath = o.defaultPath || path.join(HOME_DIR, 'Documents')
   const parent = settingsWin && !settingsWin.isDestroyed() ? settingsWin : undefined
+  /* 🆕 2026-10-29：purpose='ace' ⇒ 选**文件**（acestudio-cli(.exe)），其余仍是选目录 */
+  const isFile = o.purpose === 'ace'
   const args = {
-    title: o.purpose === 'scripts' ? i18n.t('main.sv.pickScriptsTitle') : i18n.t('main.sv.pickDirTitle'),
+    title: isFile ? i18n.t('main.ace.pickTitle')
+      : (o.purpose === 'scripts' ? i18n.t('main.sv.pickScriptsTitle') : i18n.t('main.sv.pickDirTitle')),
     defaultPath,
-    properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: i18n.t('main.sv.pickDirButton'),
+    properties: isFile ? ['openFile'] : ['openDirectory', 'createDirectory'],
+    buttonLabel: isFile ? i18n.t('main.ace.pickButton') : i18n.t('main.sv.pickDirButton'),
+  }
+  if (isFile) {
+    args.filters = [{ name: ACE_CLI_NAME, extensions: [process.platform === 'win32' ? 'exe' : '*'] }]
+    args.defaultPath = o.defaultPath || path.dirname(findAceCli() || path.join(HOME_DIR, 'Documents', ACE_CLI_NAME))
   }
   try {
     const r = parent ? await dialog.showOpenDialog(parent, args) : await dialog.showOpenDialog(args)
@@ -5148,7 +5273,8 @@ app.whenReady().then(async () => {
      * 延后 1.5s：让球/设置窗先画出来，也让"密钥窗"那种启动弹窗先落地，别挤在一起。 */
     setTimeout(() => notifyMissingSvDirs(), 1500)
     /* 🆕 2026-09-27：开机就检查"默认模型能不能解析" —— 缺了直接推到球上（否则用户只会看到每轮 error） */
-    setTimeout(() => checkAgentModelConfigured(), 2000)
+    /* 2026-10-29：先试"默认模型自愈"（目录里已没有那个 id 时改写成可用的），再跑原来的检查 */
+    setTimeout(() => { healDefaultModel().catch(() => {}).then(() => checkAgentModelConfigured()) }, 2000)
     // 开发辅助：模拟点「SV 集成 → 部署面板」（验收那个原生确认框；env 门控，默认无副作用）
     devClickSvPanelDeploy()
   } catch (e) {

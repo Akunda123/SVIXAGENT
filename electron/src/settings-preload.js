@@ -63,6 +63,11 @@ contextBridge.exposeInMainWorld('svsettings', {
    *   getAceStatus 拉当前状态（主进程顺手探一次）、checkAce 只触发探针、onAceStatus 听结果推送。
    *   没装 ACE 的机器上主进程回 installed=false ⇒ 页面把那一行整行隐藏（用户口径）。 */
   getAceStatus: () => ipcRenderer.invoke('akdagent-ace-status'),
+  /* 🆕 2026-10-29：ACE 的 CLI 路径可配（装自定义目录/便携版的机器上自动探测找不到）
+   *   getAceConfig 读配置 + 当前解析结果；setAceCliPath 保存（空串 = 恢复自动探测）。
+   *   服务端读同一份 settings.yaml 的 `ace.cliPath`（见 server/src/ace/index.ts）。 */
+  getAceConfig: () => ipcRenderer.invoke('akdagent-get-ace-config'),
+  setAceCliPath: (p) => ipcRenderer.invoke('akdagent-set-ace-cli-path', p),
   checkAce: () => ipcRenderer.send('akdagent-check-ace'),
   onAceStatus: (cb) => ipcRenderer.on('akdagent-ace-status-push', (_e, st) => cb(st)),
 

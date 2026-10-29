@@ -14,7 +14,9 @@
  * 事实源：`skills/acep/SKILL.md`（容器/CBOR/三种画法/写纪律）· `skills/ace/SKILL.md`（分工与路线）· `skills/ace-params/SKILL.md`（参数层与载荷形状）。
  */
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,9 +44,45 @@ export type AceRunner = (args: string[], timeoutMs?: number) => RunResult;
 /* ─────────────── acestudio-cli 定位 ─────────────── */
 
 /** CLI 可执行文件候选：环境变量优先，然后 Windows 常见安装位置，最后交给 PATH */
+/** 读 settings.yaml 里的 `ace.cliPath`（客户端设置页写的）。
+ *  ⛔ 与 style-combine.ts 同一套口径：**先读我们那份**（`$DSH_HOME` / `~/.dsh-akdagent/settings.yaml`），
+ *    没有再回退用户自己的 `~/.dsh`（只读）。手写解析是为了不引 yaml 依赖。 */
+function settingsAceCliPath(): string {
+  const cands: string[] = [];
+  const home = process.env.DSH_HOME || process.env.AKDAGENT_DSH_HOME_DIR;
+  if (home) cands.push(path.join(home, "settings.yaml"));
+  cands.push(path.join(os.homedir(), ".dsh-akdagent", "settings.yaml"));
+  cands.push(path.join(os.homedir(), ".dsh", "settings.yaml"));
+  for (const p of cands) {
+    const v = parseAceCliPath(p);
+    if (v) return v;
+  }
+  return "";
+}
+
+/** 解析一份 settings.yaml 的 `ace.cliPath`（读不到 / 没配 ⇒ 空串） */
+function parseAceCliPath(p: string): string {
+  try {
+    const txt = fs.readFileSync(p, "utf8");
+    let inAce = false;
+    for (const line of txt.split(/\r?\n/)) {
+      const s = line.trim();
+      if (/^ace:\s*$/.test(s)) { inAce = true; continue; }
+      if (/^[A-Za-z_][\w-]*:\s*$/.test(s)) { inAce = false; continue; }
+      if (!inAce) continue;
+      const m = s.match(/^cliPath:\s*(.+)$/);
+      if (m) return m[1]!.trim().replace(/^['"]|['"]$/g, "");
+    }
+  } catch { /* 读不到就算了 */ }
+  return "";
+}
+
 export function aceCliCandidates(): { cmd: string; source: string }[] {
   const out: { cmd: string; source: string }[] = [];
-  const env = process.env.ACESTUDIO_CLI;
+  /* 🆕 2026-10-29：① 客户端设置页指定的路径（最高优先）② 环境变量 ③ 常见安装位置 ④ PATH */
+  const cfg = settingsAceCliPath();
+  if (cfg) out.push({ cmd: cfg, source: "settings.yaml" });
+  const env = process.env.ACESTUDIO_CLI || process.env.AKDAGENT_ACE_CLI;
   if (env) out.push({ cmd: env, source: "ACESTUDIO_CLI" });
   const pf = process.env["ProgramFiles"] || "C:\\Program Files";
   const pf86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";

@@ -1,7 +1,7 @@
 {
   "name": "akdagent-electron",
   "productName": "AKDAgent",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "private": true,
   "author": "AKDAgent",
   "description": "AKDAgent floating client: embedded DSH host for natural-language control of Synthesizer V Studio / Instrument X",
@@ -23,8 +23,8 @@
     "dist:mac": "electron-builder --mac dmg zip"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.0"
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
   },
   "dependencies": {
     "js-yaml": "^4.3.1",

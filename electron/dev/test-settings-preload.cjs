@@ -117,11 +117,26 @@ const api = {
     if (cbs.bridge) cbs.bridge(ok, msg)
     return !!cbs.bridge
   },
+  /* ACE CLI 路径（1.1.7 设置页新加的一节） */
+  getAceConfig: () => {
+    mark('getAceConfig')
+    return Promise.resolve({ cliPath: state.aceCliPath || '', resolved: { cmd: state.aceCliPath || 'C:/auto/acestudio-cli.exe', source: state.aceCliPath ? 'configured' : 'auto', exists: true }, status: { installed: true } })
+  },
+  setAceCliPath: (p) => {
+    mark('setAceCliPath')
+    state.lastAceCliPath = String(p == null ? '' : p)
+    state.aceCliPath = state.lastAceCliPath
+    return Promise.resolve({
+      ok: true,
+      cliPath: state.aceCliPath,
+      resolved: { cmd: state.aceCliPath || 'C:/auto/acestudio-cli.exe', source: 'configured', exists: !!state.aceCliPath }
+    })
+  },
   __setState: (s) => { Object.assign(state, s) },
   __getWritten: () => state.lastWritten,
   __debug: () => ({ lastReadPath: state.lastReadPath, keys: Object.keys(state.nofsByPath || {}), hasNofsFallback: !!state.nofs,
     /* 🆕 2026-10-07：把"最近一次新增提供方 / 保存密钥"的参数也吐出来，供 DOM 用例断言 */
-    lastAddPi: state.lastAddPi || null, lastSetKey: state.lastSetKey || null }),
+    lastAddPi: state.lastAddPi || null, lastSetKey: state.lastSetKey || null, lastAceCliPath: state.lastAceCliPath === undefined ? null : state.lastAceCliPath }),
 
   getSettings: record('getSettings'),
   setDefaultModel: record('setDefaultModel'),

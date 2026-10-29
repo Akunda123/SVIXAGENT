@@ -140,6 +140,7 @@
   .key-input { flex: 1; }
   .key-hint { color: var(--muted); font-size: 11px; }
   .model-check-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+  .model-server-only { opacity: .6; font-style: normal; font-size: 11px; }
   .model-check {
     display: flex; align-items: center; gap: 6px;
     background: var(--bg); border: 1px solid var(--border);
@@ -236,6 +237,7 @@
     <section>
       <div class="actions">
         <button id="btn-add-provider" data-i18n="settings.model.addProvider">+ 添加提供方</button>
+        <button id="btn-refresh-catalog" data-i18n="settings.model.refreshCatalog">刷新模型清单</button>
         <button id="btn-add-custom-provider" data-i18n="settings.model.addCustomProvider">+ 添加自定义提供方</button>
       </div>
 
@@ -400,6 +402,87 @@
       </div>
       <div class="save-tip" id="sv-dir-tip"></div>
     </section>
+
+    <!-- 🆕 2026-10-29（用户要求）：ACE Studio 的 CLI 位置可配。
+         原先只能自动探测常见安装位置 ⇒ 装到自定义目录/便携版的机器上找不到 acestudio-cli。
+         留空 = 自动探测；填"安装目录"也会自动补成目录下的 acestudio-cli(.exe)。
+         这份值写进 settings.yaml 的 ace.cliPath，服务端 server/src/ace/index.ts 读同一份。 -->
+    <section id="ace-section">
+      <h2 data-i18n="settings.sv.aceSection">ACE Studio（可选）</h2>
+      <div class="hint" data-i18n="settings.sv.aceHint">ACE Studio 的 acestudio-cli 位置。留空 = 自动探测常见安装位置；装到自定义目录或便携版时在这里指定。</div>
+      <div class="add-provider-row" style="margin-top:10px">
+        <input type="text" id="ace-cli-input" placeholder="C:/Program Files/ACE Studio/acestudio-cli.exe" data-i18n-ph="settings.sv.aceCliPh">
+        <button id="btn-ace-browse" data-i18n="settings.sv.browse">浏览…</button>
+        <button id="btn-ace-save" data-i18n="settings.common.save">保存</button>
+        <button id="btn-ace-auto" data-i18n="settings.sv.autoDetect">自动检测</button>
+      </div>
+      <div class="save-tip" id="ace-cli-tip"></div>
+    </section>
+    <script>
+      (function () {
+        var S = window.svsettings
+        var I = window.svi18n
+        if (!S || !S.getAceConfig) return
+        function $(id) { return document.getElementById(id) }
+        function render(r) {
+          var tip = $('ace-cli-tip')
+          if (!tip) return
+          if (!r) { tip.textContent = ''; return }
+          var res = r.resolved || {}
+          if (res && res.exists) tip.textContent = I.t('settings.sv.aceResolved', res.cmd)
+          else if (r.cliPath) tip.textContent = I.t('settings.sv.aceNotFound', r.cliPath)
+          else tip.textContent = I.t('settings.sv.aceAutoHint')
+        }
+        /* 产品口径（与 ACE 状态行一致）：没装 ACE、也没手工配路径的机器上整节隐藏，界面更干净 */
+        function applyVisibility(r) {
+          var sec = $('ace-section')
+          if (!sec) return
+          var installed = !!(r && r.status && r.status.installed)
+          var configured = !!(r && r.cliPath)
+          sec.style.display = (installed || configured) ? '' : 'none'
+        }
+        function load() {
+          S.getAceConfig().then(function (r) {
+            var inp = $('ace-cli-input')
+            if (inp) inp.value = (r && r.cliPath) || ''
+            applyVisibility(r)
+            render(r)
+          }).catch(function () { /* 读不到就不显示提示 */ })
+        }
+        function save(p) {
+          return S.setAceCliPath(p).then(function (r) {
+            var inp = $('ace-cli-input')
+            if (r && r.ok && inp) inp.value = r.cliPath || ''
+            if (!r || !r.ok) {
+              var tip = $('ace-cli-tip')
+              if (tip) tip.textContent = (r && r.error) || I.t('settings.common.failure')
+              return false
+            }
+            render(r)
+            return true
+          }).catch(function () { return false })
+        }
+        $('btn-ace-browse').addEventListener('click', function () {
+          S.pickDirectory({ purpose: 'ace' }).then(function (r) {
+            if (!r || !r.ok) {
+              var tip = $('ace-cli-tip')
+              if (tip) tip.textContent = (r && r.error) ? r.error : I.t('settings.sv.pickCancelled')
+              return
+            }
+            save(r.path)
+          }).catch(function () { })
+        })
+        $('btn-ace-save').addEventListener('click', function () {
+          save($('ace-cli-input').value.trim())
+        })
+        $('btn-ace-auto').addEventListener('click', function () {
+          $('ace-cli-input').value = ''
+          save('')
+        })
+        if (I && typeof I.onChange === 'function') I.onChange(load)
+        load()
+      })()
+    </script>
 
     <section>
       <h2 data-i18n="settings.sv.deploy">部署</h2>
@@ -616,6 +699,19 @@
   let providersData = null
   let openEditId = null
 
+  /* 2026-10-29：模型清单是运行时从宿主拉的 ⇒ 官方上新后用户不必重启客户端，点一下「刷新模型清单」即可 */
+  async function refreshCatalog() {
+    const btn = $('btn-refresh-catalog')
+    if (btn) { btn.disabled = true; btn.textContent = I.t('settings.model.refreshing') }
+    try {
+      modelCatalog = null
+      await loadModelCatalog(true)
+      await loadProviders()
+      try { await refreshEffort() } catch { /* 推理档位按模型自报，拉不到就保持原样 */ }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = I.t("settings.model.refreshCatalog") }
+    }
+  }
   async function loadProviders() {
     providersData = await window.svsettings.getProviders()
     renderCredSource()
@@ -1279,6 +1375,14 @@
           chip.appendChild(cb)
           const span = document.createElement('span')
           span.textContent = m.name || m.id
+          /* 🆕 2026-10-29：目录里只有 id、没有名字/描述 ⇒ 多半是服务端刚上新的模型（本地还不认识），
+           *   标一句避免用户以为是乱码；能力信息（上下文窗口等）仍以服务端为准。 */
+          if (!m.name && !m.description) {
+            const serverOnlyHint = document.createElement('em')
+            serverOnlyHint.className = 'model-server-only'
+            serverOnlyHint.textContent = ' ' + I.t('settings.model.serverOnly')
+            span.appendChild(serverOnlyHint)
+          }
           chip.appendChild(span)
           if (canEdit) {
             const del = document.createElement('button')
@@ -2041,6 +2145,10 @@
   })
 
   $('btn-sv-browse').addEventListener('click', pickSvDir)
+
+  /* 刷新模型清单（见 refreshCatalog） */
+  const btnRefreshCat = $('btn-refresh-catalog')
+  if (btnRefreshCat) btnRefreshCat.addEventListener('click', refreshCatalog)
 
   $('btn-sv-scan').addEventListener('click', async () => {
     $('sv-dir-tip').textContent = I.t('settings.sv.detecting')

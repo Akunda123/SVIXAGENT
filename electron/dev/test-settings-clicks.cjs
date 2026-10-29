@@ -384,6 +384,32 @@ app.whenReady().then(async () => {
     !!(dbg.lastSetKey && dbg.lastSetKey.keyEnv === 'MY_OPENAI_API_KEY'), JSON.stringify(dbg.lastSetKey))
   check('route 与密钥都带上了', !!(dbg.lastAddPi && dbg.lastAddPi.route === 'my-openai' && dbg.lastSetKey && dbg.lastSetKey.keyValue === 'sk-test-123456'), JSON.stringify(dbg.lastSetKey))
 
+  /* ④ ACE CLI 路径（1.1.7 新加的一节）：一节存在 + 三个动作都真的到 IPC */
+  const aceExists = await js(`!!document.getElementById('ace-section') && !!document.getElementById('ace-cli-input')`)
+  check('设置页有 ACE Studio（可选）一节', aceExists === true)
+  const aceInit = await js(`document.getElementById('ace-cli-tip').textContent`)
+  check('ACE 一节加载后给出提示文案', typeof aceInit === 'string' && aceInit.length > 0, String(aceInit))
+  await js(`document.getElementById('ace-cli-input').value = 'C:/Custom/ACE Studio/acestudio-cli.exe'; document.getElementById('btn-ace-save').click()`)
+  await new Promise((r) => setTimeout(r, 200))
+  let dbgAce = await js(`window.svsettings.__debug()`)
+  check('保存自定义路径 => 传的就是那个路径', dbgAce.lastAceCliPath === 'C:/Custom/ACE Studio/acestudio-cli.exe', String(dbgAce.lastAceCliPath))
+  await js(`document.getElementById('btn-ace-auto').click()`)
+  await new Promise((r) => setTimeout(r, 200))
+  dbgAce = await js(`window.svsettings.__debug()`)
+  check('自动检测 => 传空串（恢复自动探测）', dbgAce.lastAceCliPath === '', String(dbgAce.lastAceCliPath))
+  const aceInputAfter = await js(`document.getElementById('ace-cli-input').value`)
+  check('自动检测后输入框被清空', aceInputAfter === '', String(aceInputAfter))
+  const aceTipAfter = await js(`document.getElementById('ace-cli-tip').textContent`)
+  check('提示文案随状态更新（非空）', typeof aceTipAfter === 'string' && aceTipAfter.length > 0, String(aceTipAfter))
+
+  /* ⑤ 刷新模型清单（1.1.7 新增）：按钮存在，点了会重新拉一次目录 */
+  const refreshBtnExists = await js(`!!document.getElementById('btn-refresh-catalog')`)
+  check('模型页有「刷新模型清单」按钮', refreshBtnExists === true)
+  const catCallsBefore = await js(`Array.from(document.querySelectorAll('[data-call]')).filter((e) => e.dataset.call === 'getModelCatalog').length`)
+  await js(`document.getElementById('btn-refresh-catalog').click()`)
+  await new Promise((r) => setTimeout(r, 500))
+  const catCallsAfter = await js(`Array.from(document.querySelectorAll('[data-call]')).filter((e) => e.dataset.call === 'getModelCatalog').length`)
+  check('点刷新 => 重新拉了一次模型目录', catCallsAfter > catCallsBefore, String(catCallsAfter) + ' vs ' + String(catCallsBefore))
   /* ④ 静态接线检查：主进程发的事件，preload 与页面都接上了 */
   const calls = await js(`Array.from(document.querySelectorAll('[data-call]')).map((e) => e.dataset.call)`)
   const errs = await js(`window.__errs`)
