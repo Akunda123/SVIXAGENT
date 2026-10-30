@@ -53,6 +53,12 @@ win:
 #       「SV 集成」一键部署到各 SV 的 scripts/Agent/ 子目录。
 # ⛔ 旧的 **JS 剪贴板桥**（`legacy/SVAgentBridge.js`）**已退役，不得再打进包**（用户 2026-09-12 指出
 #    「这个 js 不进 electron 包」）⇒ 这里只分发 `.lua`；守卫见 `tools/check-package-assets.cjs`。
+# 🆕 2026-10-30：electron-builder **26** 会把 extraResources 源里的 `node_modules`
+#   「提到」`app.asar.unpacked/node_modules` ⇒ `resources/dsh` 与 `resources/server` 底下
+#   整目录消失（1.1.7 装完启动即报「内嵌 dsh host 入口不存在」）。设 filter 也拦不住，
+#   所以由 afterPack 钩子手工补拷 + 自检。
+afterPack: scripts/after-pack.cjs
+
 extraResources:
   - from: assets
     to: assets
@@ -68,8 +74,16 @@ extraResources:
     to: assets/AKDAgentPanel.js
   - from: ../dsh-runtime/dsh
     to: dsh
+    # ⚠️ 2026-10-30：`node_modules` 交给 afterPack 钩子补（26 会把它 hoist 走，见文件顶部的 afterPack 注释）
+    filter:
+      - '**/*'
+      - '!**/node_modules/**/*'
   - from: ../dsh-runtime/node
     to: node
+    # 只带运行时本体：别把我本地备份的 node.exe.bak-* 也打进去（1.1.7 实测多出 85.8 MB）
+    filter:
+      - '**/*'
+      - '!**/*.bak*'
   # 合规：第三方许可声明 + 各依赖 LICENSE 正文（随安装包分发）
   - from: ../THIRD-PARTY-NOTICES.md
     to: THIRD-PARTY-NOTICES.md
@@ -94,6 +108,10 @@ extraResources:
   # 客户端启动时会把这条注册**写进 profile**（ensureMcpRegistration），指向 resources/server/dist/index.js。
   - from: ../dist/server-runtime
     to: server
+    # ⚠️ 2026-10-30：`node_modules` 交给 afterPack 钩子补（26 会把它 hoist 走，见文件顶部的 afterPack 注释）
+    filter:
+      - '**/*'
+      - '!**/node_modules/**/*'
 
 msi:
   oneClick: true
