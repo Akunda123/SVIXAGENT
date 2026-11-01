@@ -1092,13 +1092,10 @@
    * 口径：① 选项 = 该模型的 efforts；② 永远多一项「跟随提供方默认」= **删掉这个键**
    * （宿主 `defaultEffort` 的语义）；③ 已存的值不在表里 ⇒ **照样列出来并标出来**，绝不偷偷改写；
    * ④ 目录读不到 / 目录里没有这个模型 ⇒ 列出宿主认识的全部档位，并明说"核对不了"。 */
-  const EFFORT_I18N = {
-    off: 'settings.conv.effortOff', minimal: 'settings.conv.effortMinimal', low: 'settings.conv.effortLow',
-    medium: 'settings.conv.effortMedium', high: 'settings.conv.effortHigh',
-    xhigh: 'settings.conv.effortXHigh', max: 'settings.conv.effortMax',
-  }
+  const DEEPSEEK_FALLBACK_EFFORTS = ['off', 'low', 'high', 'max']
   const ALL_EFFORT_IDS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-  const effortLabel = (id, name) => (EFFORT_I18N[id] ? I.t(EFFORT_I18N[id]) : (name || id))
+  /* 推理等级档位保留标准英文标识，不翻译为中文，确保与 API 参数一致 */
+  const effortLabel = (id, name) => String(name || id || '')
 
   async function renderEffortSelect(cur, provider, model) {
     const sel = $('effort-select')
@@ -1118,8 +1115,18 @@
         entry = (g.models || []).find((m) => m && m.id === mod) || null
       }
     }
-    const efforts = entry && entry.reasoning && Array.isArray(entry.reasoning.efforts) ? entry.reasoning.efforts : null
-    const ids = efforts ? efforts.map((e) => e.id) : ALL_EFFORT_IDS
+    const isDeepSeek = /deepseek/i.test(prov || '') || /deepseek/i.test(mod || '')
+    const defaultEffortIds = isDeepSeek ? DEEPSEEK_FALLBACK_EFFORTS : ALL_EFFORT_IDS
+    const hasReasoningDecl = entry && Object.prototype.hasOwnProperty.call(entry, 'reasoning')
+    let efforts = null
+    if (hasReasoningDecl) {
+      if (entry.reasoning && Array.isArray(entry.reasoning.efforts)) {
+        efforts = entry.reasoning.efforts
+      } else {
+        efforts = []
+      }
+    }
+    const ids = efforts ? efforts.map((e) => e.id) : defaultEffortIds
     sel.innerHTML = ''
     const add = (v, text) => {
       const o = document.createElement('option')
@@ -1128,7 +1135,8 @@
       sel.appendChild(o)
     }
     add('', I.t('settings.conv.effortFollowProvider'))
-    for (const e of (efforts || ALL_EFFORT_IDS.map((id) => ({ id })))) add(e.id, effortLabel(e.id, e.name))
+    const renderList = efforts ? efforts : defaultEffortIds.map((id) => ({ id }))
+    for (const e of renderList) add(e.id, effortLabel(e.id, e.name))
     /* 已存的值不在表里 ⇒ **照样列出来**并在文案上标出来（不许偷偷把用户的值改成"合法"值） */
     if (value && ids.indexOf(value) < 0) add(value, effortLabel(value) + ' ' + I.t('settings.conv.effortUnsupported'))
     sel.value = value
@@ -1641,19 +1649,33 @@
     }
   }
 
-  /* ── 添加提供方（预设） ── */
+  /* ── 添加提供方（预设与自定义互斥展开） ── */
   $('btn-add-provider').addEventListener('click', () => {
     const f = $('preset-form')
-    f.style.display = f.style.display === 'none' ? 'block' : 'none'
+    const willOpen = f.style.display === 'none'
+    f.style.display = willOpen ? 'block' : 'none'
+    if (willOpen) {
+      $('custom-form').style.display = 'none'
+      const customTip = $('custom-tip')
+      if (customTip) customTip.textContent = ''
+    }
   })
 
   /* ── 添加自定义提供方 ── */
   $('btn-add-custom-provider').addEventListener('click', () => {
     const f = $('custom-form')
-    f.style.display = f.style.display === 'none' ? 'flex' : 'none'
+    const willOpen = f.style.display === 'none'
+    f.style.display = willOpen ? 'flex' : 'none'
+    if (willOpen) {
+      $('preset-form').style.display = 'none'
+      const presetTip = $('preset-tip')
+      if (presetTip) presetTip.textContent = ''
+    }
   })
   $('btn-cancel-custom').addEventListener('click', () => {
     $('custom-form').style.display = 'none'
+    const customTip = $('custom-tip')
+    if (customTip) customTip.textContent = ''
   })
   /* 从 route 派生一个**合法**的凭据名（与主进程 `deriveKeyEnvName` 同一口径：
    * 宿主只认 `/^[A-Za-z_][A-Za-z0-9_]*$/`，带 `-`/`.` 的名字会让**整个宿主起不来**）。
@@ -1780,7 +1802,18 @@
    * 旧实现：按钮文案是写死的，主进程改完不回话 ⇒ 点完毫无变化（用户报「两个按钮点不动」）。
    * 现在：加载时 getOrbState() 查一次，之后每次切换听主进程的 changed 推送。 */
   const orbState = { autostart: false, alwaysOnTop: false, loaded: false }
-  function orbTip(msg) { $('orb-tip').textContent = msg || '' }
+  let orbTipTimer = null
+  function orbTip(msg) {
+    const el = $('orb-tip')
+    if (!el) return
+    el.textContent = msg || ''
+    clearTimeout(orbTipTimer)
+    if (msg) {
+      orbTipTimer = setTimeout(() => {
+        el.textContent = ''
+      }, 3000)
+    }
+  }
   function renderOrbState() {
     if (!orbState.loaded) return   // 真实状态还没读回来时，保留按钮上的「读取中…」
     const a = $('btn-autostart')
