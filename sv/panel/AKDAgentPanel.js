@@ -513,10 +513,10 @@ function getSidePanelSectionState() {
 
 function getClientInfo() {
   try {
-    // 面板版本 = 产品版本（用户 2026-10-27 定：桥与面板统一跟随产品版本；本版 1.1.8）
-    // SV 要求 versionNumber 是整数 ⇒ 1.1.8 记作 118
+    // 面板版本 = 产品版本（用户 2026-10-27 定：桥与面板统一跟随产品版本；本版 1.1.9）
+    // SV 要求 versionNumber 是整数 ⇒ 1.1.9 记作 119
     return { name: 'AKDAgent', category: 'AKDAgent', author: 'AKDAgent',
-             versionNumber: 118, minEditorVersion: 65536, type: 'SidePanelSection' }
+             versionNumber: 119, minEditorVersion: 65536, type: 'SidePanelSection' }
   } catch (e) {
     return { name: 'AKDAgent', category: 'AKDAgent', type: 'SidePanelSection', minEditorVersion: 65536 }
   }

@@ -4957,6 +4957,20 @@ const clip = (s, n) => {
   return t.length > n ? t.slice(0, n) + '…' : t
 }
 
+/** 这条"用户消息"其实是运行时注入的提示词/上下文吗？（导出会话时不该当作 user 内容）
+ *  🆕 2026-11-01（the PR #11 by StarlightJUE 的三条真 bug 修复之一，已核对）：
+ *    runtime-context 快照、<system-reminder> / <available_skills>、压缩摘要 都不该出现在导出里。 */
+function isSystemInjectedUserMessage(text) {
+  if (!text || typeof text !== 'string') return false
+  const t = text.trim()
+  if (t.startsWith('Current runtime context.') || t.includes('runtime-context snapshots.')) return true
+  if (t.startsWith('<system-reminder>') || t.includes('<available_skills>') || t.includes('</system-reminder>')) return true
+  if (t.includes('<compacted-summary>') || t.includes('</compacted-summary>')) return true
+  if (t.includes('This is an automatically generated checkpoint condensing an earlier span')) return true
+  if (t.includes('You are now acting as a compaction engine for this AI coding assistant')) return true
+  return false
+}
+
 /** 事件数组 → markdown 记录（导出用；**含工具行**：工具名/参数摘要/结果/失败/中断/待办）
  *  文案跟随**客户端界面语言**（导出产物是给用户看的，英文界面下不该是中文表头）。*/
 /** 事件 → 正文（用户/助手/工具行/中断/待办）—— 单段导出、多段导出、摘要三处共用 */
@@ -4967,7 +4981,7 @@ function renderEventsBody(events) {
     const d = ev.data || {}
     if (ev.type === 'user/message') {
       const t = eventText(ev)
-      if (t) body.push(`${i18n.t('main.export.roleUser')}\n\n${t}\n`)
+      if (t && !isSystemInjectedUserMessage(t)) body.push(`${i18n.t('main.export.roleUser')}\n\n${t}\n`)
     } else if (ev.type === 'assistant/message') {
       const t = eventText(ev)
       if (t) body.push(`${i18n.t('main.export.roleAssistant')}\n\n${t}\n`)

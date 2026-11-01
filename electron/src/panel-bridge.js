@@ -224,7 +224,10 @@ function createPanelBridge(deps) {
           id: q.id,
           question: q.question,
           multiSelect: q.multiSelect === true,
-          options: (q.options || []).map((o) => ({ label: o.label })),
+          options: (q.options || []).map((o) => {
+            const lbl = typeof o === 'string' ? o : (o && (o.label || o.text || o.title || String(o))) || ''
+            return { label: lbl }
+          }),
         })),
       },
     };
@@ -336,6 +339,18 @@ function createPanelBridge(deps) {
     return false;
   }
 
+  /** 这条用户消息是系统/运行时注入的提示词或上下文压缩摘要吗？是 ⇒ 不显示在用户输入中 */
+  function isSystemInjectedUserMessage(text) {
+    if (!text || typeof text !== 'string') return false;
+    const t = text.trim();
+    if (t.startsWith('Current runtime context.') || t.includes('runtime-context snapshots.')) return true;
+    if (t.startsWith('<system-reminder>') || t.includes('<available_skills>') || t.includes('</system-reminder>')) return true;
+    if (t.includes('<compacted-summary>') || t.includes('</compacted-summary>')) return true;
+    if (t.includes('This is an automatically generated checkpoint condensing an earlier span')) return true;
+    if (t.includes('You are now acting as a compaction engine for this AI coding assistant')) return true;
+    return false;
+  }
+
   /** 取 DSH 消息正文（与悬浮球 extractText 同一套：只取 content 里 type=text 的块） */
   function textOfMessage(msg) {
     if (!msg || !Array.isArray(msg.content)) return '';
@@ -382,7 +397,7 @@ function createPanelBridge(deps) {
           mirror.open = false;
         }
         const t = textOfMessage(d.message);
-        if (t && !isPanelEcho(t)) emit({ kind: 'append', text: '< ' + t });
+        if (t && !isPanelEcho(t) && !isSystemInjectedUserMessage(t)) emit({ kind: 'append', text: '< ' + t });
         openTurn();
         break;
       }
@@ -517,7 +532,7 @@ function createPanelBridge(deps) {
       if (!byId) log('[panel] 答题没带 askId 或对不上台账 ⇒ 退回当前 pending（' + pend.kind + '）');
       const askId = pend.questionId !== undefined ? pend.questionId : pend.approvalId;
       if (pend.kind === 'approval') {
-        const allow = picked.indexOf('allow') >= 0;
+        const allow = picked.indexOf('allow') >= 0 || picked.indexOf('allowed-once') >= 0;
         const r = await deps.respond(pend.rpcId, {
           sessionId: pend.sessionId, approvalId: pend.approvalId,
           outcome: allow ? 'allowed-once' : 'rejected',
