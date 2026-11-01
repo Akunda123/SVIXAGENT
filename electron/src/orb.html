@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <script>window.Prism = { manual: true };</script>
 <script src="vendor/marked/marked.min.js"></script>
+<script src="vendor/dompurify/purify.min.js"></script>
 <script src="vendor/prism/prism.bundle.min.js"></script>
 <script src="vendor/katex/katex.min.js"></script>
 <style>
@@ -945,19 +946,27 @@
         href = href.slice(0, -trailingPunct.length)
         text = text.slice(0, -trailingPunct.length)
       }
-      if (href && href.startsWith('#')) {
-        return `<a class="md-link md-anchor" href="${escapeHtml(href)}"${titleAttr}>${text}</a>` + trailingPunct
+      const rawHref = (href || '').trim()
+      if (/^(javascript|data|vbscript):/i.test(rawHref)) {
+        return `<span class="md-link-blocked">${text}</span>` + trailingPunct
       }
-      if (href && href.startsWith('mailto:')) {
-        return `<a class="md-link md-mailto" href="${escapeHtml(href)}"${titleAttr}>${text}</a>` + trailingPunct
+      if (rawHref.startsWith('#')) {
+        return `<a class="md-link md-anchor" href="${escapeHtml(rawHref)}"${titleAttr}>${text}</a>` + trailingPunct
       }
-      return `<a class="md-link" href="${escapeHtml(href)}"${titleAttr} target="_blank">${text}</a>` + trailingPunct
+      if (rawHref.startsWith('mailto:')) {
+        return `<a class="md-link md-mailto" href="${escapeHtml(rawHref)}"${titleAttr}>${text}</a>` + trailingPunct
+      }
+      return `<a class="md-link" href="${escapeHtml(rawHref)}"${titleAttr} target="_blank">${text}</a>` + trailingPunct
     }
 
     mdRenderer.image = function({ href, title, text }) {
+      const rawHref = (href || '').trim()
+      if (/^(javascript|data|vbscript):/i.test(rawHref)) {
+        return ''
+      }
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
       const altAttr = text ? ` alt="${escapeHtml(text)}"` : ''
-      return `<div class="md-img-wrap"><img src="${escapeHtml(href)}"${altAttr}${titleAttr} class="md-img" loading="lazy" /></div>`
+      return `<div class="md-img-wrap"><img src="${escapeHtml(rawHref)}"${altAttr}${titleAttr} class="md-img" loading="lazy" /></div>`
     }
   }
 
@@ -1044,6 +1053,15 @@
       breaks: false,
       pedantic: false
     })
+
+    // 工业级 HTML 安全净化流水线：保留安全原生 HTML，同时彻底拦截并剥离所有恶意脚本与事件注入
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+      html = window.DOMPurify.sanitize(html, {
+        ADD_ATTR: ['target', 'loading'],
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'applet', 'meta', 'base', 'form', 'link'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onchange', 'onsubmit']
+      })
+    }
 
     // 还原数学公式
     html = html.replace(/%%MD_MATHBLOCK_(\d+)%%/g, (_m, idx) => mathBlocks[Number(idx)] || '')
