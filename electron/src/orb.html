@@ -2,6 +2,12 @@
 <html>
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="vendor/prism/prism-tomorrow.min.css">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<script>window.Prism = { manual: true };</script>
+<script src="vendor/marked/marked.min.js"></script>
+<script src="vendor/prism/prism.bundle.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
 <style>
   html, body { margin:0; padding:0; background:transparent; overflow:hidden; width:100%; height:100%; }
   * { -webkit-user-select: none; }
@@ -49,11 +55,11 @@
     width:56px; height:56px; border-radius:50%;
     background:#353837; border:1.5px solid rgba(255,255,255,.35);
     display:flex; align-items:center; justify-content:center;
-    cursor:pointer;
+    cursor:grab;
     box-shadow:0 3px 12px rgba(0,0,0,.55), inset 0 0 4px rgba(255,255,255,.06);
     transition:transform .18s ease;
-    /* orb 保留点击展开面板，不做 drag */
   }
+  #orb:active { cursor:grabbing; }
   #orb .logo { width:44px; height:auto; display:block; pointer-events:none; }
   #orb .dot {
     position:absolute; right:1px; bottom:1px; width:13px; height:13px;
@@ -79,13 +85,15 @@
   #orb-label img { height:14px; width:auto; display:block; pointer-events:none; }
   /* label 折叠时不可交互（pointer-events:none），展开后可交互（拖动） */
   #orb-label { pointer-events:none; }
-  #orb-zone:hover #orb-label { transform:translateY(-50%) scaleX(1); opacity:1; pointer-events:auto; cursor:grab; }
-  #orb-zone:hover #orb { transform:scale(1.06); }
+  #orb-zone:hover #orb-label,
+  #orb-zone.dragging #orb-label { transform:translateY(-50%) scaleX(1); opacity:1; pointer-events:auto; cursor:grab; }
+  #orb-zone:hover #orb,
+  #orb-zone.dragging #orb { transform:scale(1.06); }
 
-  /* ── 对话面板（圆圈上方，从下往上弹出） ── */
+  /* ── 对话面板（圆圈上方，从下往上弹出，以右下为锚点与悬浮球同向吸附） ── */
   #chat-overlay {
-    position:absolute; left:0; bottom:68px;
-    transform-origin:bottom left;
+    position:absolute; right:32px; bottom:68px;
+    transform-origin:bottom right;
     transform:scaleY(0);
     opacity:0; pointer-events:none;
     transition:transform .25s ease, opacity .2s ease;
@@ -167,25 +175,29 @@
   .msg.assistant { align-self:flex-start; background:rgba(255,255,255,.06); max-width:92%; }
   .msg.user { align-self:flex-end; background:rgba(var(--theme-rgb),.15); color:rgb(200,200,200); }
 
-  /* ── agent 消息内部三区：think（可折叠）/ 工具行 / 输出 ── */
-  .think-row { margin:-2px 0 4px; }
+  /* ── agent 消息内部三区：think（可折叠自适应小胶囊）/ 工具行 / 输出 ── */
+  .think-row { margin:0 0 6px; width:fit-content; max-width:100%; }
   .think-head {
-    background:none; border:none; color:rgb(130,130,130); font-size:11px;
-    cursor:pointer; padding:2px 6px; border-radius:6px; display:flex; align-items:center; gap:4px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+    color:rgb(150,150,150); font-size:11px;
+    cursor:pointer; padding:3px 10px; border-radius:12px;
+    display:inline-flex; align-items:center; gap:5px;
+    width:fit-content; transition:background .15s ease, border-color .15s ease;
   }
-  .think-head:hover { background:rgba(255,255,255,.08); color:rgb(170,170,170); }
+  .think-head:hover { background:rgba(255,255,255,.09); border-color:rgba(255,255,255,.18); color:rgb(180,180,180); }
   .think-head .spin {
     width:9px; height:9px; border-radius:50%;
-    border:2px solid rgba(140,140,140,.3); border-top-color:rgb(179,179,179);
+    border:2px solid rgba(140,140,140,.3); border-top-color:var(--theme-soft, rgb(179,179,179));
     animation:think-spin .9s linear infinite; display:inline-block;
   }
   @keyframes think-spin { to { transform:rotate(360deg) } }
   .think-body {
-    display:none; margin:4px 0 2px; padding:8px 10px; background:rgba(0,0,0,.22);
+    display:none; margin:6px 0 2px; padding:8px 10px; background:rgba(0,0,0,.28);
     border-radius:8px; font-size:12px; line-height:1.55; color:rgb(150,150,150);
     white-space:pre-wrap; word-break:break-all; overflow-wrap:anywhere; max-height:220px; overflow-y:auto;
+    border:1px solid rgba(255,255,255,.06);
   }
-  .think-row.open .think-body { display:block; }
+  .think-row.open .think-body { display:block; width:100%; }
   .tool-line {
     display:flex; align-items:center; gap:6px; margin:2px 0;
     font-size:11px; color:rgb(130,130,130);
@@ -199,9 +211,209 @@
    * **按内容收缩**气泡里 ⇒ 只装工具行时气泡缩成一条窄带（≈「mcp__sv__ace_cli 完成」那么宽），
    * 右边留一大片空白。⇒ ① 工具/思考块自己拉满；② **只在真出现过工具行时**把气泡也拉满
    * （普通短消息仍是收缩的小气泡，观感不变）。 */
-  .tool-area, .think-row { width:100%; min-width:0; align-self:stretch; }
-  .msg.assistant:has(.tool-area:not(:empty)) { align-self:stretch; max-width:100%; }
-  .out-text { white-space:pre-wrap; word-break:break-all; overflow-wrap:anywhere; }
+  .tool-area { width:100%; min-width:0; align-self:stretch; margin:4px 0; }
+  .msg.assistant:has(.tool-area:not(:empty)),
+  .msg.assistant:has(.code-wrap),
+  .msg.assistant:has(table),
+  .msg.assistant:has(.mermaid-wrap),
+  .msg.assistant:has(.katex-block) { align-self:stretch; max-width:100%; }
+  .out-text { line-height:1.5; font-size:13px; word-break:break-word; overflow-wrap:anywhere; }
+  .out-text p { margin:3px 0; }
+  .out-text p:first-child { margin-top:0; }
+  .out-text p:last-child { margin-bottom:0; }
+  .out-text .md-gap { height:4px; }
+  .out-text h1, .out-text h2, .out-text h3, .out-text h4 { margin:6px 0 3px; font-weight:600; color:rgb(225,225,225); line-height:1.3; }
+  .out-text h1 { font-size:15px; }
+  .out-text h2 { font-size:14px; }
+  .out-text h3, .out-text h4 { font-size:13px; }
+  .out-text ul, .out-text ol { margin:3px 0 3px 18px; padding:0; }
+  .out-text li { margin:1px 0; line-height:1.45; }
+  .out-text blockquote {
+    margin:4px 0; padding:2px 8px 2px 10px;
+    border-left:3px solid var(--theme);
+    background:rgba(255,255,255,.03);
+    color:rgb(165,165,165);
+    border-radius:0 4px 4px 0;
+  }
+  .out-text blockquote blockquote {
+    margin:3px 0 3px 4px;
+    border-left-color:rgba(var(--theme-rgb), .6);
+    background:rgba(255,255,255,.02);
+  }
+  .out-text blockquote blockquote blockquote {
+    border-left-color:rgba(var(--theme-rgb), .35);
+  }
+  .out-text hr {
+    border:none; border-top:1px solid rgba(255,255,255,.12);
+    margin:6px 0;
+  }
+  .out-text a.md-link {
+    color:var(--theme); text-decoration:underline; text-underline-offset:2px; cursor:pointer;
+  }
+  .out-text a.md-link:hover { opacity:.85; }
+  .out-text table {
+    width:100%; border-collapse:collapse; margin:6px 0;
+    font-size:12px; line-height:1.45; border-radius:6px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.12);
+  }
+  .out-text th, .out-text td {
+    padding:5px 8px; border:1px solid rgba(255,255,255,.08);
+  }
+  .out-text th {
+    background:rgba(255,255,255,.08); color:rgb(220,220,220); font-weight:600;
+  }
+  .out-text tr:nth-child(even) { background:rgba(255,255,255,.02); }
+  .out-text tr:hover { background:rgba(255,255,255,.05); }
+  .out-text .md-img-wrap { margin:5px 0; }
+  .out-text .md-img {
+    max-width:100%; max-height:300px; border-radius:6px;
+    border:1px solid rgba(255,255,255,.12); object-fit:contain;
+    cursor:zoom-in; display:block;
+  }
+  .out-text .katex-block {
+    margin:6px 0; text-align:center; overflow-x:auto; overflow-y:hidden; padding:4px 0;
+  }
+  .out-text .katex-block::-webkit-scrollbar { height:3px; background:transparent; }
+  .out-text .katex-block::-webkit-scrollbar-thumb { background:rgb(96,96,96); border-radius:3px; }
+  .out-text .katex-inline-err, .out-text .katex-display-err {
+    color:rgb(240,180,41); font-family:ui-monospace, monospace; font-size:11.5px;
+  }
+  .out-text .mermaid-wrap {
+    position:relative; margin:6px 0; padding:8px; border-radius:8px;
+    background:#181919; border:1px solid rgba(255,255,255,.1);
+    overflow-x:auto; text-align:center; cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .out-text .mermaid-wrap:hover {
+    border-color:rgba(var(--theme-rgb), .45);
+    background:#1c1d1d;
+  }
+  .out-text .mermaid-zoom-hint {
+    position:absolute; top:4px; right:6px;
+    font-size:11px; opacity:.4; user-select:none; pointer-events:none;
+    transition:opacity .15s ease;
+  }
+  .out-text .mermaid-wrap:hover .mermaid-zoom-hint { opacity:1; }
+  .out-text .mermaid-wrap svg { max-width:100%; height:auto; }
+  .out-text .mermaid-loading { font-size:11px; color:rgb(140,140,140); padding:6px; }
+  .out-text .mermaid-err { font-size:11px; color:rgb(229,72,77); padding:4px; }
+
+  /* 脚注样式 */
+  .out-text .md-fn-ref {
+    font-size:11px; vertical-align:super; line-height:0; margin:0 1.5px;
+  }
+  .out-text .md-fn-link {
+    color:var(--theme); text-decoration:none; font-weight:600; cursor:pointer;
+    padding:0 2px; border-radius:3px; transition:background .15s ease;
+  }
+  .out-text .md-fn-link:hover {
+    background:rgba(var(--theme-rgb), .25); text-decoration:underline;
+  }
+  .out-text .md-footnotes {
+    margin-top:10px; padding-top:4px; font-size:11.5px; color:rgb(145,145,145);
+  }
+  .out-text .md-fn-divider {
+    width:36px; height:1px; background:rgba(255,255,255,.15); margin:6px 0;
+  }
+  .out-text .md-fn-list {
+    margin:4px 0 0 16px; padding:0;
+  }
+  .out-text .md-fn-item {
+    margin:3px 0; line-height:1.4; color:rgb(150,150,150);
+    padding:1px 4px; border-radius:4px;
+    transition:background .35s ease;
+  }
+  .out-text .md-fn-item.highlight-target,
+  .out-text .md-fn-ref.highlight-target {
+    background:rgba(var(--theme-rgb), .3);
+    border-radius:3px;
+  }
+  .out-text .md-fn-back {
+    color:var(--theme); text-decoration:none; font-size:11px; margin-left:4px; cursor:pointer;
+  }
+  .out-text .md-fn-back:hover { text-decoration:underline; }
+
+  /* Mermaid / 大图全屏缩放模态窗 */
+  #mermaid-modal {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    background:rgba(18,20,19,.96); backdrop-filter:blur(6px);
+    z-index:90; display:none; flex-direction:column;
+    border-radius:12px; overflow:hidden;
+  }
+  #mermaid-modal.on { display:flex; }
+  .mm-modal-head {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 12px; border-bottom:1px solid rgba(255,255,255,.1);
+    font-size:11px; color:rgb(160,160,160);
+  }
+  .mm-modal-title { font-weight:600; color:rgb(220,220,220); display:flex; align-items:center; gap:6px; }
+  .mm-modal-actions { display:flex; align-items:center; gap:6px; }
+  .mm-modal-btn {
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
+    color:rgb(210,210,210); border-radius:4px; padding:2px 8px; font-size:11px;
+    cursor:pointer; transition:background .15s ease;
+  }
+  .mm-modal-btn:hover { background:rgba(255,255,255,.18); color:#fff; }
+  .mm-modal-viewport {
+    flex:1; overflow:hidden; position:relative; cursor:grab;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .mm-modal-viewport.dragging { cursor:grabbing; }
+  .mm-modal-canvas {
+    position:absolute; transform-origin:center center;
+    user-select:none;
+  }
+  .mm-modal-canvas svg {
+    display:block; max-width:none !important; max-height:none !important;
+    shape-rendering:geometricPrecision; text-rendering:geometricPrecision;
+  }
+  .mm-modal-footer {
+    padding:4px 10px; font-size:10px; color:rgb(130,130,130); text-align:center;
+    border-top:1px solid rgba(255,255,255,.06); user-select:none;
+  }
+  .out-text code {
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:4px; padding:1.5px 5px;
+    font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size:12px;
+    color:var(--theme-soft, rgb(160,230,90));
+  }
+  .out-text .code-wrap {
+    position:relative; margin:6px 0;
+    border-radius:8px; background:#1b1d1c;
+    border:1px solid rgba(255,255,255,.1);
+    overflow:hidden;
+  }
+  .out-text .code-lang {
+    position:absolute; top:4px; right:8px;
+    font-size:10px; color:rgb(130,130,130);
+    font-family:ui-monospace, monospace;
+    text-transform:uppercase; user-select:none; pointer-events:none;
+  }
+  .out-text pre {
+    margin:0; padding:10px 12px; background:transparent;
+    overflow-x:auto;
+    font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size:11.5px; line-height:1.45; color:rgb(215,215,215);
+    white-space:pre;
+  }
+  .out-text pre code {
+    background:transparent; padding:0; border:none;
+    color:inherit; font-size:inherit;
+  }
+  .out-text pre::-webkit-scrollbar { height:4px; background:transparent; }
+  .out-text pre::-webkit-scrollbar-thumb { background:rgb(75,75,75); border-radius:2px; }
+  .out-text pre::-webkit-scrollbar-thumb:hover { background:rgb(105,105,105); }
+
+  /* 用户消息中的 Markdown 样式适配 */
+  .msg.user p { margin:2px 0; }
+  .msg.user p:first-child { margin-top:0; }
+  .msg.user p:last-child { margin-bottom:0; }
+  .msg.user code {
+    background:rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.18);
+    border-radius:4px; padding:1px 4px; color:rgb(235,235,235);
+  }
   .out-text .cursor {
     display:inline-block; width:6px; height:13px; background:rgb(179,179,179);
     vertical-align:-2px; animation:think-spin 0s; opacity:.8;
@@ -372,6 +584,23 @@
       <button id="chat-stop" title="停止本轮（中断智能体）" data-i18n-title="orb.toolbar.stopTitle" style="display:none">■</button>
       <button id="chat-send" data-i18n="orb.toolbar.send">发送</button>
     </div>
+    <!-- Mermaid / 图表放大全屏预览模态窗 -->
+    <div id="mermaid-modal">
+      <div class="mm-modal-head">
+        <span class="mm-modal-title"><span>📊</span><span>Diagram</span></span>
+        <div class="mm-modal-actions">
+          <button class="mm-modal-btn" id="mm-btn-reset" title="1:1">1:1</button>
+          <button class="mm-modal-btn" id="mm-btn-fit" title="Fit">Fit</button>
+          <button class="mm-modal-btn" id="mm-btn-close" title="Close (Esc)">✕</button>
+        </div>
+      </div>
+      <div class="mm-modal-viewport" id="mm-modal-viewport">
+        <div class="mm-modal-canvas" id="mm-modal-canvas"></div>
+      </div>
+      <div class="mm-modal-footer">
+        <span>Scroll to Zoom · Drag to Pan · 1:1 / Fit</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -435,42 +664,40 @@
   let lastIgnore = true
   let zoneResizeTimer = null
 
-  /* ── 动态窗口尺寸（主进程保持左下角锚定） ── */
+  /* ── 动态窗口尺寸（仅在打开/关闭对话面板时切换尺寸，右下角锚定） ── */
   function updateLayout() {
-    const w = chatOpen ? 372 : (labelShown ? 190 : 64)
+    if (isDragging) return // 拖拽中锁死尺寸
+    const w = chatOpen ? 372 : 190
     const h = chatOpen ? 512 : 64
     window.akdagent.resize(w, h)
   }
 
   /* ── 区域外点击穿透：仅 orb/label/对话面板响应鼠标 ── */
   function setIgnore(ignore) {
+    if (isDragging && ignore) return // 拖拽中绝不开启穿透
     if (ignore !== lastIgnore) {
       lastIgnore = ignore
       window.akdagent.setIgnore(ignore)
     }
   }
   window.addEventListener('mousemove', (e) => {
+    if (isDragging) return
     const interactive = e.target.closest('#orb, #orb-label, #chat-overlay')
     setIgnore(!interactive)
   })
-  window.addEventListener('mouseleave', () => setIgnore(true))
+  window.addEventListener('mouseleave', () => {
+    if (isDragging) return
+    setIgnore(true)
+  })
 
-  /* ── hover 展开 label（同步调整窗口宽度）；fresh 守卫 + 500ms 防抖，
-        窗口 resize 引起的 mouseenter 重入不会重放动画 ── */
+  /* ── hover 展开 label（纯 CSS 动画，窗口尺寸恒定 190x64，零 resize、零位移）；fresh 守卫 + 500ms 防抖 ── */
   zone.addEventListener('mouseenter', () => {
     const fresh = !zoneHovered
     zoneHovered = true
-    labelShown = true
-    // 延迟 resize：等 label 展开动画启动后再改窗口，避免 resize 与动画同步抢导致跳动
-    clearTimeout(zoneResizeTimer)
-    zoneResizeTimer = setTimeout(updateLayout, 120)
     if (fresh) restartLabelAnim()
   })
   zone.addEventListener('mouseleave', () => {
     zoneHovered = false
-    labelShown = false
-    clearTimeout(zoneResizeTimer)
-    updateLayout()
   })
 
   /* 每次「真正的新 hover」重放 orb logo 动画；label 文字是静态图，不重载 src（避免跳动） */
@@ -484,38 +711,47 @@
     }
   }
 
-  /* ── 拖动：按住 label 拖动窗口 ──
-     主进程 drag-start 后启动定时器轮询光标绝对定位（不依赖渲染层 mousemove，
-     避免窗口移动污染事件坐标导致反馈循环漂移）。
-     orb 球不拖动，点击展开面板。 */
+  /* ── 拖拽机制：按下立即锁定尺寸并通知主进程，短按点击与平滑拖动彻底解耦 ── */
   const orbLabel = document.getElementById('orb-label')
-  let labelDragging = false
+  let isDragging = false
+  let dragStartPos = { x: 0, y: 0 }
+  let dragTargetOrb = false
 
-  orbLabel.addEventListener('mousedown', (e) => {
-    labelDragging = true
-    setIgnore(false)                 // 强制可交互，防 mouseup 丢失
+  function handleDragStart(e, isOrb) {
+    if (e.button !== 0) return // 仅响应鼠标左键
+    isDragging = true
+    dragTargetOrb = !!isOrb
+    dragStartPos = { x: e.screenX, y: e.screenY }
+    zone.classList.add('dragging')
+    setIgnore(false)
+    if (e.target && typeof e.target.setPointerCapture === 'function') {
+      try { e.target.setPointerCapture(e.pointerId) } catch {}
+    }
     window.akdagent.dragStart()
     e.preventDefault()
-  })
-  window.addEventListener('mouseup', (e) => {
-    if (labelDragging) {
-      labelDragging = false
-      window.akdagent.dragEnd()
-      // 恢复穿透检测（按鼠标当前位置）
-      const hit = document.elementFromPoint(e.clientX, e.clientY)
-      const interactive = !!(hit && hit.closest && hit.closest('#orb, #orb-label, #chat-overlay'))
-      setIgnore(!interactive)
+  }
+
+  window.addEventListener('pointerup', (e) => {
+    if (!isDragging) return
+    isDragging = false
+    zone.classList.remove('dragging')
+    if (e.target && typeof e.target.releasePointerCapture === 'function') {
+      try { e.target.releasePointerCapture(e.pointerId) } catch {}
     }
-  })
-  // 兜底：拖动中鼠标滑出窗口 → mouseup 丢失 → 强制结束拖动（停掉主进程轮询）
-  window.addEventListener('mouseleave', () => {
-    if (labelDragging) {
-      labelDragging = false
-      window.akdagent.dragEnd()
+    window.akdagent.dragEnd()
+    const dist = Math.hypot(e.screenX - dragStartPos.x, e.screenY - dragStartPos.y)
+    if (dist < 5 && dragTargetOrb) {
+      setChatOpen(!chatOpen)
     }
+    const hit = document.elementFromPoint(e.clientX, e.clientY)
+    const interactive = !!(hit && hit.closest && hit.closest('#orb, #orb-label, #chat-overlay'))
+    setIgnore(!interactive)
   })
 
-  /* ── 点击 orb：开/关对话面板 ── */
+  orb.addEventListener('pointerdown', (e) => handleDragStart(e, true))
+  orbLabel.addEventListener('pointerdown', (e) => handleDragStart(e, false))
+
+  /* ── 开/关对话面板 ── */
   function setChatOpen(open) {
     chatOpen = !!open
     chatOverlay.classList.toggle('open', chatOpen)
@@ -525,9 +761,6 @@
       loadHistory()
     }
   }
-  orb.addEventListener('click', () => {
-    setChatOpen(!chatOpen)
-  })
   document.getElementById('chat-close').addEventListener('click', () => {
     setChatOpen(false)
   })
@@ -595,10 +828,245 @@
 
   function scrollToBottom() { chatBody.scrollTop = chatBody.scrollHeight }
 
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  }
+
+  /* ── 工业级 Markdown / LaTeX / Mermaid / 代码高亮 流水线 ── */
+  let mermaidLoaded = false
+  let mermaidLoading = null
+  const pendingMermaids = new Map()
+  let mermaidTimer = null
+
+  function ensureMermaid() {
+    if (mermaidLoaded) return Promise.resolve(window.mermaid)
+    if (mermaidLoading) return mermaidLoading
+    mermaidLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script')
+      s.src = 'vendor/mermaid/mermaid.min.js'
+      s.onload = () => {
+        mermaidLoaded = true
+        if (window.mermaid) {
+          window.mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            securityLevel: 'loose',
+            fontFamily: 'ui-sans-serif, system-ui, sans-serif'
+          })
+        }
+        resolve(window.mermaid)
+      }
+      s.onerror = (err) => { mermaidLoading = null; reject(err) }
+      document.head.appendChild(s)
+    })
+    return mermaidLoading
+  }
+
+  function queueMermaid(id, code) {
+    pendingMermaids.set(id, code)
+    clearTimeout(mermaidTimer)
+    mermaidTimer = setTimeout(() => {
+      ensureMermaid().then((mermaid) => {
+        if (!mermaid) return
+        for (const [mid, mcode] of pendingMermaids.entries()) {
+          const wrap = document.getElementById(mid)
+          if (!wrap) continue
+          const clean = mcode.trim()
+          if (!clean) continue
+          const svgId = 'svg-' + mid.replace(/[^a-zA-Z0-9_\-]/g, '')
+          try {
+            mermaid.render(svgId, clean).then(({ svg }) => {
+              const target = document.getElementById(mid)
+              if (target) target.innerHTML = svg
+            }).catch((err) => {
+              const target = document.getElementById(mid)
+              if (target) {
+                target.innerHTML = `<div class="mermaid-err">${escapeHtml(err.message || String(err))}</div>`
+              }
+            })
+          } catch (err) {
+            wrap.innerHTML = `<div class="mermaid-err">${escapeHtml(err.message || String(err))}</div>`
+          }
+        }
+        pendingMermaids.clear()
+      }).catch(() => {})
+    }, 120)
+  }
+
+  const mdRenderer = window.marked ? new window.marked.Renderer() : null
+  if (mdRenderer) {
+    mdRenderer.code = function({ text, lang }) {
+      const cleanLang = (lang || '').toLowerCase().trim()
+      if (cleanLang === 'mermaid') {
+        const mid = 'mm-' + Math.random().toString(36).slice(2, 10)
+        queueMermaid(mid, text)
+        return `<div class="mermaid-wrap" id="${mid}"><div class="mermaid-zoom-hint" title="Click to zoom">🔍</div><div class="mermaid-loading">Rendering chart...</div></div>\n`
+      }
+      let highlighted = ''
+      if (window.Prism && window.Prism.languages[cleanLang]) {
+        try { highlighted = window.Prism.highlight(text, window.Prism.languages[cleanLang], cleanLang) }
+        catch { highlighted = escapeHtml(text) }
+      } else if (window.Prism && (cleanLang === 'js' || cleanLang === 'javascript')) {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.javascript, 'javascript')
+      } else if (window.Prism && (cleanLang === 'ts' || cleanLang === 'typescript')) {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.typescript || window.Prism.languages.javascript, 'typescript')
+      } else if (window.Prism && (cleanLang === 'py' || cleanLang === 'python')) {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.python, 'python')
+      } else if (window.Prism && (cleanLang === 'sh' || cleanLang === 'bash' || cleanLang === 'shell' || cleanLang === 'zsh')) {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.bash, 'bash')
+      } else if (window.Prism && (cleanLang === 'html' || cleanLang === 'xml' || cleanLang === 'svg')) {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.markup, 'markup')
+      } else if (window.Prism && cleanLang === 'json') {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.json, 'json')
+      } else if (window.Prism && cleanLang === 'css') {
+        highlighted = window.Prism.highlight(text, window.Prism.languages.css, 'css')
+      } else {
+        highlighted = escapeHtml(text)
+      }
+      const langAttr = cleanLang ? ` class="language-${escapeHtml(cleanLang)}"` : ''
+      const langBadge = cleanLang ? `<div class="code-lang">${escapeHtml(cleanLang)}</div>` : ''
+      return `<div class="code-wrap">${langBadge}<pre><code${langAttr}>${highlighted}</code></pre></div>\n`
+    }
+
+    mdRenderer.heading = function({ tokens, depth, text }) {
+      const plain = (text || '').replace(/<[^>]+>/g, '').trim()
+      const slug = plain.toLowerCase().replace(/[^\w\u4e00-\u9fa5\-]+/g, '-').replace(/^-+|-+$/g, '')
+      return `<h${depth} id="${slug}">${this.parser.parseInline(tokens)}</h${depth}>\n`
+    }
+
+    mdRenderer.link = function({ href, title, tokens }) {
+      let text = this.parser.parseInline(tokens)
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+      let trailingPunct = ''
+      const m = (href || '').match(/([，。！？；：“”‘’（）《》【】、]+)$/)
+      if (m && text.endsWith(m[1])) {
+        trailingPunct = m[1]
+        href = href.slice(0, -trailingPunct.length)
+        text = text.slice(0, -trailingPunct.length)
+      }
+      if (href && href.startsWith('#')) {
+        return `<a class="md-link md-anchor" href="${escapeHtml(href)}"${titleAttr}>${text}</a>` + trailingPunct
+      }
+      if (href && href.startsWith('mailto:')) {
+        return `<a class="md-link md-mailto" href="${escapeHtml(href)}"${titleAttr}>${text}</a>` + trailingPunct
+      }
+      return `<a class="md-link" href="${escapeHtml(href)}"${titleAttr} target="_blank">${text}</a>` + trailingPunct
+    }
+
+    mdRenderer.image = function({ href, title, text }) {
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+      const altAttr = text ? ` alt="${escapeHtml(text)}"` : ''
+      return `<div class="md-img-wrap"><img src="${escapeHtml(href)}"${altAttr}${titleAttr} class="md-img" loading="lazy" /></div>`
+    }
+  }
+
+  function renderMarkdown(md) {
+    if (!md || typeof md !== 'string') return ''
+    if (!window.marked) return escapeHtml(md)
+    let text = md
+
+    // 保护代码块中的内容（避免代码里的 $ 被当成数学公式提取）
+    const codeBlocks = []
+    text = text.replace(/(```+|~~~+)([\s\S]*?)\1/g, (match) => {
+      const idx = codeBlocks.length
+      codeBlocks.push(match)
+      return `%%MD_CODEBLOCK_${idx}%%`
+    })
+
+    // 提取 LaTeX display math: $$...$$ 或 \[...\]
+    const mathBlocks = []
+    if (window.katex) {
+      text = text.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (_m, f1, f2) => {
+        const formula = (f1 !== undefined ? f1 : f2).trim()
+        let rendered = ''
+        try {
+          rendered = window.katex.renderToString(formula, { displayMode: true, throwOnError: false })
+        } catch {
+          rendered = `<div class="katex-display-err">${escapeHtml(formula)}</div>`
+        }
+        const idx = mathBlocks.length
+        mathBlocks.push(`<div class="katex-block">${rendered}</div>`)
+        return `%%MD_MATHBLOCK_${idx}%%`
+      })
+
+      // 提取 LaTeX inline math: $...$ 或 \(...\)
+      text = text.replace(/(?<!\\)\$([^\$\n]+?)(?<!\\)\$|\\\(([^\n]+?)\\\)/g, (_m, f1, f2) => {
+        const formula = (f1 !== undefined ? f1 : f2).trim()
+        let rendered = ''
+        try {
+          rendered = window.katex.renderToString(formula, { displayMode: false, throwOnError: false })
+        } catch {
+          rendered = `<span class="katex-inline-err">${escapeHtml(formula)}</span>`
+        }
+        const idx = mathBlocks.length
+        mathBlocks.push(rendered)
+        return `%%MD_MATHBLOCK_${idx}%%`
+      })
+    }
+
+    // 还原代码块
+    text = text.replace(/%%MD_CODEBLOCK_(\d+)%%/g, (_m, idx) => codeBlocks[Number(idx)] || '')
+
+    // 脚注提取与替换
+    const footnoteDefs = new Map()
+    text = text.replace(/^\[\^([^\]]+)\]:\s*([\s\S]*?)(?=(?:^\[\^[^\]]+\]:|\n\n(?!\s{4}|\t)|$))/gm, (_m, key, content) => {
+      const k = key.trim()
+      const raw = content.trim()
+      const plain = raw.replace(/`{1,3}[^`]+`{1,3}/g, '').replace(/<[^>]+>/g, '').replace(/[*_~#\[\]]/g, '').trim()
+      footnoteDefs.set(k, { raw, plain })
+      return ''
+    })
+
+    let fnIndex = 0
+    const usedFootnotes = []
+    text = text.replace(/\[\^([^\]]+)\]/g, (match, key) => {
+      const k = key.trim()
+      if (!footnoteDefs.has(k)) return match
+      fnIndex++
+      const num = fnIndex
+      const def = footnoteDefs.get(k)
+      usedFootnotes.push({ key: k, num, ...def })
+      const tooltip = escapeHtml(def.plain.slice(0, 300) + (def.plain.length > 300 ? '...' : ''))
+      return `<sup class="md-fn-ref" id="fnref-${num}"><a href="#fn-${num}" class="md-fn-link" title="${tooltip}">[${num}]</a></sup>`
+    })
+
+    // 流式打字保护：当文本末尾围栏未成对闭合时，自动补齐
+    const fenceMatches = text.match(/^ {0,3}(`{3,}|~{3,})/gm)
+    if (fenceMatches && fenceMatches.length % 2 !== 0) {
+      text += '\n```'
+    }
+
+    // 交给 marked 解析（GFM 规范，单换行不强断）
+    let html = window.marked.parse(text, {
+      renderer: mdRenderer,
+      gfm: true,
+      breaks: false,
+      pedantic: false
+    })
+
+    // 还原数学公式
+    html = html.replace(/%%MD_MATHBLOCK_(\d+)%%/g, (_m, idx) => mathBlocks[Number(idx)] || '')
+
+    // 插入文末脚注列表
+    if (usedFootnotes.length > 0) {
+      let fnHtml = '\n<div class="md-footnotes"><div class="md-fn-divider"></div><ol class="md-fn-list">'
+      for (const fn of usedFootnotes) {
+        const itemParsed = window.marked ? window.marked.parseInline(fn.raw) : escapeHtml(fn.raw)
+        fnHtml += `<li id="fn-${fn.num}" class="md-fn-item"><span class="md-fn-body">${itemParsed}</span> <a href="#fnref-${fn.num}" class="md-fn-back" title="Back to content">↩</a></li>`
+      }
+      fnHtml += '</ol></div>'
+      html += fnHtml
+    }
+
+    return html
+  }
+
+  /* 普通文本消息 */
   function appendMsg(role, text) {
     const m = document.createElement('div')
     m.className = 'msg ' + role
-    m.textContent = text
+    m.innerHTML = renderMarkdown(text)
     chatBody.appendChild(m)
     scrollToBottom()
     return m
@@ -628,38 +1096,79 @@
     return e
   }
 
-  /* 新建 assistant 节点（含 think / 工具 / 输出三区） */
+  function appendSubThinkBlock(node) {
+    const row = document.createElement('div')
+    row.className = 'think-row'
+    row.innerHTML =
+      '<button class="think-head"><span class="spin"></span><span class="think-label"></span></button>' +
+      '<div class="think-body"></div>'
+    node.el.appendChild(row)
+    const block = {
+      thinkRow: row,
+      thinkHead: row.querySelector('.think-head'),
+      thinkLabel: row.querySelector('.think-label'),
+      thinkBody: row.querySelector('.think-body'),
+      thinkText: '',
+      finalized: false,
+    }
+    block.thinkHead.addEventListener('click', () => {
+      block.thinkRow.classList.toggle('open')
+      const open = block.thinkRow.classList.contains('open')
+      setText(block.thinkLabel, open ? 'orb.think.collapse' : 'orb.think.done', block.thinkText.length)
+    })
+    setText(block.thinkLabel, 'orb.think.thinking')
+    return block
+  }
+
+  function finalizeThinkBlock(block) {
+    if (!block || block.finalized) return
+    block.finalized = true
+    const spin = block.thinkHead?.querySelector('.spin')
+    if (spin) spin.remove()
+    if (block.thinkText) {
+      setText(block.thinkLabel, 'orb.think.done', block.thinkText.length)
+    } else {
+      block.thinkRow.style.display = 'none'
+    }
+  }
+
+  function finalizeAllThinks(node) {
+    if (!node) return
+    if (node.currentThink) finalizeThinkBlock(node.currentThink)
+    for (const b of (node.thinkBlocks || [])) finalizeThinkBlock(b)
+  }
+
+  function isSystemInjectedUserMessage(text) {
+    if (!text || typeof text !== 'string') return false
+    const t = text.trim()
+    if (t.startsWith('Current runtime context.') || t.includes('runtime-context snapshots.')) return true
+    if (t.startsWith('<system-reminder>') || t.includes('<available_skills>') || t.includes('</system-reminder>')) return true
+    if (t.includes('<compacted-summary>') || t.includes('</compacted-summary>')) return true
+    if (t.includes('This is an automatically generated checkpoint condensing an earlier span')) return true
+    if (t.includes('You are now acting as a compaction engine for this AI coding assistant')) return true
+    return false
+  }
+
+  /* 新建 assistant 节点（支持思考/工具/输出按时间线交替流式追加） */
   function newAssistantNode(turn) {
     const el = document.createElement('div')
     el.className = 'msg assistant'
-    el.innerHTML =
-      '<div class="think-row">' +
-      '  <button class="think-head"><span class="spin"></span><span class="think-label"></span></button>' +
-      '  <div class="think-body"></div>' +
-      '</div>' +
-      '<div class="tool-area" style="display:none"></div>' +
-      '<div class="out-text"></div>'
     chatBody.appendChild(el)
+    const initialThink = appendSubThinkBlock({ el })
     const node = {
       el, turn,
-      thinkRow: el.querySelector('.think-row'),
-      thinkHead: el.querySelector('.think-head'),
-      thinkLabel: el.querySelector('.think-label'),
-      thinkBody: el.querySelector('.think-body'),
-      thinkText: '',
-      toolArea: el.querySelector('.tool-area'),
-      outEl: el.querySelector('.out-text'),
-      outText: '',
+      currentThink: initialThink,
+      thinkBlocks: [initialThink],
+      thinkRow: initialThink.thinkRow,
+      currentToolArea: null,
+      currentOutEl: null,
+      currentOutText: '',
       toolLines: [],
+      hasCalledTool: false,
       finished: false,
+      lastType: 'think',
+      outText: '',
     }
-    node.thinkHead.addEventListener('click', () => {
-      node.thinkRow.classList.toggle('open')
-      const open = node.thinkRow.classList.contains('open')
-      setText(node.thinkLabel, open ? 'orb.think.collapse' : 'orb.think.done', node.thinkText.length)
-    })
-    // 初始「思考中…」（无字数）
-    setText(node.thinkLabel, 'orb.think.thinking')
     scrollToBottom()
     return node
   }
@@ -699,25 +1208,49 @@
         for (const c of parts) {
           if (!c) continue
           if (c.type === 'text-delta') {
+            finalizeAllThinks(node)
+            if (node.lastType !== 'text' || !node.currentOutEl) {
+              const out = document.createElement('div')
+              out.className = 'out-text'
+              node.el.appendChild(out)
+              node.currentOutEl = out
+              node.currentOutText = ''
+              node.lastType = 'text'
+            }
+            node.currentOutText += (c.text || '')
+            node.currentOutEl.innerHTML = renderMarkdown(node.currentOutText)
             node.outText += (c.text || '')
-            node.outEl.textContent = node.outText
             scrollToBottom()
           } else if (c.type === 'reasoning-delta') {
-            node.thinkText += (c.text || '')
-            node.thinkBody.textContent = node.thinkText
-            setText(node.thinkLabel, 'orb.think.streaming', node.thinkText.length)
+            if (node.lastType !== 'think' || !node.currentThink || node.currentThink.finalized) {
+              node.currentThink = appendSubThinkBlock(node)
+              node.thinkBlocks.push(node.currentThink)
+              node.lastType = 'think'
+            }
+            const cur = node.currentThink
+            cur.thinkText = (cur.thinkText || '') + (c.text || '')
+            cur.thinkBody.textContent = cur.thinkText
+            setText(cur.thinkLabel, 'orb.think.streaming', cur.thinkText.length)
           }
         }
         break
       }
       case 'tool/call': {
         const node = ensureTurn(d.turn)
-        node.toolArea.style.display = ''
+        finalizeAllThinks(node)
+        node.hasCalledTool = true
+        if (node.lastType !== 'tool' || !node.currentToolArea) {
+          const area = document.createElement('div')
+          area.className = 'tool-area'
+          node.el.appendChild(area)
+          node.currentToolArea = area
+          node.lastType = 'tool'
+        }
         const line = document.createElement('div')
         line.className = 'tool-line'
         line.innerHTML = `<span class="tl-name">${escapeHtml(d.name)}</span><span class="tl-state"></span>`
         setText(line.querySelector('.tl-state'), 'orb.tool.running')
-        node.toolArea.appendChild(line)
+        node.currentToolArea.appendChild(line)
         node.toolLines.push(line)
         scrollToBottom()
         break
@@ -736,12 +1269,7 @@
         const kind = d.reason && d.reason.kind
         if (curTurn) {
           curTurn.finished = true
-          curTurn.thinkHead.querySelector('.spin')?.remove()
-          if (curTurn.thinkText) {
-            setText(curTurn.thinkLabel, 'orb.think.done', curTurn.thinkText.length)
-          } else {
-            curTurn.thinkRow.style.display = 'none'
-          }
+          finalizeAllThinks(curTurn)
         }
         if (kind && kind !== 'completed') {
           appendErr('orb.turn.end', kind)
@@ -756,7 +1284,7 @@
       }
       case 'user/message': {
         const text = extractText(d.message)
-        if (text && text !== lastSentText) appendMsg('user', text)
+        if (text && !isSystemInjectedUserMessage(text) && text !== lastSentText) appendMsg('user', text)
         break
       }
       case 'assistant/message': {
@@ -880,17 +1408,19 @@
       const opts = Array.isArray(q.options) ? q.options : []
       if (opts.length > 0) {
         for (const o of opts) {
+          const optLabel = typeof o === 'string' ? o : (o && (o.label || o.text || o.title || String(o))) || ''
+          const optDesc = typeof o === 'object' && o ? (o.description || '') : ''
           const b = document.createElement('button')
           b.className = 'opt-btn'
-          b.textContent = o.label
-          b.title = o.description || ''
+          b.textContent = optLabel
+          b.title = optDesc
           b.addEventListener('click', () => {
             if (q.multiSelect) {
-              if (entry.selected.has(o.label)) { entry.selected.delete(o.label); b.classList.remove('selected') }
-              else { entry.selected.add(o.label); b.classList.add('selected') }
+              if (entry.selected.has(optLabel)) { entry.selected.delete(optLabel); b.classList.remove('selected') }
+              else { entry.selected.add(optLabel); b.classList.add('selected') }
             } else {
               entry.selected.clear()
-              entry.selected.add(o.label)
+              entry.selected.add(optLabel)
               block.querySelectorAll('.opt-btn').forEach((x) => x.classList.remove('selected'))
               b.classList.add('selected')
               // ★ 单选：选了选项就清掉"自己输入"（两者不可并存，见下面 input 处的注释）
@@ -940,8 +1470,13 @@
     }
     function doSubmit() {
       const answers = perQ.map((en) => {
-        const a = { id: en.q.id, selected: [...en.selected] }
-        if (en.input && en.input.value.trim()) a.custom = en.input.value.trim()
+        const isMulti = en.q.multiSelect === true
+        const selectedArr = [...en.selected]
+        const customText = (en.input && en.input.value.trim()) || ''
+        const a = { id: en.q.id, selected: isMulti ? selectedArr : (selectedArr.length > 0 ? selectedArr.slice(0, 1) : []) }
+        if (customText && (isMulti || a.selected.length === 0)) {
+          a.custom = customText
+        }
         return a
       })
       setPanelBusy(panel, true)
@@ -961,10 +1496,6 @@
     panel.querySelectorAll('button,input').forEach((x) => { x.disabled = b })
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-  }
   function extractText(msg) {
     if (!msg || !Array.isArray(msg.content)) return ''
     return msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim()
@@ -1333,13 +1864,24 @@
     const reasoning = extractReasoning(msg)
     const text = extractText(msg)
     if (reasoning) {
-      node.thinkText = reasoning
-      node.thinkBody.textContent = reasoning
-      setText(node.thinkLabel, 'orb.think.done', reasoning.length)
+      if (node.currentThink) {
+        node.currentThink.thinkText = reasoning
+        node.currentThink.thinkBody.textContent = reasoning
+      }
+      finalizeAllThinks(node)
     } else {
-      node.thinkRow.style.display = 'none'
+      finalizeAllThinks(node)
+      if (node.thinkRow) node.thinkRow.style.display = 'none'
     }
-    if (text) { node.outText = text; node.outEl.textContent = text }
+    if (text) {
+      const out = document.createElement('div')
+      out.className = 'out-text'
+      out.innerHTML = renderMarkdown(text)
+      node.el.appendChild(out)
+      node.currentOutEl = out
+      node.outText = text
+      node.lastType = 'text'
+    }
   }
 
   /* 打开面板时恢复历史：**全量时间线**（跨所有段），段边界画「工程分隔线」，不清空 */
@@ -1382,7 +1924,7 @@
         }
         if (ev.type === 'user/message') {
           const t = extractText(ev.data && (ev.data.message || ev.data))
-          if (t) appendMsg('user', t)
+          if (t && !isSystemInjectedUserMessage(t)) appendMsg('user', t)
         } else if (ev.type === 'assistant/message') {
           renderHistoryAssistant(ev)
         }
@@ -1397,6 +1939,223 @@
   chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle'))
   I.onChange(() => { renderAttach(); chatStop.setAttribute('aria-label', I.t('orb.toolbar.stopTitle')) })
   chatText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMsg() })
+
+  // ── Mermaid 模态放大与无级平移缩放控制 ──
+  const mmModal = document.getElementById('mermaid-modal')
+  const mmCanvas = document.getElementById('mm-modal-canvas')
+  const mmViewport = document.getElementById('mm-modal-viewport')
+  const mmBtnReset = document.getElementById('mm-btn-reset')
+  const mmBtnFit = document.getElementById('mm-btn-fit')
+  const mmBtnClose = document.getElementById('mm-btn-close')
+
+  let mmScale = 1.0
+  let mmTranslateX = 0
+  let mmTranslateY = 0
+  let mmBaseWidth = 300
+  let mmBaseHeight = 200
+  let mmIsDragging = false
+  let mmStartX = 0
+  let mmStartY = 0
+
+  function updateMmTransform() {
+    const svgEl = mmCanvas ? mmCanvas.querySelector('svg') : null
+    if (svgEl && mmBaseWidth > 0 && mmBaseHeight > 0) {
+      const curW = Math.max(Math.round(mmBaseWidth * mmScale), 20)
+      const curH = Math.max(Math.round(mmBaseHeight * mmScale), 20)
+      svgEl.setAttribute('width', curW)
+      svgEl.setAttribute('height', curH)
+      svgEl.style.width = curW + 'px'
+      svgEl.style.height = curH + 'px'
+    }
+    if (mmCanvas) {
+      mmCanvas.style.transform = `translate(${mmTranslateX}px, ${mmTranslateY}px)`
+    }
+  }
+
+  function openMermaidModal(svgHtml) {
+    if (!mmModal || !mmCanvas) return
+    mmCanvas.innerHTML = svgHtml
+    const svgEl = mmCanvas.querySelector('svg')
+    if (svgEl) {
+      svgEl.style.maxWidth = 'none'
+      svgEl.style.maxHeight = 'none'
+
+      let w = 0
+      let h = 0
+      if (svgEl.viewBox && svgEl.viewBox.baseVal && svgEl.viewBox.baseVal.width > 0) {
+        w = svgEl.viewBox.baseVal.width
+        h = svgEl.viewBox.baseVal.height
+      } else {
+        const vb = (svgEl.getAttribute('viewBox') || '').trim().split(/[\s,]+/)
+        if (vb.length >= 4) {
+          w = parseFloat(vb[2])
+          h = parseFloat(vb[3])
+        }
+      }
+      if (!w || !h || isNaN(w) || isNaN(h)) {
+        const rect = svgEl.getBoundingClientRect()
+        w = rect.width || 400
+        h = rect.height || 300
+      }
+      mmBaseWidth = w
+      mmBaseHeight = h
+    }
+
+    const vw = (mmViewport ? mmViewport.clientWidth : 320) - 24
+    const vh = (mmViewport ? mmViewport.clientHeight : 440) - 24
+    if (mmBaseWidth > 0 && mmBaseHeight > 0 && vw > 0 && vh > 0) {
+      mmScale = Math.min(Math.max(vw / mmBaseWidth, 0.4), Math.max(vh / mmBaseHeight, 0.4), 2.5)
+    } else {
+      mmScale = 1.0
+    }
+    mmTranslateX = 0
+    mmTranslateY = 0
+    updateMmTransform()
+    mmModal.classList.add('on')
+  }
+
+  function closeMermaidModal() {
+    if (!mmModal) return
+    mmModal.classList.remove('on')
+    if (mmCanvas) mmCanvas.innerHTML = ''
+  }
+
+  if (mmBtnClose) mmBtnClose.addEventListener('click', closeMermaidModal)
+  if (mmBtnReset) mmBtnReset.addEventListener('click', () => {
+    mmScale = 1.0; mmTranslateX = 0; mmTranslateY = 0; updateMmTransform()
+  })
+  if (mmBtnFit) mmBtnFit.addEventListener('click', () => {
+    const svgEl = mmCanvas ? mmCanvas.querySelector('svg') : null
+    if (svgEl && mmViewport && mmBaseWidth > 0 && mmBaseHeight > 0) {
+      const vw = mmViewport.clientWidth - 24
+      const vh = mmViewport.clientHeight - 24
+      mmScale = Math.min(Math.max(vw / mmBaseWidth, 0.3), Math.max(vh / mmBaseHeight, 0.3), 3.0)
+      mmTranslateX = 0
+      mmTranslateY = 0
+      updateMmTransform()
+    }
+  })
+
+  if (mmViewport) {
+    mmViewport.addEventListener('wheel', (e) => {
+      e.preventDefault()
+      const delta = e.deltaY < 0 ? 1.15 : 0.85
+      mmScale = Math.min(Math.max(mmScale * delta, 0.2), 8.0)
+      updateMmTransform()
+    }, { passive: false })
+
+    mmViewport.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      mmIsDragging = true
+      mmStartX = e.clientX - mmTranslateX
+      mmStartY = e.clientY - mmTranslateY
+      mmViewport.classList.add('dragging')
+    })
+    window.addEventListener('mousemove', (e) => {
+      if (!mmIsDragging) return
+      mmTranslateX = e.clientX - mmStartX
+      mmTranslateY = e.clientY - mmStartY
+      updateMmTransform()
+    })
+    window.addEventListener('mouseup', () => {
+      if (mmIsDragging) {
+        mmIsDragging = false
+        if (mmViewport) mmViewport.classList.remove('dragging')
+      }
+    })
+    mmViewport.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.mm-modal-head') || e.target.closest('.mm-modal-footer')) return
+      mmScale = 1.0
+      mmTranslateX = 0
+      mmTranslateY = 0
+      updateMmTransform()
+    })
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && mmModal && mmModal.classList.contains('on')) {
+      closeMermaidModal()
+    }
+  })
+
+  // Markdown 超链接、锚点、脚注、图片点击拦截
+  chatBody.addEventListener('click', (e) => {
+    // 单击 Mermaid 图表直接打开放大查看器
+    const wrap = e.target && e.target.closest && e.target.closest('.mermaid-wrap')
+    if (wrap) {
+      const svg = wrap.querySelector('svg')
+      if (svg) openMermaidModal(svg.outerHTML)
+      return
+    }
+    // 脚注跳转（带高亮闪烁）
+    const fnLink = e.target && e.target.closest && e.target.closest('a.md-fn-link')
+    if (fnLink) {
+      e.preventDefault()
+      const targetId = (fnLink.getAttribute('href') || '').slice(1)
+      if (targetId) {
+        const targetEl = chatBody.querySelector(`[id="${targetId}"]`)
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          targetEl.classList.remove('highlight-target')
+          void targetEl.offsetWidth
+          targetEl.classList.add('highlight-target')
+          setTimeout(() => targetEl.classList.remove('highlight-target'), 1500)
+        }
+      }
+      return
+    }
+    // 脚注返回正文
+    const fnBack = e.target && e.target.closest && e.target.closest('a.md-fn-back')
+    if (fnBack) {
+      e.preventDefault()
+      const targetId = (fnBack.getAttribute('href') || '').slice(1)
+      if (targetId) {
+        const targetEl = chatBody.querySelector(`[id="${targetId}"]`)
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          targetEl.classList.remove('highlight-target')
+          void targetEl.offsetWidth
+          targetEl.classList.add('highlight-target')
+          setTimeout(() => targetEl.classList.remove('highlight-target'), 1500)
+        }
+      }
+      return
+    }
+    // 相对锚点平滑滚动
+    const anchor = e.target && e.target.closest && e.target.closest('a.md-anchor')
+    if (anchor) {
+      e.preventDefault()
+      const href = anchor.getAttribute('href') || ''
+      if (href.startsWith('#')) {
+        const targetId = href.slice(1)
+        if (targetId) {
+          const targetEl = chatBody.querySelector(`[id="${targetId}"]`) || chatBody.querySelector(`[id="${decodeURIComponent(targetId)}"]`)
+          if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+      return
+    }
+    // 外部链接安全调起默认浏览器
+    const link = e.target && e.target.closest && e.target.closest('a.md-link')
+    if (link) {
+      e.preventDefault()
+      const href = link.getAttribute('href') || link.getAttribute('data-href')
+      if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:'))) {
+        if (window.akdagent && window.akdagent.openExternal) {
+          window.akdagent.openExternal(href)
+        }
+      }
+      return
+    }
+    // 图片点击外部查看
+    const img = e.target && e.target.closest && e.target.closest('img.md-img')
+    if (img && img.src) {
+      if (window.akdagent && window.akdagent.openExternal) {
+        window.akdagent.openExternal(img.src)
+      }
+    }
+  })
+
   window.akdagent.onAgentEvent(onAgentEvent)
   /* 会话绑定由主进程下发（唯一权威）——球全靠 mySessionId 过滤帧：
      只在侧栏面板里打字时，球以前永远不知道是哪个会话 ⇒ 面板的消息在球里看不到（2026-09-17 实测）。
