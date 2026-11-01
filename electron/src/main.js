@@ -1688,7 +1688,7 @@ function createOrbWindow() {
   orbWin = new BrowserWindow({
     x: orbX,
     y: orbY,
-    width: 64,
+    width: 190,
     height: 64,
     frame: false,
     transparent: true,
@@ -1710,7 +1710,7 @@ function createOrbWindow() {
     resendOrbState()
     // 启动后强制校正位置：确保 orb 贴回工作区右下角（防止上次会话 resize 漂移出界）
     const { workArea } = screen.getDisplayNearestPoint(orbWin.getBounds())
-    const w = 64
+    const w = 190
     const h = 64
     const maxX = workArea.x + workArea.width - w
     const maxY = workArea.y + workArea.height - h
@@ -3704,23 +3704,23 @@ ipcMain.handle('akdagent-set-pi-provider-fields', (_e, route, fields) => {
 
 let dragTimer = null
 ipcMain.on('akdagent-drag-start', () => {
-  if (!orbWin) return
+  if (!orbWin || orbWin.isDestroyed()) return
   const [x, y] = orbWin.getPosition()
+  const [w, h] = orbWin.getSize()
   const cursor = screen.getCursorScreenPoint()
-  // 绝对坐标法：记录按下时光标与窗口的偏移（getCursorScreenPoint 为 DIP，与 setPosition 一致）
-  dragOffset = { dx: cursor.x - x, dy: cursor.y - y }
+  // 绝对坐标法：记录按下时光标与窗口的绝对偏移及当前锁定尺寸
+  dragOffset = { dx: cursor.x - x, dy: cursor.y - y, w, h }
   // 主进程定时轮询光标定位——完全不依赖渲染层 mousemove 事件流
-  // （窗口移动会污染渲染层事件坐标，快速拖动时事件驱动版会偏移；
-  //   轮询每 8ms 直接问 OS 光标位置，稳定不漂移）
+  // 使用 setBounds 锁死宽高，彻底消除 setPosition 在 Windows 下产生的累积膨胀与向右下漂移
   clearInterval(dragTimer)
   dragTimer = setInterval(() => {
     if (!dragOffset || !orbWin || orbWin.isDestroyed()) return
     const c = screen.getCursorScreenPoint()
-    const tx = c.x - dragOffset.dx
-    const ty = c.y - dragOffset.dy
+    const tx = Math.round(c.x - dragOffset.dx)
+    const ty = Math.round(c.y - dragOffset.dy)
     const [px, py] = orbWin.getPosition()
     if (tx !== px || ty !== py) {
-      orbWin.setPosition(tx, ty)
+      orbWin.setBounds({ x: tx, y: ty, width: dragOffset.w, height: dragOffset.h })
     }
   }, 8)
 })
@@ -3738,7 +3738,7 @@ ipcMain.on('akdagent-resize', (_e, w, h) => {
   if (!orbWin || orbWin.isDestroyed()) return
   if (dragOffset) return // 拖动中冻结 resize：窗口尺寸变化会使 dragOffset 失效，球漂移
   const [cw, ch] = orbWin.getSize()
-  w = Math.max(64, Math.round(w))
+  w = Math.max(190, Math.round(w))
   h = Math.max(64, Math.round(h))
   if (w === cw && h === ch) return
   const [x, y] = orbWin.getPosition()
@@ -4957,6 +4957,17 @@ const clip = (s, n) => {
   return t.length > n ? t.slice(0, n) + '…' : t
 }
 
+function isSystemInjectedUserMessage(text) {
+  if (!text || typeof text !== 'string') return false
+  const t = text.trim()
+  if (t.startsWith('Current runtime context.') || t.includes('runtime-context snapshots.')) return true
+  if (t.startsWith('<system-reminder>') || t.includes('<available_skills>') || t.includes('</system-reminder>')) return true
+  if (t.includes('<compacted-summary>') || t.includes('</compacted-summary>')) return true
+  if (t.includes('This is an automatically generated checkpoint condensing an earlier span')) return true
+  if (t.includes('You are now acting as a compaction engine for this AI coding assistant')) return true
+  return false
+}
+
 /** 事件数组 → markdown 记录（导出用；**含工具行**：工具名/参数摘要/结果/失败/中断/待办）
  *  文案跟随**客户端界面语言**（导出产物是给用户看的，英文界面下不该是中文表头）。*/
 /** 事件 → 正文（用户/助手/工具行/中断/待办）—— 单段导出、多段导出、摘要三处共用 */
@@ -4967,7 +4978,7 @@ function renderEventsBody(events) {
     const d = ev.data || {}
     if (ev.type === 'user/message') {
       const t = eventText(ev)
-      if (t) body.push(`${i18n.t('main.export.roleUser')}\n\n${t}\n`)
+      if (t && !isSystemInjectedUserMessage(t)) body.push(`${i18n.t('main.export.roleUser')}\n\n${t}\n`)
     } else if (ev.type === 'assistant/message') {
       const t = eventText(ev)
       if (t) body.push(`${i18n.t('main.export.roleAssistant')}\n\n${t}\n`)
