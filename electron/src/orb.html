@@ -223,6 +223,7 @@
   .msg.assistant:has(.tool-area:not(:empty)),
   .msg.assistant:has(.code-wrap),
   .msg.assistant:has(table),
+  .msg.assistant:has(.table-wrap),
   .msg.assistant:has(.mermaid-wrap),
   .msg.assistant:has(.katex-block) { align-self:stretch; max-width:100%; }
   .out-text { line-height:1.5; font-size:13px; word-break:break-word; overflow-wrap:anywhere; min-width:0; max-width:100%; box-sizing:border-box; }
@@ -259,14 +260,17 @@
     color:var(--theme); text-decoration:underline; text-underline-offset:2px; cursor:pointer;
   }
   .out-text a.md-link:hover { opacity:.85; }
-  .out-text table {
-    width:100%; max-width:100%; border-collapse:collapse; margin:6px 0;
-    font-size:12px; line-height:1.45; border-radius:6px;
+  .out-text .table-wrap {
+    width:100%; max-width:100%; overflow-x:auto; margin:6px 0;
+    box-sizing:border-box; border-radius:6px;
     border:1px solid rgba(255,255,255,.12);
-    display:block; overflow-x:auto; box-sizing:border-box;
   }
-  .out-text table::-webkit-scrollbar { height:3px; background:transparent; }
-  .out-text table::-webkit-scrollbar-thumb { background:rgb(75,75,75); border-radius:2px; }
+  .out-text .table-wrap::-webkit-scrollbar { height:3px; background:transparent; }
+  .out-text .table-wrap::-webkit-scrollbar-thumb { background:rgb(75,75,75); border-radius:2px; }
+  .out-text table {
+    width:100%; border-collapse:collapse; margin:0;
+    font-size:12px; line-height:1.45;
+  }
   .out-text th, .out-text td {
     padding:5px 8px; border:1px solid rgba(255,255,255,.08);
   }
@@ -917,6 +921,11 @@
         for (let i = 0; i < style.length; i++) {
           const prop = style[i]
           const val = style.getPropertyValue(prop)
+          // 禁绝 !important 权重劫持与样式强制覆盖
+          if (style.getPropertyPriority(prop) === 'important') {
+            toRemove.push(prop)
+            continue
+          }
           // 禁绝外部引用、动态表达式与 CSS 变量穿透
           if (/url\s*\(|@import|expression\s*\(|var\s*\(--/i.test(val)) {
             toRemove.push(prop)
@@ -952,6 +961,12 @@
 
   const mdRenderer = window.marked ? new window.marked.Renderer() : null
   if (mdRenderer) {
+    // 表格包裹于 .table-wrap 中：既支持独立平滑横向滚动，又完整保留原生 table 上下对齐
+    mdRenderer.table = function(token) {
+      const rawTable = window.marked.Renderer.prototype.table.call(this, token)
+      return `<div class="table-wrap">${rawTable}</div>\n`
+    }
+
     mdRenderer.code = function({ text, lang }) {
       const cleanLang = (lang || '').toLowerCase().trim()
       if (cleanLang === 'mermaid') {

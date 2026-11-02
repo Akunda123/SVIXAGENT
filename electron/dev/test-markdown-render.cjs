@@ -85,12 +85,16 @@ app.whenReady().then(async () => {
     '  const css3 = renderMarkdown("<span style=\\"content: fake; opacity: 0;\\">文字</span><style>::before { content: fake }</style>");',
     '  assert("CSS: 拦截 content 伪造文字与 <style> 标签注入", !css3.includes("content") && !css3.includes("opacity") && !css3.includes("<style"), css3);',
     '',
+    '  // 1.5 CSS !important 权重劫持拦截',
+    '  const css4 = renderMarkdown("<span style=\\"color: orange !important; font-size: 14px;\\">样式覆盖</span>");',
+    '  assert("CSS: 拦截 !important 权重覆盖提升", !css4.includes("!important") && !css4.includes("orange"), css4);',
+    '',
     '  // 2. 原生 HTML 保留能力（用户正向用例）',
     '  const html1 = renderMarkdown("<font color=\\"red\\">重要警示</font>");',
     '  assert("HTML: <font color=\\"red\\"> 原生渲染保留", html1.includes("<font") && html1.includes("color=\\"red\\"") && html1.includes("重要警示"), html1);',
     '',
-    '  const html2 = renderMarkdown("<span style=\\"font-weight: bold;\\">粗体样式</span>");',
-    '  assert("HTML: <span style=\\"...\\"> 安全样式保留", html2.includes("<span") && html2.includes("粗体样式"), html2);',
+    '  const html2 = renderMarkdown("<span style=\\"font-weight: bold; color: transparent;\\">粗体透明样式</span>");',
+    '  assert("HTML: <span style=\\"...\\"> 安全样式与颜色透明保留", html2.includes("<span") && html2.includes("transparent") && html2.includes("粗体透明样式"), html2);',
     '',
     '  const html3 = renderMarkdown("<details><summary>点此展开</summary>详细说明内容</details>");',
     '  assert("HTML: <details><summary> 折叠块原生保留", html3.includes("<details>") && html3.includes("<summary>") && html3.includes("详细说明内容"), html3);',
@@ -98,7 +102,7 @@ app.whenReady().then(async () => {
     '  // 3. Markdown 正文与扩展能力',
     '  const tableMd = "| 表头1 | 表头2 |\\n| :--- | :--- |\\n| 数据A | 数据B |";',
     '  const tableOut = renderMarkdown(tableMd);',
-    '  assert("GFM: 表格正确渲染", tableOut.includes("<table") && tableOut.includes("<th") && tableOut.includes("数据A"), tableOut);',
+    '  assert("GFM: 表格正确渲染且包含 .table-wrap 滚动包裹容器", tableOut.includes("class=\\"table-wrap\\"") && tableOut.includes("<table") && tableOut.includes("<th") && tableOut.includes("数据A"), tableOut);',
     '',
     '  const codeMd = "```js\\nconst a = 1;\\n```";',
     '  const codeOut = renderMarkdown(codeMd);',
@@ -141,7 +145,7 @@ app.whenReady().then(async () => {
     console.error(`\n❌ 测试未通过：共 ${failed} 个断言失败`);
     process.exit(1);
   } else {
-    console.log(`\n🎉 全部 ${results.length} 项测试通过（含 4 项脚本 XSS 拦截、4 项表单/CSS 注入拦截、3 项原生 HTML 保留、5 项富文本语法）！`);
+    console.log(`\n🎉 全部 ${results.length} 项测试通过（含 4 项脚本 XSS 拦截、5 项表单/CSS 注入拦截、3 项原生 HTML 保留、5 项富文本语法）！`);
     process.exit(0);
   }
 });
