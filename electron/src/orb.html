@@ -895,6 +895,49 @@
     }, 120)
   }
 
+  // DOMPurify 原生安全钩子：精确收紧 style 属性，仅放行排版类样式，禁绝布局劫持与外部请求
+  if (window.DOMPurify && typeof window.DOMPurify.addHook === 'function') {
+    window.DOMPurify.addHook('afterSanitizeAttributes', function(node) {
+      if (node.hasAttribute && node.hasAttribute('style')) {
+        const style = node.style
+        if (!style) return
+        const toRemove = []
+        for (let i = 0; i < style.length; i++) {
+          const prop = style[i]
+          const val = style.getPropertyValue(prop)
+          // 禁绝外部引用、动态表达式与 CSS 变量穿透
+          if (/url\s*\(|@import|expression\s*\(|var\s*\(--/i.test(val)) {
+            toRemove.push(prop)
+            continue
+          }
+          // 禁绝定位、层级、位移、透明隐藏、遮罩与伪内容
+          if (/^(position|inset|top|right|bottom|left|z-index|transform|display|visibility|opacity|filter|clip-path|content)$/i.test(prop)) {
+            toRemove.push(prop)
+            continue
+          }
+          // 仅放行排版类样式：color, font-*, text-*, background-color, border*, padding*, margin*
+          const isAllowed =
+            prop === 'color' ||
+            prop === 'background-color' ||
+            prop.startsWith('font') ||
+            prop.startsWith('text') ||
+            prop.startsWith('border') ||
+            prop.startsWith('padding') ||
+            prop.startsWith('margin')
+          if (!isAllowed) {
+            toRemove.push(prop)
+          }
+        }
+        for (let j = 0; j < toRemove.length; j++) {
+          style.removeProperty(toRemove[j])
+        }
+        if (style.length === 0) {
+          node.removeAttribute('style')
+        }
+      }
+    })
+  }
+
   const mdRenderer = window.marked ? new window.marked.Renderer() : null
   if (mdRenderer) {
     mdRenderer.code = function({ text, lang }) {
@@ -1054,12 +1097,19 @@
       pedantic: false
     })
 
-    // 工业级 HTML 安全净化流水线：保留安全原生 HTML，同时彻底拦截并剥离所有恶意脚本与事件注入
+    // 工业级 HTML 安全净化流水线：保留安全原生 HTML，同时彻底拦截并剥离所有恶意脚本、表单与样式注入
     if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
       html = window.DOMPurify.sanitize(html, {
         ADD_ATTR: ['target', 'loading'],
-        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'applet', 'meta', 'base', 'form', 'link'],
-        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onchange', 'onsubmit']
+        FORBID_TAGS: [
+          'script', 'iframe', 'object', 'embed', 'applet', 'meta', 'base',
+          'form', 'input', 'button', 'textarea', 'select', 'option',
+          'style', 'link'
+        ],
+        FORBID_ATTR: [
+          'onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur',
+          'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'
+        ]
       })
     }
 
