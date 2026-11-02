@@ -1092,10 +1092,13 @@
    * 口径：① 选项 = 该模型的 efforts；② 永远多一项「跟随提供方默认」= **删掉这个键**
    * （宿主 `defaultEffort` 的语义）；③ 已存的值不在表里 ⇒ **照样列出来并标出来**，绝不偷偷改写；
    * ④ 目录读不到 / 目录里没有这个模型 ⇒ 列出宿主认识的全部档位，并明说"核对不了"。 */
-  const DEEPSEEK_FALLBACK_EFFORTS = ['off', 'low', 'high', 'max']
+  const EFFORT_I18N = {
+    off: 'settings.conv.effortOff', minimal: 'settings.conv.effortMinimal', low: 'settings.conv.effortLow',
+    medium: 'settings.conv.effortMedium', high: 'settings.conv.effortHigh',
+    xhigh: 'settings.conv.effortXHigh', max: 'settings.conv.effortMax',
+  }
   const ALL_EFFORT_IDS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-  /* 推理等级档位保留标准英文标识，不翻译为中文，确保与 API 参数一致 */
-  const effortLabel = (id, name) => String(name || id || '')
+  const effortLabel = (id, name) => (EFFORT_I18N[id] ? I.t(EFFORT_I18N[id]) : (name || id))
 
   async function renderEffortSelect(cur, provider, model) {
     const sel = $('effort-select')
@@ -1115,18 +1118,8 @@
         entry = (g.models || []).find((m) => m && m.id === mod) || null
       }
     }
-    const isDeepSeek = /deepseek/i.test(prov || '') || /deepseek/i.test(mod || '')
-    const defaultEffortIds = isDeepSeek ? DEEPSEEK_FALLBACK_EFFORTS : ALL_EFFORT_IDS
-    const hasReasoningDecl = entry && Object.prototype.hasOwnProperty.call(entry, 'reasoning')
-    let efforts = null
-    if (hasReasoningDecl) {
-      if (entry.reasoning && Array.isArray(entry.reasoning.efforts)) {
-        efforts = entry.reasoning.efforts
-      } else {
-        efforts = []
-      }
-    }
-    const ids = efforts ? efforts.map((e) => e.id) : defaultEffortIds
+    const efforts = entry && entry.reasoning && Array.isArray(entry.reasoning.efforts) ? entry.reasoning.efforts : null
+    const ids = efforts ? efforts.map((e) => e.id) : ALL_EFFORT_IDS
     sel.innerHTML = ''
     const add = (v, text) => {
       const o = document.createElement('option')
@@ -1135,8 +1128,7 @@
       sel.appendChild(o)
     }
     add('', I.t('settings.conv.effortFollowProvider'))
-    const renderList = efforts ? efforts : defaultEffortIds.map((id) => ({ id }))
-    for (const e of renderList) add(e.id, effortLabel(e.id, e.name))
+    for (const e of (efforts || ALL_EFFORT_IDS.map((id) => ({ id })))) add(e.id, effortLabel(e.id, e.name))
     /* 已存的值不在表里 ⇒ **照样列出来**并在文案上标出来（不许偷偷把用户的值改成"合法"值） */
     if (value && ids.indexOf(value) < 0) add(value, effortLabel(value) + ' ' + I.t('settings.conv.effortUnsupported'))
     sel.value = value

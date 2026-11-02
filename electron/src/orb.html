@@ -1490,11 +1490,8 @@
       const answers = perQ.map((en) => {
         const isMulti = en.q.multiSelect === true
         const selectedArr = [...en.selected]
-        const customText = (en.input && en.input.value.trim()) || ''
         const a = { id: en.q.id, selected: isMulti ? selectedArr : (selectedArr.length > 0 ? selectedArr.slice(0, 1) : []) }
-        if (customText && (isMulti || a.selected.length === 0)) {
-          a.custom = customText
-        }
+        if (en.input && en.input.value.trim() && (isMulti || a.selected.length === 0)) a.custom = en.input.value.trim()
         return a
       })
       setPanelBusy(panel, true)
