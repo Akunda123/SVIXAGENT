@@ -29,7 +29,7 @@ const { execFileSync } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
 const RES_URL = 'https://dreamtonics.com/zh-CN/svstudio-resources/'
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141 Safari/537.36'
 
 const argv = process.argv.slice(2)
 const has = (k) => argv.includes(k)
