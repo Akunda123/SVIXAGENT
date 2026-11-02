@@ -11,7 +11,7 @@
 import {
   classify, classesOf, candidatesFor, rankCandidates, validateTokens, applyReplacements,
   sortDedupe, lettersOf, isAllowed, languagesOf, languagesOfTokens, foreignTokens, normLang, tokenize, LANG_ORDER,
-  LANG_TABLES, NEAR_GROUPS,
+  LANG_TABLES, NEAR_GROUPS, styleOf, toStyle, detectStyle, defaultStyleForHost,
 } from "../dist/phoneme/index.js";
 
 let pass = 0, fail = 0;
@@ -22,7 +22,8 @@ const ok = (name, cond, extra) => {
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 console.log("A. 生成物（真源 = 官方表 + 参考 js + 修订层）");
-ok("7 张语言表", Object.keys(LANG_TABLES).length === 7, Object.keys(LANG_TABLES));
+/* 🆕 2026-11-02（SV2 2.3.0 音素表）：语种从 7 张涨到 11 张（新增 法语/德语/意大利语/葡萄牙语）。 */
+ok("11 张语言表（2.3.0 新增 fr/de/it/pt）", Object.keys(LANG_TABLES).length === 11 && ["french", "german", "italian", "portuguese"].every((k) => !!LANG_TABLES[k]), Object.keys(LANG_TABLES));
 ok("6 组近似分组（与参考 js 的 languageArr 对齐）", eq(Object.keys(NEAR_GROUPS).length, 6) && !!NEAR_GROUPS.mandarin);
 ok("Common = cl/sil/br ⇒ 任何语言都合法", ["cl", "sil", "br"].every((p) => isAllowed(p, "mandarin") && isAllowed(p, "korean")));
 ok("官方表 mandarin 有 55 个音素", LANG_TABLES.mandarin.vowels.length + LANG_TABLES.mandarin.consonants.length === 55);
@@ -35,18 +36,18 @@ console.log("\nB. 分类（两份清单都认）");
 ok("mandarin `t` = 辅音", classify("t", "mandarin") === "consonant");
 ok("mandarin `u` = 元音", classify("u", "mandarin") === "vowel");
 ok("`br` = common", classify("br", "mandarin") === "common");
-ok("korean `pp`（只在参考 js 的表里）= 辅音", classify("pp", "korean") === "consonant");
+ok("korean `pp`（2.3.0 官方表 + 参考 js 都有）= 辅音", classify("pp", "korean") === "consonant");
 ok("`zz` = unknown", classify("zz", "mandarin") === "unknown");
 ok("normLang 认官方表名（English - ARPABET）", normLang("English - ARPABET") === "english");
 ok("normLang 认 computed 语种名（english）", normLang("english") === "english");
 
 console.log("\nC. 候选与排名");
 const rU = rankCandidates("u", "mandarin", {});
-ok("mandarin `u` 首选 u@ / w，score = 1", eq(rU.slice(0, 2).map((x) => x.p), ["u@", "w"]) && rU[0].score === 1, rU.map((x) => x.p + x.score));
+ok("mandarin `u` 首选 {u@, w}（同族满分，顺序随官方表而定），score = 1", eq([...rU.slice(0, 2).map((x) => x.p)].sort(), ["u@", "w"].sort()) && rU[0].score === 1, rU.map((x) => x.p + x.score));
 ok("mandarin `u` 候选条数自适应（≤10，且不含 score=0 的凑数项）", rU.length <= 10 && rU.every((x) => x.score > 0), rU.length);
 const rA = rankCandidates("A", "mandarin", {});
-ok("mandarin `A`（族0+4）首选**族完全一致**的 AU/@U/iAU（Jaccard 1.0）",
-  eq(rA.slice(0, 3).map((x) => x.p), ["AU", "@U", "iAU"]) && rA[0].score === 1, rA.map((x) => x.p + x.score));
+ok("mandarin `A`（族0+4）首选**族完全一致**的 {AU, @U, iAU}（Jaccard 1.0；顺序随官方表而定）",
+  eq([...rA.slice(0, 3).map((x) => x.p)].sort(), ["AU", "@U", "iAU"].sort()) && rA[0].score === 1, rA.map((x) => x.p + x.score));
 ok("其次才是 0.667 档（uA/ua：族 0,4,5 ⇒ 共享 2 / 并集 3）",
   rA.find((x) => x.p === "uA")?.score === 0.667 && rA.find((x) => x.p === "ua")?.score === 0.667,
   rA.filter((x) => x.score === 0.667).map((x) => x.p));
@@ -82,7 +83,8 @@ const vzz = validateTokens(["zz"], "mandarin");
 ok("'zz' ⇒ 拒，且带近邻建议字段", !vzz.ok && eq(vzz.bad, ["zz"]) && Array.isArray(vzz.suggestions.zz));
 ok("korean 'pp' ⇒ union 放行", validateTokens(["pp"], "korean").ok);
 ok("korean 'pp' ⇒ strict:official 拒（官方表没有它）", !validateTokens(["pp"], "korean", { crossLanguage: false }).ok === false || true);
-ok("isAllowed('pp','korean',false,'official') = false", isAllowed("pp", "korean", false, "official") === false);
+/* 🆕 2026-11-02（2.3.0 表）：korean 官方表已含简化音素 `pp` ⇒ strict:official 也应放行（旧表只有参考 js 有它）。 */
+ok("isAllowed('pp','korean',false,'official') = true（2.3.0 官方表已含 pp）", isAllowed("pp", "korean", false, "official") === true);
 ok("isAllowed('pp','korean',false,'union') = true", isAllowed("pp", "korean", false, "union") === true);
 ok("跨语种开关：普通话 `uA` 不在英语表 ⇒ 默认拒、crossLanguage 放行", !isAllowed("uA", "english", false) && isAllowed("uA", "english", true));
 
@@ -95,6 +97,22 @@ const r3 = applyReplacements("a A o", [{ from: "a", to: "A" }, { from: "o", to: 
 ok("多条规则逐个生效 ⇒ 'A A O'", r3.next === "A A O" && r3.hits === 2, r3);
 ok("替换明细带每条命中次数", r3.detail.every((d) => typeof d.n === "number"));
 ok("空串输入 ⇒ 空串输出（清手动音素用）", applyReplacements("", [{ from: "a", to: "b" }]).next === "");
+
+console.log("\nH. 两套写法（简化音素 / X-SAMPA，2026-11-02）");
+/* SV2 2.3.0 起官方表同时给两套：phoneme（简化音素，默认）+ xsampa（SV1 与 SV2<2.3 的写法）。
+ * 用户 2026-11-02 提醒：**SV1 没有更新、仍是 X-SAMPA** ⇒ 两套都要认，且写回要跟着音符现有的写法走。 */
+ok("普通话：zh 是简化音素、ts` 是 X-SAMPA", styleOf("zh", "mandarin") === "simplified" && styleOf("ts`", "mandarin") === "xsampa", [styleOf("zh", "mandarin"), styleOf("ts`", "mandarin")]);
+ok("映射：zh → ts`（简化 → X-SAMPA）", toStyle("zh", "mandarin", "xsampa") === "ts`", toStyle("zh", "mandarin", "xsampa"));
+ok("映射可逆：ts` → zh", toStyle("ts`", "mandarin", "simplified") === "zh", toStyle("ts`", "mandarin", "simplified"));
+ok("英文：ah ↔ V+", toStyle("ah", "english", "xsampa") === "V+" && toStyle("V+", "english", "simplified") === "ah", [toStyle("ah", "english", "xsampa"), toStyle("V+", "english", "simplified")]);
+ok("detectStyle：zh ir ⇒ simplified", detectStyle(["zh", "ir"], "mandarin") === "simplified");
+ok("detectStyle：ts` r\` ⇒ xsampa", detectStyle(["ts`", "r\\`"], "mandarin") === "xsampa", detectStyle(["ts`", "r\\`"], "mandarin"));
+ok("两套写法都算合法（表内）", isAllowed("zh", "mandarin") && isAllowed("ts`", "mandarin"));
+ok("classify 认 X-SAMPA：ts` 在普通话里是辅音", classify("ts`", "mandarin") === "consonant", classify("ts`", "mandarin"));
+ok("没有全局开关 ⇒ 按宿主版本给默认写法：SV1 = xsampa", defaultStyleForHost(68354, false) === "xsampa");
+ok("SV2 2.2.x = xsampa", defaultStyleForHost(131584, true) === "xsampa");
+ok("SV2 2.3.0 = simplified", defaultStyleForHost(131840, true) === "simplified");
+ok("版本拿不到 ⇒ 保守用 simplified（2.3.0 表为准）", defaultStyleForHost(null) === "simplified");
 
 console.log("\n" + (fail ? "❌" : "✅") + " test-phoneme: " + pass + " 通过 / " + fail + " 失败");
 process.exit(fail ? 1 : 0);

@@ -4957,6 +4957,9 @@ const clip = (s, n) => {
   return t.length > n ? t.slice(0, n) + '…' : t
 }
 
+/** 这条"用户消息"其实是运行时注入的提示词/上下文吗？（导出会话时不该当作 user 内容）
+ *  🆕 2026-11-01（the PR #11 by StarlightJUE 的三条真 bug 修复之一，已核对）：
+ *    runtime-context 快照、<system-reminder> / <available_skills>、压缩摘要 都不该出现在导出里。 */
 function isSystemInjectedUserMessage(text) {
   if (!text || typeof text !== 'string') return false
   const t = text.trim()

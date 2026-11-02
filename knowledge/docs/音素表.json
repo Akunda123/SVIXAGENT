@@ -1,1540 +1,3644 @@
 {
-  "source": "Synthesizer V Studio Phoneme Reference (2.0.0 update) · docs/音素.html",
-  "extractedAt": "2026-09-18",
-  "tables": [
+ "source": "Synthesizer V Studio Phoneme Reference (2.3.0) · https://dreamtonics.com/zh-CN/svstudio-resources/",
+ "extractedAt": "2026-11-02",
+ "version": "2.3.0",
+ "tables": [
+  {
+   "language": "English - ARPABET",
+   "languageKey": "EnglishARPABET",
+   "languageZh": "英语 - ARPABET",
+   "groups": [
     {
-      "language": "English - ARPABET",
-      "groups": [
-        {
-          "title": "Vowels",
-          "rows": [
-            {
-              "phoneme": "aa",
-              "category": "Vowel",
-              "example": "far",
-              "description": null
-            },
-            {
-              "phoneme": "ae",
-              "category": "Vowel",
-              "example": "bat",
-              "description": null
-            },
-            {
-              "phoneme": "ah",
-              "category": "Vowel",
-              "example": "duck",
-              "description": null
-            },
-            {
-              "phoneme": "ao",
-              "category": "Vowel",
-              "example": "fought",
-              "description": null
-            },
-            {
-              "phoneme": "aw",
-              "category": "Diphthong",
-              "example": "about",
-              "description": null
-            },
-            {
-              "phoneme": "ax",
-              "category": "Vowel",
-              "example": "replica",
-              "description": null
-            },
-            {
-              "phoneme": "ay",
-              "category": "Diphthong",
-              "example": "dye",
-              "description": null
-            },
-            {
-              "phoneme": "eh",
-              "category": "Vowel",
-              "example": "bed",
-              "description": null
-            },
-            {
-              "phoneme": "er",
-              "category": "Vowel",
-              "example": "river",
-              "description": null
-            },
-            {
-              "phoneme": "ey",
-              "category": "Diphthong",
-              "example": "day",
-              "description": null
-            },
-            {
-              "phoneme": "ih",
-              "category": "Vowel",
-              "example": "sick",
-              "description": null
-            },
-            {
-              "phoneme": "iy",
-              "category": "Vowel",
-              "example": "peak",
-              "description": null
-            },
-            {
-              "phoneme": "ow",
-              "category": "Diphthong",
-              "example": "low",
-              "description": null
-            },
-            {
-              "phoneme": "oy",
-              "category": "Diphthong",
-              "example": "toy",
-              "description": null
-            },
-            {
-              "phoneme": "uh",
-              "category": "Vowel",
-              "example": "full",
-              "description": null
-            },
-            {
-              "phoneme": "uw",
-              "category": "Vowel",
-              "example": "due",
-              "description": null
-            }
-          ]
-        },
-        {
-          "title": "Consonants",
-          "rows": [
-            {
-              "phoneme": "b",
-              "category": "Stop",
-              "example": "back",
-              "description": null
-            },
-            {
-              "phoneme": "ch",
-              "category": "Affricate",
-              "example": "chalk",
-              "description": null
-            },
-            {
-              "phoneme": "d",
-              "category": "Stop",
-              "example": "day",
-              "description": null
-            },
-            {
-              "phoneme": "dx",
-              "category": "Stop",
-              "example": "stutter",
-              "description": null
-            },
-            {
-              "phoneme": "dr",
-              "category": "Affricate",
-              "example": "drive",
-              "description": null
-            },
-            {
-              "phoneme": "dh",
-              "category": "Fricative",
-              "example": "rhythm",
-              "description": null
-            },
-            {
-              "phoneme": "f",
-              "category": "Fricative",
-              "example": "fright",
-              "description": null
-            },
-            {
-              "phoneme": "g",
-              "category": "Stop",
-              "example": "glock",
-              "description": null
-            },
-            {
-              "phoneme": "hh",
-              "category": "Aspirate",
-              "example": "hay",
-              "description": null
-            },
-            {
-              "phoneme": "jh",
-              "category": "Affricate",
-              "example": "just",
-              "description": null
-            },
-            {
-              "phoneme": "k",
-              "category": "Stop",
-              "example": "rock",
-              "description": null
-            },
-            {
-              "phoneme": "l",
-              "category": "Liquid",
-              "example": "life",
-              "description": null
-            },
-            {
-              "phoneme": "m",
-              "category": "Nasal",
-              "example": "might",
-              "description": null
-            },
-            {
-              "phoneme": "n",
-              "category": "Nasal",
-              "example": "night",
-              "description": null
-            },
-            {
-              "phoneme": "ng",
-              "category": "Nasal",
-              "example": "singer",
-              "description": null
-            },
-            {
-              "phoneme": "p",
-              "category": "Stop",
-              "example": "pen",
-              "description": null
-            },
-            {
-              "phoneme": "r",
-              "category": "Semivowel",
-              "example": "road",
-              "description": null
-            },
-            {
-              "phoneme": "s",
-              "category": "Fricative",
-              "example": "steel",
-              "description": null
-            },
-            {
-              "phoneme": "sh",
-              "category": "Fricative",
-              "example": "shrimp",
-              "description": null
-            },
-            {
-              "phoneme": "t",
-              "category": "Stop",
-              "example": "time",
-              "description": null
-            },
-            {
-              "phoneme": "tr",
-              "category": "Affricate",
-              "example": "try",
-              "description": null
-            },
-            {
-              "phoneme": "th",
-              "category": "Fricative",
-              "example": "truth",
-              "description": null
-            },
-            {
-              "phoneme": "v",
-              "category": "Fricative",
-              "example": "valve",
-              "description": null
-            },
-            {
-              "phoneme": "w",
-              "category": "Semivowel",
-              "example": "wool",
-              "description": null
-            },
-            {
-              "phoneme": "y",
-              "category": "Semivowel",
-              "example": "yacht",
-              "description": null
-            },
-            {
-              "phoneme": "z",
-              "category": "Fricative",
-              "example": "zebra",
-              "description": null
-            },
-            {
-              "phoneme": "zh",
-              "category": "Fricative",
-              "example": "vision",
-              "description": null
-            }
-          ]
-        }
-      ]
+     "title": "Vowels, Semivowels and Diphthongs",
+     "titleZh": "元音、半元音、双元音",
+     "rows": [
+      {
+       "phoneme": "aa",
+       "category": "Vowel",
+       "example": "_o_n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "A"
+      },
+      {
+       "phoneme": "ae",
+       "category": "Vowel",
+       "example": "c_a_t",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "{"
+      },
+      {
+       "phoneme": "ah",
+       "category": "Vowel",
+       "example": "_u_ncle",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "V+"
+      },
+      {
+       "phoneme": "ao",
+       "category": "Vowel",
+       "example": "c_augh_t",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O"
+      },
+      {
+       "phoneme": "aw",
+       "category": "Diphthong",
+       "example": "_ou_t",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "aU"
+      },
+      {
+       "phoneme": "ax",
+       "category": "Vowel",
+       "example": "_a_rena",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "@"
+      },
+      {
+       "phoneme": "ay",
+       "category": "Diphthong",
+       "example": "f_i_ne",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "aI"
+      },
+      {
+       "phoneme": "eax",
+       "category": "Diphthong",
+       "example": "sq_uare_ (British)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e@"
+      },
+      {
+       "phoneme": "eh",
+       "category": "Vowel",
+       "example": "b_e_d",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E"
+      },
+      {
+       "phoneme": "er",
+       "category": "Vowel",
+       "example": "b_ur_g_er_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "@`"
+      },
+      {
+       "phoneme": "ey",
+       "category": "Diphthong",
+       "example": "p_ay_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "eI"
+      },
+      {
+       "phoneme": "iax",
+       "category": "Diphthong",
+       "example": "n_ear_ (British)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i@"
+      },
+      {
+       "phoneme": "ih",
+       "category": "Vowel",
+       "example": "b_i_t",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "I"
+      },
+      {
+       "phoneme": "iy",
+       "category": "Vowel",
+       "example": "fr_ee_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "oh",
+       "category": "Vowel",
+       "example": "n_or_th (British)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o_o"
+      },
+      {
+       "phoneme": "ow",
+       "category": "Diphthong",
+       "example": "r_ow_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "oU"
+      },
+      {
+       "phoneme": "oy",
+       "category": "Diphthong",
+       "example": "b_oy_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "OI"
+      },
+      {
+       "phoneme": "r",
+       "category": "Semivowel",
+       "example": "_r_ed",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r\\"
+      },
+      {
+       "phoneme": "uax",
+       "category": "Diphthong",
+       "example": "c_ure_ (British)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "U@"
+      },
+      {
+       "phoneme": "uh",
+       "category": "Vowel",
+       "example": "h_oo_k",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "U"
+      },
+      {
+       "phoneme": "uw",
+       "category": "Vowel",
+       "example": "b_oo_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "_w_eep",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "_y_ou",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      }
+     ]
     },
     {
-      "language": "Japanese - ROMAJI",
-      "groups": [
-        {
-          "title": "Vowels and Semivowels",
-          "rows": [
-            {
-              "phoneme": "a",
-              "category": "Vowel",
-              "example": "あ a",
-              "description": null
-            },
-            {
-              "phoneme": "i",
-              "category": "Vowel",
-              "example": "い i",
-              "description": null
-            },
-            {
-              "phoneme": "u",
-              "category": "Vowel",
-              "example": "う u",
-              "description": null
-            },
-            {
-              "phoneme": "e",
-              "category": "Vowel",
-              "example": "え e",
-              "description": null
-            },
-            {
-              "phoneme": "o",
-              "category": "Vowel",
-              "example": "お o",
-              "description": null
-            },
-            {
-              "phoneme": "N",
-              "category": "Vowel",
-              "example": "ん n",
-              "description": null
-            },
-            {
-              "phoneme": "w",
-              "category": "Semivowel",
-              "example": "わ wa",
-              "description": null
-            },
-            {
-              "phoneme": "v",
-              "category": "Semivowel",
-              "example": "ヴァ va",
-              "description": null
-            },
-            {
-              "phoneme": "y",
-              "category": "Semivowel",
-              "example": "や ya",
-              "description": null
-            }
-          ]
-        },
-        {
-          "title": "Consonants",
-          "rows": [
-            {
-              "phoneme": "t",
-              "category": "Stop",
-              "example": "た ta",
-              "description": null
-            },
-            {
-              "phoneme": "d",
-              "category": "Stop",
-              "example": "だ da",
-              "description": null
-            },
-            {
-              "phoneme": "s",
-              "category": "Fricative",
-              "example": "さ sa",
-              "description": null
-            },
-            {
-              "phoneme": "sh",
-              "category": "Fricative",
-              "example": "しゃ sha",
-              "description": null
-            },
-            {
-              "phoneme": "j",
-              "category": "Affricate",
-              "example": "じゃ ja",
-              "description": null
-            },
-            {
-              "phoneme": "z",
-              "category": "Affricate",
-              "example": "ざ za",
-              "description": null
-            },
-            {
-              "phoneme": "ts",
-              "category": "Affricate",
-              "example": "つ tsu",
-              "description": null
-            },
-            {
-              "phoneme": "k",
-              "category": "Stop",
-              "example": "か ka",
-              "description": null
-            },
-            {
-              "phoneme": "g",
-              "category": "Stop",
-              "example": "が ga",
-              "description": null
-            },
-            {
-              "phoneme": "h",
-              "category": "Aspirate",
-              "example": "ハ ha",
-              "description": null
-            },
-            {
-              "phoneme": "b",
-              "category": "Stop",
-              "example": "ば ba",
-              "description": null
-            },
-            {
-              "phoneme": "p",
-              "category": "Stop",
-              "example": "ぱ pa",
-              "description": null
-            },
-            {
-              "phoneme": "f",
-              "category": "Fricative",
-              "example": "ふぁ fa",
-              "description": null
-            },
-            {
-              "phoneme": "ch",
-              "category": "Affricate",
-              "example": "ちゃ cha",
-              "description": null
-            },
-            {
-              "phoneme": "ry",
-              "category": "Liquid",
-              "example": "りゃ rya",
-              "description": null
-            },
-            {
-              "phoneme": "ky",
-              "category": "Stop",
-              "example": "きゃ kya",
-              "description": null
-            },
-            {
-              "phoneme": "py",
-              "category": "Stop",
-              "example": "ぴゃ pya",
-              "description": null
-            },
-            {
-              "phoneme": "dy",
-              "category": "Stop",
-              "example": "でゃ dya",
-              "description": null
-            },
-            {
-              "phoneme": "ty",
-              "category": "Stop",
-              "example": "てゃ tya",
-              "description": null
-            },
-            {
-              "phoneme": "ny",
-              "category": "Nasal",
-              "example": "にゃ nya",
-              "description": null
-            },
-            {
-              "phoneme": "hy",
-              "category": "Aspirate",
-              "example": "ひゃ hya",
-              "description": null
-            },
-            {
-              "phoneme": "my",
-              "category": "Nasal",
-              "example": "みゃ mya",
-              "description": null
-            },
-            {
-              "phoneme": "gy",
-              "category": "Stop",
-              "example": "ぎゃ gya",
-              "description": null
-            },
-            {
-              "phoneme": "by",
-              "category": "Stop",
-              "example": "びゃ bya",
-              "description": null
-            },
-            {
-              "phoneme": "n",
-              "category": "Nasal",
-              "example": "な na",
-              "description": null
-            },
-            {
-              "phoneme": "m",
-              "category": "Nasal",
-              "example": "ま ma",
-              "description": null
-            },
-            {
-              "phoneme": "r",
-              "category": "Liquid",
-              "example": "ら ra/la",
-              "description": null
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "language": "Mandarin Chinese - XSAMPA",
-      "groups": [
-        {
-          "title": "Vowels, Semivowels and Diphthongs",
-          "rows": [
-            {
-              "phoneme": "a",
-              "category": "Vowel",
-              "example": "他 ta 而 er",
-              "description": null
-            },
-            {
-              "phoneme": "A",
-              "category": "Vowel",
-              "example": "狼 lang",
-              "description": null
-            },
-            {
-              "phoneme": "o",
-              "category": "Vowel",
-              "example": "我 wo",
-              "description": null
-            },
-            {
-              "phoneme": "@",
-              "category": "Vowel",
-              "example": "碰 peng",
-              "description": null
-            },
-            {
-              "phoneme": "e",
-              "category": "Vowel",
-              "example": "黑 hei",
-              "description": null
-            },
-            {
-              "phoneme": "7",
-              "category": "Vowel",
-              "example": "的 de",
-              "description": null
-            },
-            {
-              "phoneme": "U",
-              "category": "Vowel",
-              "example": "从 cong",
-              "description": null
-            },
-            {
-              "phoneme": "u",
-              "category": "Vowel",
-              "example": "无 wu",
-              "description": null
-            },
-            {
-              "phoneme": "i",
-              "category": "Vowel",
-              "example": "伊 yi",
-              "description": null
-            },
-            {
-              "phoneme": "i\\",
-              "category": "Vowel",
-              "example": "丝 si",
-              "description": null
-            },
-            {
-              "phoneme": "i`",
-              "category": "Vowel",
-              "example": "是 shi",
-              "description": null
-            },
-            {
-              "phoneme": "y",
-              "category": "Vowel",
-              "example": "雨 yu",
-              "description": null
-            },
-            {
-              "phoneme": "AU",
-              "category": "Diphthong",
-              "example": "好 hao",
-              "description": null
-            },
-            {
-              "phoneme": "@U",
-              "category": "Diphthong",
-              "example": "都 dou",
-              "description": null
-            },
-            {
-              "phoneme": "ia",
-              "category": "Diphthong",
-              "example": "家 jia",
-              "description": null
-            },
-            {
-              "phoneme": "iA",
-              "category": "Diphthong",
-              "example": "将 jiang",
-              "description": null
-            },
-            {
-              "phoneme": "iAU",
-              "category": "Diphthong",
-              "example": "小 xiao",
-              "description": null
-            },
-            {
-              "phoneme": "ie",
-              "category": "Diphthong",
-              "example": "谢 xie",
-              "description": null
-            },
-            {
-              "phoneme": "iE",
-              "category": "Diphthong",
-              "example": "先 xian",
-              "description": null
-            },
-            {
-              "phoneme": "iU",
-              "category": "Diphthong",
-              "example": "穹 qiong",
-              "description": null
-            },
-            {
-              "phoneme": "i@U",
-              "category": "Diphthong",
-              "example": "袖 xiu",
-              "description": null
-            },
-            {
-              "phoneme": "y{",
-              "category": "Diphthong",
-              "example": "元 yuan",
-              "description": null
-            },
-            {
-              "phoneme": "yE",
-              "category": "Diphthong",
-              "example": "学 xue",
-              "description": null
-            },
-            {
-              "phoneme": "ua",
-              "category": "Diphthong",
-              "example": "花 hua",
-              "description": null
-            },
-            {
-              "phoneme": "uA",
-              "category": "Diphthong",
-              "example": "黄 huang",
-              "description": null
-            },
-            {
-              "phoneme": "u@",
-              "category": "Diphthong",
-              "example": "顺 shun",
-              "description": null
-            },
-            {
-              "phoneme": "ue",
-              "category": "Diphthong",
-              "example": "对 dui",
-              "description": null
-            },
-            {
-              "phoneme": "uo",
-              "category": "Diphthong",
-              "example": "多 duo",
-              "description": null
-            },
-            {
-              "phoneme": "z`",
-              "category": "Semivowel",
-              "example": "日 ri",
-              "description": null
-            },
-            {
-              "phoneme": "w",
-              "category": "Semivowel",
-              "example": "网 wang",
-              "description": null
-            },
-            {
-              "phoneme": "j",
-              "category": "Semivowel",
-              "example": "用 yong",
-              "description": null
-            }
-          ]
-        },
-        {
-          "title": "Consonants and Codas",
-          "rows": [
-            {
-              "phoneme": ":\\i",
-              "category": "Coda",
-              "example": "还 hai",
-              "description": null
-            },
-            {
-              "phoneme": "r\\`",
-              "category": "Coda",
-              "example": "而 er",
-              "description": null
-            },
-            {
-              "phoneme": ":n",
-              "category": "Coda",
-              "example": "岸 an",
-              "description": null
-            },
-            {
-              "phoneme": "N",
-              "category": "Coda",
-              "example": "从 cong",
-              "description": null
-            },
-            {
-              "phoneme": "p",
-              "category": "Stop",
-              "example": "并 bing",
-              "description": null
-            },
-            {
-              "phoneme": "ph",
-              "category": "Stop",
-              "example": "平 ping",
-              "description": null
-            },
-            {
-              "phoneme": "t",
-              "category": "Stop",
-              "example": "带 dai",
-              "description": null
-            },
-            {
-              "phoneme": "th",
-              "category": "Stop",
-              "example": "同 tong",
-              "description": null
-            },
-            {
-              "phoneme": "k",
-              "category": "Stop",
-              "example": "给 gei",
-              "description": null
-            },
-            {
-              "phoneme": "kh",
-              "category": "Stop",
-              "example": "开 kai",
-              "description": null
-            },
-            {
-              "phoneme": "ts\\",
-              "category": "Affricate",
-              "example": "几 ji",
-              "description": null
-            },
-            {
-              "phoneme": "ts",
-              "category": "Affricate",
-              "example": "子 zi",
-              "description": null
-            },
-            {
-              "phoneme": "tsh",
-              "category": "Affricate",
-              "example": "从 cong",
-              "description": null
-            },
-            {
-              "phoneme": "ts`",
-              "category": "Affricate",
-              "example": "只 zhi",
-              "description": null
-            },
-            {
-              "phoneme": "ts`h",
-              "category": "Affricate",
-              "example": "尘 chen",
-              "description": null
-            },
-            {
-              "phoneme": "x",
-              "category": "Aspirate",
-              "example": "好 hao",
-              "description": null
-            },
-            {
-              "phoneme": "f",
-              "category": "Fricative",
-              "example": "风 feng",
-              "description": null
-            },
-            {
-              "phoneme": "s",
-              "category": "Fricative",
-              "example": "三 san",
-              "description": null
-            },
-            {
-              "phoneme": "s`",
-              "category": "Fricative",
-              "example": "是 shi",
-              "description": null
-            },
-            {
-              "phoneme": "ts\\h",
-              "category": "Fricative",
-              "example": "七 qi",
-              "description": null
-            },
-            {
-              "phoneme": "s\\",
-              "category": "Fricative",
-              "example": "星 xing",
-              "description": null
-            },
-            {
-              "phoneme": "m",
-              "category": "Nasal",
-              "example": "吗 ma",
-              "description": null
-            },
-            {
-              "phoneme": "n",
-              "category": "Nasal",
-              "example": "女 nv",
-              "description": null
-            },
-            {
-              "phoneme": "l",
-              "category": "Liquid",
-              "example": "来 lai",
-              "description": null
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "language": "Cantonese Chinese - XSAMPA",
-      "groups": [
-        {
-          "title": "Vowels and Semivowels",
-          "rows": [
-            {
-              "phoneme": "a",
-              "category": "Vowel",
-              "example": "责 zaak",
-              "description": null
-            },
-            {
-              "phoneme": "6",
-              "category": "Vowel",
-              "example": "周 zau",
-              "description": null
-            },
-            {
-              "phoneme": "E",
-              "category": "Vowel",
-              "example": "些 se",
-              "description": null
-            },
-            {
-              "phoneme": "e",
-              "category": "Vowel",
-              "example": "伾 pei",
-              "description": null
-            },
-            {
-              "phoneme": "i",
-              "category": "Vowel",
-              "example": "兒 ji",
-              "description": null
-            },
-            {
-              "phoneme": "l",
-              "category": "Vowel",
-              "example": "升 sing",
-              "description": null
-            },
-            {
-              "phoneme": "O",
-              "category": "Vowel",
-              "example": "开 hoi",
-              "description": null
-            },
-            {
-              "phoneme": "o",
-              "category": "Vowel",
-              "example": "數 sou",
-              "description": null
-            },
-            {
-              "phoneme": "u",
-              "category": "Vowel",
-              "example": "潰 kui",
-              "description": null
-            },
-            {
-              "phoneme": "U",
-              "category": "Vowel",
-              "example": "用 jung",
-              "description": null
-            },
-            {
-              "phoneme": "9",
-              "category": "Vowel",
-              "example": "约 joek",
-              "description": null
-            },
-            {
-              "phoneme": "8",
-              "category": "Vowel",
-              "example": "摔 seot",
-              "description": null
-            },
-            {
-              "phoneme": "y",
-              "category": "Vowel",
-              "example": "雪 syut",
-              "description": null
-            },
-            {
-              "phoneme": "m=",
-              "category": "Vowel",
-              "example": "唔 m",
-              "description": null
-            },
-            {
-              "phoneme": "N=",
-              "category": "Vowel",
-              "example": "五 ng",
-              "description": null
-            },
-            {
-              "phoneme": "w",
-              "category": "Semivowel",
-              "example": "泳 wing",
-              "description": null
-            },
-            {
-              "phoneme": "j",
-              "category": "Semivowel",
-              "example": "一 jat",
-              "description": null
-            }
-          ]
-        },
-        {
-          "title": "Consonants and Codas",
-          "rows": [
-            {
-              "phoneme": "p",
-              "category": "Stop",
-              "example": "不 bat",
-              "description": null
-            },
-            {
-              "phoneme": "ph",
-              "category": "Stop",
-              "example": "伾 pei",
-              "description": null
-            },
-            {
-              "phoneme": "t",
-              "category": "Stop",
-              "example": "代 doi",
-              "description": null
-            },
-            {
-              "phoneme": "th",
-              "category": "Stop",
-              "example": "秃 tuk",
-              "description": null
-            },
-            {
-              "phoneme": "k",
-              "category": "Stop",
-              "example": "九 gau",
-              "description": null
-            },
-            {
-              "phoneme": "kh",
-              "category": "Stop",
-              "example": "期 kei",
-              "description": null
-            },
-            {
-              "phoneme": "kw",
-              "category": "Stop",
-              "example": "瓜 gwaa",
-              "description": null
-            },
-            {
-              "phoneme": "kwh",
-              "category": "Stop",
-              "example": "夸 kwaa",
-              "description": null
-            },
-            {
-              "phoneme": "ts",
-              "category": "Affricate",
-              "example": "自 zi",
-              "description": null
-            },
-            {
-              "phoneme": "tsh",
-              "category": "Affricate",
-              "example": "次 ci",
-              "description": null
-            },
-            {
-              "phoneme": "f",
-              "category": "Fricative",
-              "example": "风 fung",
-              "description": null
-            },
-            {
-              "phoneme": "h",
-              "category": "Fricative",
-              "example": "可 ho",
-              "description": null
-            },
-            {
-              "phoneme": "s",
-              "category": "Fricative",
-              "example": "雪 syut",
-              "description": null
-            },
-            {
-              "phoneme": "l",
-              "category": "Liquid",
-              "example": "哩 le",
-              "description": null
-            },
-            {
-              "phoneme": "m",
-              "category": "Nasal",
-              "example": "茗 ming",
-              "description": null
-            },
-            {
-              "phoneme": "n",
-              "category": "Nasal",
-              "example": "年 nin",
-              "description": null
-            },
-            {
-              "phoneme": "N",
-              "category": "Nasal",
-              "example": "外 ngoi",
-              "description": null
-            },
-            {
-              "phoneme": ":i",
-              "category": "Coda",
-              "example": "女 neoi",
-              "description": null
-            },
-            {
-              "phoneme": ":u",
-              "category": "Coda",
-              "example": "好 hou",
-              "description": null
-            },
-            {
-              "phoneme": ":m",
-              "category": "Coda",
-              "example": "闪 sim",
-              "description": null
-            },
-            {
-              "phoneme": ":n",
-              "category": "Coda",
-              "example": "新 san",
-              "description": null
-            },
-            {
-              "phoneme": ":N",
-              "category": "Coda",
-              "example": "风 fung",
-              "description": null
-            },
-            {
-              "phoneme": ":p_}",
-              "category": "Coda",
-              "example": "汁 zap",
-              "description": null
-            },
-            {
-              "phoneme": ":t_}",
-              "category": "Coda",
-              "example": "雪 syut",
-              "description": null
-            },
-            {
-              "phoneme": ":k_}",
-              "category": "Coda",
-              "example": "责 zaak",
-              "description": null
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "language": "Spanish - XSAMPA",
-      "groups": [
-        {
-          "title": "Vowels and Semivowels",
-          "rows": [
-            {
-              "phoneme": "a",
-              "category": "Vowel",
-              "example": "paz",
-              "description": null
-            },
-            {
-              "phoneme": "e",
-              "category": "Vowel",
-              "example": "que",
-              "description": null
-            },
-            {
-              "phoneme": "i",
-              "category": "Vowel",
-              "example": "sin",
-              "description": null
-            },
-            {
-              "phoneme": "o",
-              "category": "Vowel",
-              "example": "voz",
-              "description": null
-            },
-            {
-              "phoneme": "u",
-              "category": "Vowel",
-              "example": "uno",
-              "description": null
-            },
-            {
-              "phoneme": "I",
-              "category": "Semivowel",
-              "example": "hoy",
-              "description": null
-            },
-            {
-              "phoneme": "U",
-              "category": "Semivowel",
-              "example": "aula",
-              "description": null
-            },
-            {
-              "phoneme": "ll",
-              "category": "Semivowel",
-              "example": "lluvia",
-              "description": null
-            },
-            {
-              "phoneme": "y",
-              "category": "Semivowel",
-              "example": "ayuno",
-              "description": null
-            }
-          ]
-        },
-        {
-          "title": "Consonants",
-          "rows": [
-            {
-              "phoneme": "b",
-              "category": "Stop",
-              "example": "vidrio",
-              "description": null
-            },
-            {
-              "phoneme": "B",
-              "category": "Stop",
-              "example": "obtuso",
-              "description": null
-            },
-            {
-              "phoneme": "d",
-              "category": "Stop",
-              "example": "día",
-              "description": null
-            },
-            {
-              "phoneme": "D",
-              "category": "Stop",
-              "example": "cada",
-              "description": null
-            },
-            {
-              "phoneme": "g",
-              "category": "Stop",
-              "example": "gato",
-              "description": null
-            },
-            {
-              "phoneme": "k",
-              "category": "Stop",
-              "example": "cada",
-              "description": null
-            },
-            {
-              "phoneme": "p",
-              "category": "Stop",
-              "example": "por",
-              "description": null
-            },
-            {
-              "phoneme": "t",
-              "category": "Stop",
-              "example": "tarde",
-              "description": null
-            },
-            {
-              "phoneme": "l",
-              "category": "Liquid",
-              "example": "lona",
-              "description": null
-            },
-            {
-              "phoneme": "rr",
-              "category": "Liquid",
-              "example": "ratón",
-              "description": null
-            },
-            {
-              "phoneme": "r",
-              "category": "Liquid",
-              "example": "tener",
-              "description": null
-            },
-            {
-              "phoneme": "m",
-              "category": "Nasal",
-              "example": "música",
-              "description": null
-            },
-            {
-              "phoneme": "n",
-              "category": "Nasal",
-              "example": "no",
-              "description": null
-            },
-            {
-              "phoneme": "N",
-              "category": "Nasal",
-              "example": "cinco",
-              "description": null
-            },
-            {
-              "phoneme": "J",
-              "category": "Nasal",
-              "example": "año",
-              "description": null
-            },
-            {
-              "phoneme": "f",
-              "category": "Fricative",
-              "example": "foto",
-              "description": null
-            },
-            {
-              "phoneme": "s",
-              "category": "Fricative",
-              "example": "sol",
-              "description": null
-            },
-            {
-              "phoneme": "C",
-              "category": "Fricative",
-              "example": "canción*  *European Pronunciation",
-              "description": null
-            },
-            {
-              "phoneme": "sh",
-              "category": "Fricative",
-              "example": "Xela",
-              "description": null
-            },
-            {
-              "phoneme": "ch",
-              "category": "Affricate",
-              "example": "chica",
-              "description": null
-            },
-            {
-              "phoneme": "x",
-              "category": "Fricative",
-              "example": "jamón",
-              "description": null
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "language": "Korean - XSAMPA",
-      "groups": [
-        {
-          "title": "Vowels and Semivowels",
-          "rows": [
-            {
-              "phoneme": "6",
-              "category": "Vowel",
-              "example": "사랑 Sarang",
-              "description": null
-            },
-            {
-              "phoneme": "e_o",
-              "category": "Vowel",
-              "example": "세상 Sesang",
-              "description": null
-            },
-            {
-              "phoneme": "i",
-              "category": "Vowel",
-              "example": "기쁨 gippeum",
-              "description": null
-            },
-            {
-              "phoneme": "M",
-              "category": "Vowel",
-              "example": "그림 geurim",
-              "description": null
-            },
-            {
-              "phoneme": "o",
-              "category": "Vowel",
-              "example": "소리 sori",
-              "description": null
-            },
-            {
-              "phoneme": "V",
-              "category": "Vowel",
-              "example": "머리 meori",
-              "description": null
-            },
-            {
-              "phoneme": "w",
-              "category": "Semivowel",
-              "example": "좌석 jwaseok",
-              "description": null
-            },
-            {
-              "phoneme": "M_",
-              "category": "Semivowel",
-              "example": "의리 uiri",
-              "description": null
-            },
-            {
-              "phoneme": "j",
-              "category": "Semivowel",
-              "example": "유리 yuri",
-              "description": null
-            },
-            {
-              "phoneme": "u",
-              "category": "Vowel",
-              "example": "조심 josim",
-              "description": null
-            }
-          ]
-        },
-        {
-          "title": "Consonants and Codas",
-          "rows": [
-            {
-              "phoneme": "4",
-              "category": "Liquid",
-              "example": "라면 ramyeon",
-              "description": null
-            },
-            {
-              "phoneme": "b",
-              "category": "Stop",
-              "example": "박자 bakja",
-              "description": null
-            },
-            {
-              "phoneme": "d",
-              "category": "Stop",
-              "example": "다리 dari",
-              "description": null
-            },
-            {
-              "phoneme": "g",
-              "category": "Stop",
-              "example": "국자 gukja",
-              "description": null
-            },
-            {
-              "phoneme": "h",
-              "category": "Fricative",
-              "example": "하나 hana",
-              "description": null
-            },
-            {
-              "phoneme": "ts\\h",
-              "category": "Affricate",
-              "example": "찐빵 jjinppang",
-              "description": null
-            },
-            {
-              "phoneme": "k",
-              "category": "Stop",
-              "example": "코 ko",
-              "description": null
-            },
-            {
-              "phoneme": "k_t",
-              "category": "Stop",
-              "example": "꼬리 kkori",
-              "description": null
-            },
-            {
-              "phoneme": "l",
-              "category": "Liquid",
-              "example": "물 mul",
-              "description": null
-            },
-            {
-              "phoneme": "m",
-              "category": "Nasal",
-              "example": "마음 maeum",
-              "description": null
-            },
-            {
-              "phoneme": "n",
-              "category": "Nasal",
-              "example": "나비 nabi",
-              "description": null
-            },
-            {
-              "phoneme": "N",
-              "category": "Coda",
-              "example": "빵 ppang",
-              "description": null
-            },
-            {
-              "phoneme": "p",
-              "category": "Stop",
-              "example": "파도 pado",
-              "description": null
-            },
-            {
-              "phoneme": "p_t",
-              "category": "Stop",
-              "example": "뿌리 ppuri",
-              "description": null
-            },
-            {
-              "phoneme": "s",
-              "category": "Fricative",
-              "example": "선물 seonmul",
-              "description": null
-            },
-            {
-              "phoneme": "s_t",
-              "category": "Fricative",
-              "example": "쓰다 sseuda",
-              "description": null
-            },
-            {
-              "phoneme": "t",
-              "category": "Stop",
-              "example": "통 tong",
-              "description": null
-            },
-            {
-              "phoneme": "t_t",
-              "category": "Stop",
-              "example": "똑딱 ttokttak",
-              "description": null
-            },
-            {
-              "phoneme": "ts\\_h",
-              "category": "Affricate",
-              "example": "추위 chuwi",
-              "description": null
-            },
-            {
-              "phoneme": "dz\\h",
-              "category": "Affricate",
-              "example": "우주 uju",
-              "description": null
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "language": "Common Phonemes",
-      "groups": [
-        {
-          "title": "",
-          "rows": [
-            {
-              "phoneme": "cl",
-              "category": null,
-              "example": null,
-              "description": "glottal stop"
-            },
-            {
-              "phoneme": "sil",
-              "category": null,
-              "example": null,
-              "description": "silence (highly situative)"
-            },
-            {
-              "phoneme": "br",
-              "category": null,
-              "example": null,
-              "description": "breath"
-            }
-          ]
-        }
-      ]
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "_b_ack",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Affricate",
+       "example": "bea_ch_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tS"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "_d_ash",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "dx",
+       "category": "Liquid",
+       "example": "be_tt_er",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "4"
+      },
+      {
+       "phoneme": "dr",
+       "category": "Affricate",
+       "example": "_dr_eam",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dZr\\"
+      },
+      {
+       "phoneme": "dh",
+       "category": "Fricative",
+       "example": "_th_is",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "D"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "_f_ill",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "_g_ame",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "hh",
+       "category": "Fricative",
+       "example": "_h_igh",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      },
+      {
+       "phoneme": "jh",
+       "category": "Affricate",
+       "example": "_j_eans",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dZ"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "_k_iss",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kh"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "_l_et",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "ll",
+       "category": "Coda",
+       "example": "fu_ll_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "5"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "_m_usic",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "_n_ice",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "ng",
+       "category": "Nasal",
+       "example": "si_ng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "_p_ack",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ph"
+      },
+      {
+       "phoneme": "q",
+       "category": "Stop",
+       "example": "uh_-_oh",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "?"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "_s_it",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "sh",
+       "category": "Fricative",
+       "example": "_sh_eep",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "S"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "_t_all",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "th"
+      },
+      {
+       "phoneme": "tr",
+       "category": "Affricate",
+       "example": "_tr_ee",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tSr\\"
+      },
+      {
+       "phoneme": "th",
+       "category": "Fricative",
+       "example": "_th_ink",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "T"
+      },
+      {
+       "phoneme": "v",
+       "category": "Fricative",
+       "example": "_v_al_v_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "v"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "_z_oo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      },
+      {
+       "phoneme": "zh",
+       "category": "Fricative",
+       "example": "vi_s_ion",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Z"
+      }
+     ]
     }
-  ]
+   ]
+  },
+  {
+   "language": "Japanese - ROMAJI",
+   "languageKey": "JapaneseROMAJI",
+   "languageZh": "日文 - 罗马字",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "あ _a_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "い _i_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "う _u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "M"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "え _e_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e_o"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "お _o_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o_o"
+      },
+      {
+       "phoneme": "N",
+       "category": "Vowel",
+       "example": "ん _N_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N\\"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "わ _w_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "や _y_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "-i",
+       "category": "Coda",
+       "example": "あい a _-i_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i^"
+      },
+      {
+       "phoneme": "-u",
+       "category": "Coda",
+       "example": "あう a _-u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u^"
+      },
+      {
+       "phoneme": "-N",
+       "category": "Coda",
+       "example": "うん u _-N_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N\\^"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "た _t_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "だ _d_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "さ _s_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "sh",
+       "category": "Fricative",
+       "example": "し _sh_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s\\"
+      },
+      {
+       "phoneme": "j",
+       "category": "Affricate",
+       "example": "じ _j_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dz\\"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "ざ _z_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      },
+      {
+       "phoneme": "ts",
+       "category": "Affricate",
+       "example": "つ _ts_ u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "か _k_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k"
+      },
+      {
+       "phoneme": "kw",
+       "category": "Stop",
+       "example": "くぁ _kw_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kw"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "が _g_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "gw",
+       "category": "Stop",
+       "example": "ぐぁ _gw_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "gw"
+      },
+      {
+       "phoneme": "h",
+       "category": "Fricative",
+       "example": "は _h_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "ば _b_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "ぱ _p_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "ふ _f_ u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p\\"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Affricate",
+       "example": "ち _ch_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts\\"
+      },
+      {
+       "phoneme": "ry",
+       "category": "Liquid",
+       "example": "りゃ _ry_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "4j"
+      },
+      {
+       "phoneme": "ky",
+       "category": "Stop",
+       "example": "きゃ _ky_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kj"
+      },
+      {
+       "phoneme": "py",
+       "category": "Stop",
+       "example": "ぴゃ _py_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "pj"
+      },
+      {
+       "phoneme": "dy",
+       "category": "Stop",
+       "example": "でぃ _dy_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dj"
+      },
+      {
+       "phoneme": "ty",
+       "category": "Stop",
+       "example": "てぃ _ty_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tj"
+      },
+      {
+       "phoneme": "ny",
+       "category": "Nasal",
+       "example": "にゃ _ny_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "J"
+      },
+      {
+       "phoneme": "hy",
+       "category": "Fricative",
+       "example": "ひゃ _hy_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "C"
+      },
+      {
+       "phoneme": "my",
+       "category": "Nasal",
+       "example": "みゃ _my_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "mj"
+      },
+      {
+       "phoneme": "gy",
+       "category": "Stop",
+       "example": "ぎゃ _gy_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "gj"
+      },
+      {
+       "phoneme": "by",
+       "category": "Stop",
+       "example": "びゃ _by_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "bj"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "な _n_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "ま _m_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "r",
+       "category": "Liquid",
+       "example": "ら _r_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "4"
+      },
+      {
+       "phoneme": "v",
+       "category": "Fricative",
+       "example": "ヴァ _v_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "v"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Mandarin Chinese",
+   "languageKey": "Mandarin",
+   "languageZh": "汉语普通话",
+   "groups": [
+    {
+     "title": "Vowels, Semivowels and Diphthongs",
+     "titleZh": "元音、半元音、双元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "大 d _a_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a"
+      },
+      {
+       "phoneme": "aa",
+       "category": "Vowel",
+       "example": "上 sh _aa_ ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "A"
+      },
+      {
+       "phoneme": "o/",
+       "category": "Vowel",
+       "example": "喔 _o/_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O"
+      },
+      {
+       "phoneme": "e/",
+       "category": "Vowel",
+       "example": "声 sh _e/_ ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "@"
+      },
+      {
+       "phoneme": "ee",
+       "category": "Vowel",
+       "example": "每 m _ee_ -i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e-"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "地 d _e_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "7"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "中 zh _o_ ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "U"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "不 b _u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "梯 t _i_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "iz",
+       "category": "Vowel",
+       "example": "此 c _iz_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "M+"
+      },
+      {
+       "phoneme": "ir",
+       "category": "Vowel",
+       "example": "之 zh _ir_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r\\`"
+      },
+      {
+       "phoneme": "v",
+       "category": "Vowel",
+       "example": "去 q _v_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "y"
+      },
+      {
+       "phoneme": "ao",
+       "category": "Diphthong",
+       "example": "朝 ch _ao_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "au"
+      },
+      {
+       "phoneme": "ou",
+       "category": "Diphthong",
+       "example": "肉 r _ou_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ou"
+      },
+      {
+       "phoneme": "ia",
+       "category": "Vowel",
+       "example": "鸭 y _ia_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ia"
+      },
+      {
+       "phoneme": "iaa",
+       "category": "Vowel",
+       "example": "想 x _iaa_ ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "iA"
+      },
+      {
+       "phoneme": "iao",
+       "category": "Diphthong",
+       "example": "叫 j _iao_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "iau"
+      },
+      {
+       "phoneme": "ie",
+       "category": "Vowel",
+       "example": "撇 p _ie_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ie"
+      },
+      {
+       "phoneme": "iae",
+       "category": "Vowel",
+       "example": "千 q _iae_ -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "iE"
+      },
+      {
+       "phoneme": "io",
+       "category": "Vowel",
+       "example": "永 y _io_ ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "iU"
+      },
+      {
+       "phoneme": "iu",
+       "category": "Diphthong",
+       "example": "有 y _iu_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "jou"
+      },
+      {
+       "phoneme": "va",
+       "category": "Vowel",
+       "example": "愿 y _va_ -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "y{"
+      },
+      {
+       "phoneme": "ve",
+       "category": "Vowel",
+       "example": "雪 x _ve_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "yE"
+      },
+      {
+       "phoneme": "ua",
+       "category": "Vowel",
+       "example": "花 h _ua_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ua"
+      },
+      {
+       "phoneme": "uaa",
+       "category": "Vowel",
+       "example": "望 w _uaa_ ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "uA"
+      },
+      {
+       "phoneme": "ue/",
+       "category": "Vowel",
+       "example": "春 ch _ue/_ -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u@"
+      },
+      {
+       "phoneme": "ue",
+       "category": "Vowel",
+       "example": "最 z _ue_ -i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ue"
+      },
+      {
+       "phoneme": "uo",
+       "category": "Vowel",
+       "example": "火 h _uo_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "uo"
+      },
+      {
+       "phoneme": "r",
+       "category": "Semivowel",
+       "example": "肉 _r_ ou",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z`"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "我 _w_ uo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "鸭 _y_ ia",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "-i",
+       "category": "Coda",
+       "example": "美 m ee _-i_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i^"
+      },
+      {
+       "phoneme": "-r",
+       "category": "Coda",
+       "example": "尔 a _-r_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r\\"
+      },
+      {
+       "phoneme": "-n",
+       "category": "Coda",
+       "example": "兰 l a _-n_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":n"
+      },
+      {
+       "phoneme": "ng",
+       "category": "Coda",
+       "example": "邦 b aa _ng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":N"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "邦 _b_ aa ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "pp"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "旁 _p_ aa ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ph"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "地 _d_ e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tt"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "梯 _t_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "th"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "高 _g_ ao",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kk"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "考 _k_ ao",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kh"
+      },
+      {
+       "phoneme": "j",
+       "category": "Affricate",
+       "example": "叫 _j_ iao",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tts\\"
+      },
+      {
+       "phoneme": "z",
+       "category": "Affricate",
+       "example": "在 _z_ a -i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tts"
+      },
+      {
+       "phoneme": "c",
+       "category": "Affricate",
+       "example": "此 _c_ iz",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tsh"
+      },
+      {
+       "phoneme": "zh",
+       "category": "Affricate",
+       "example": "之 _zh_ ir",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts`"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Affricate",
+       "example": "吃 _ch_ ir",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts`h"
+      },
+      {
+       "phoneme": "h",
+       "category": "Fricative",
+       "example": "火 _h_ uo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "x"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "饭 _f_ a -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "私 _s_ iz",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "sh",
+       "category": "Fricative",
+       "example": "石 _sh_ ir",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s`"
+      },
+      {
+       "phoneme": "q",
+       "category": "Affricate",
+       "example": "去 _q_ v",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts\\h"
+      },
+      {
+       "phoneme": "x",
+       "category": "Fricative",
+       "example": "心 _x_ i -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s\\"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "猫 _m_ ao",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "你 _n_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "兰 _l_ a -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Cantonese Chinese",
+   "languageKey": "Cantonese",
+   "languageZh": "汉语广东话",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "活 _w_ uu -t",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "j",
+       "category": "Semivowel",
+       "example": "以 _j_ ii",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      },
+      {
+       "phoneme": "aa",
+       "category": "Vowel",
+       "example": "沙 s _aa_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a"
+      },
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "有 j _a_ -u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "6"
+      },
+      {
+       "phoneme": "ee",
+       "category": "Vowel",
+       "example": "些 s _ee_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "你 n _e_ -i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e"
+      },
+      {
+       "phoneme": "ii",
+       "category": "Vowel",
+       "example": "是 s _ii_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "敬 g _i_ -ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "I"
+      },
+      {
+       "phoneme": "oo",
+       "category": "Vowel",
+       "example": "愛 _oo_ -y",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "好 h _o_ -u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o"
+      },
+      {
+       "phoneme": "uu",
+       "category": "Vowel",
+       "example": "夫 f _uu_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "風 f _u_ -ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "U"
+      },
+      {
+       "phoneme": "oe",
+       "category": "Vowel",
+       "example": "想 s _oe_ -ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "9"
+      },
+      {
+       "phoneme": "eo",
+       "category": "Vowel",
+       "example": "水 s _eo_ -y",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "8"
+      },
+      {
+       "phoneme": "yu",
+       "category": "Vowel",
+       "example": "書 s _yu_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "y"
+      },
+      {
+       "phoneme": "mm",
+       "category": "Vowel",
+       "example": "唔 _mm_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m="
+      },
+      {
+       "phoneme": "nng",
+       "category": "Vowel",
+       "example": "五 _nng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N="
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "z",
+       "category": "Affricate",
+       "example": "最 _z_ eo -y",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tts"
+      },
+      {
+       "phoneme": "c",
+       "category": "Affricate",
+       "example": "清 _c_ i -ng",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tsh"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "非 _f_ e -i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "h",
+       "category": "Fricative",
+       "example": "好 _h_ o -u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "心 _s_ a -m",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "蘭 _l_ aa -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "貓 _m_ aa -u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "年 _n_ ii -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "ng",
+       "category": "Nasal",
+       "example": "我 _ng_ oo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "百 _b_ aa -k",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "pp"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "拍 _p_ aa -k",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ph"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "大 _d_ aa -i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tt"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "他 _t_ aa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "th"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "家 _g_ aa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kk"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "橋 _k_ ii -u",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kh"
+      },
+      {
+       "phoneme": "gw",
+       "category": "Stop",
+       "example": "瓜 _gw_ aa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kkw"
+      },
+      {
+       "phoneme": "kw",
+       "category": "Stop",
+       "example": "群 _kw_ a -n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kwh"
+      },
+      {
+       "phoneme": "-i",
+       "category": "Coda",
+       "example": "街 g aa _-i_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":i"
+      },
+      {
+       "phoneme": "-y",
+       "category": "Coda",
+       "example": "水 s eo _-y_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":y"
+      },
+      {
+       "phoneme": "-u",
+       "category": "Coda",
+       "example": "教 g aa _-u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":u"
+      },
+      {
+       "phoneme": "-m",
+       "category": "Coda",
+       "example": "心 s a _-m_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":m"
+      },
+      {
+       "phoneme": "-n",
+       "category": "Coda",
+       "example": "山 s aa _-n_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":n"
+      },
+      {
+       "phoneme": "-ng",
+       "category": "Coda",
+       "example": "送 s u _-ng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":N"
+      },
+      {
+       "phoneme": "-p",
+       "category": "Coda",
+       "example": "十 s a _-p_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p}"
+      },
+      {
+       "phoneme": "-t",
+       "category": "Coda",
+       "example": "一 j a _-t_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t}"
+      },
+      {
+       "phoneme": "-k",
+       "category": "Coda",
+       "example": "百 b aa _-k_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k}"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Spanish",
+   "languageKey": "Spanish",
+   "languageZh": "西班牙语",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "_a_m_a_r",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a-"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "b_e_b_é_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e_o"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "t_i_po",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "_o_j_o_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o_o"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "p_u_ro",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "W",
+       "category": "Semivowel",
+       "example": "c_u_anto",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "Y",
+       "category": "Semivowel",
+       "example": "p_i_ano",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "_y_o _ll_evo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j\\"
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "U",
+       "category": "Coda",
+       "example": "ca_u_sa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u^"
+      },
+      {
+       "phoneme": "I",
+       "category": "Coda",
+       "example": "le_y_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i^"
+      },
+      {
+       "phoneme": "dj",
+       "category": "Affricate",
+       "example": "_y_o _ll_evo (alt)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dZ-"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "_v_ivir",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "B",
+       "category": "Fricative",
+       "example": "vi_v_ir",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "B"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "_d_edo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "D",
+       "category": "Fricative",
+       "example": "de_d_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "D"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "_g_riego",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "G",
+       "category": "Fricative",
+       "example": "grie_g_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "G"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "_c_asa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "_p_eso",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "_t_ango",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tt"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "hab_l_ar",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "rr",
+       "category": "Liquid",
+       "example": "co_rr_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r"
+      },
+      {
+       "phoneme": "r",
+       "category": "Liquid",
+       "example": "co_r_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "4"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "_m_úsica",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "_n_ota",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "N",
+       "category": "Nasal",
+       "example": "ra_n_go",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "ny",
+       "category": "Nasal",
+       "example": "espa_ñ_ol",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "J"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "_f_lauta",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "_c_ere_z_a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "S",
+       "category": "Fricative",
+       "example": "ra_s_go",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "_c_ere_z_a (alt)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "T"
+      },
+      {
+       "phoneme": "sh",
+       "category": "Fricative",
+       "example": "_sh_ow",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "S"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Affricate",
+       "example": "_ch_ispa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tS"
+      },
+      {
+       "phoneme": "j",
+       "category": "Fricative",
+       "example": "o_j_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "x"
+      },
+      {
+       "phoneme": "h",
+       "category": "Fricative",
+       "example": "lo_s_ gato_s_ (alt)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Korean",
+   "languageKey": "Korean",
+   "languageZh": "韩语",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "아 _a_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "6_o"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "애 _e_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e_o"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "이 _i_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i-"
+      },
+      {
+       "phoneme": "eu",
+       "category": "Vowel",
+       "example": "으 _eu_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "M"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "오 _o_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o_o"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "우 _u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "eo",
+       "category": "Vowel",
+       "example": "어 _eo_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "V"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "와 _w_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "u/",
+       "category": "Semivowel",
+       "example": "의 _u/_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "M\\"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "야 _y_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "r",
+       "category": "Liquid",
+       "example": "라 _r_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "4"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "아바 a _b_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "P",
+       "category": "Stop",
+       "example": "바 _P_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p"
+      },
+      {
+       "phoneme": "pp",
+       "category": "Stop",
+       "example": "빠 _pp_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p_t"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "파 _p_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ph"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "아다 a _d_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "T",
+       "category": "Stop",
+       "example": "다 _T_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t"
+      },
+      {
+       "phoneme": "tt",
+       "category": "Stop",
+       "example": "따 _tt_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t_t"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "타 _t_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "th"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "사 _s_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "ss",
+       "category": "Fricative",
+       "example": "싸 _ss_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s_t"
+      },
+      {
+       "phoneme": "sh",
+       "category": "Fricative",
+       "example": "시 _sh_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s\\"
+      },
+      {
+       "phoneme": "ssh",
+       "category": "Fricative",
+       "example": "씨 _ssh_ i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s\\_t"
+      },
+      {
+       "phoneme": "j",
+       "category": "Affricate",
+       "example": "아자 a _j_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dz\\"
+      },
+      {
+       "phoneme": "J",
+       "category": "Affricate",
+       "example": "자 _J_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts\\"
+      },
+      {
+       "phoneme": "jj",
+       "category": "Affricate",
+       "example": "짜 _jj_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts\\_t"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Affricate",
+       "example": "차 _ch_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts\\h"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "아가 a _g_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "K",
+       "category": "Stop",
+       "example": "가 _K_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k"
+      },
+      {
+       "phoneme": "kk",
+       "category": "Stop",
+       "example": "까 _kk_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k_t"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "카 _k_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kh"
+      },
+      {
+       "phoneme": "h",
+       "category": "Fricative",
+       "example": "하 _h_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      },
+      {
+       "phoneme": "hy",
+       "category": "Fricative",
+       "example": "햐 _hy_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "C"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "알 a _l_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "마 _m_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "나 _n_ a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "ng",
+       "category": "Coda",
+       "example": "앙 a _ng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":N"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "French",
+   "languageKey": "French",
+   "languageZh": "法语",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "p_a_s",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a+"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "d_é_jeun_er_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e"
+      },
+      {
+       "phoneme": "e-",
+       "category": "Vowel",
+       "example": "cl_ai_r_e_tte",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E"
+      },
+      {
+       "phoneme": "x",
+       "category": "Vowel",
+       "example": "c_e_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "@"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "d_î_ner_ie_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "_au_t_o_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o"
+      },
+      {
+       "phoneme": "o-",
+       "category": "Vowel",
+       "example": "s_o_tte",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O+"
+      },
+      {
+       "phoneme": "eu-",
+       "category": "Vowel",
+       "example": "j_eu_ne",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "9"
+      },
+      {
+       "phoneme": "eu",
+       "category": "Vowel",
+       "example": "y_eux_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "2"
+      },
+      {
+       "phoneme": "ou",
+       "category": "Vowel",
+       "example": "_où_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "t_u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "y_o"
+      },
+      {
+       "phoneme": "in",
+       "category": "Vowel",
+       "example": "br_in_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E~"
+      },
+      {
+       "phoneme": "an",
+       "category": "Vowel",
+       "example": "s_an_s",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "A~"
+      },
+      {
+       "phoneme": "on",
+       "category": "Vowel",
+       "example": "s_on_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O~"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "_y_eux",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      },
+      {
+       "phoneme": "U",
+       "category": "Semivowel",
+       "example": "n_u_ire",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "H"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "_ou_i",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      }
+     ]
+    },
+    {
+     "title": "Consonants",
+     "titleZh": "辅音",
+     "rows": [
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "_b_oue",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "_d_ais",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "_f_ranco_ph_one",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "_g_ain",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "a_c_ousti_qu_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "i_l_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "_m_anger",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "co_nn_exion",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "gn",
+       "category": "Nasal",
+       "example": "oi_gn_on",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "J"
+      },
+      {
+       "phoneme": "N",
+       "category": "Nasal",
+       "example": "campi_ng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "_p_omme",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p"
+      },
+      {
+       "phoneme": "R",
+       "category": "Fricative",
+       "example": "_r_ester",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "R"
+      },
+      {
+       "phoneme": "r",
+       "category": "Fricative",
+       "example": "t_r_ois",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "X"
+      },
+      {
+       "phoneme": "r,",
+       "category": "Liquid",
+       "example": "Pa_r_is (alt)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "R_o"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "re_ss_u_sc_ita_t_ion",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Fricative",
+       "example": "_ch_er",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "S"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "es_th_é_t_ique",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t"
+      },
+      {
+       "phoneme": "tch",
+       "category": "Affricate",
+       "example": "caou_tch_ouc",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tS"
+      },
+      {
+       "phoneme": "v",
+       "category": "Fricative",
+       "example": "_v_al_v_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "v"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "_z_èbre",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      },
+      {
+       "phoneme": "j",
+       "category": "Fricative",
+       "example": "_j_u_g_ement",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Z"
+      },
+      {
+       "phoneme": "dj",
+       "category": "Affricate",
+       "example": "a_dj_onction",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dZ"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "German",
+   "languageKey": "German",
+   "languageZh": "德语",
+   "groups": [
+    {
+     "title": "Vowels, Semivowels and Diphthongs",
+     "titleZh": "元音、半元音、双元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "N_a_chtf_ah_rt",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a"
+      },
+      {
+       "phoneme": "oe",
+       "category": "Vowel",
+       "example": "sch_ö_n",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "2"
+      },
+      {
+       "phoneme": "er",
+       "category": "Vowel",
+       "example": "Op_er_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "6"
+      },
+      {
+       "phoneme": "OE",
+       "category": "Vowel",
+       "example": "K_ö_ln",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "9"
+      },
+      {
+       "phoneme": "<",
+       "category": "Vowel",
+       "example": "B_e_schlag",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "@"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "S_ee_pf_e_rdchen",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e_r"
+      },
+      {
+       "phoneme": "E",
+       "category": "Vowel",
+       "example": "_E_rz_ä_hler",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "L_ie_dt_i_tel",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "I",
+       "category": "Vowel",
+       "example": "b_i_tte",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "I"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "_o_der",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o"
+      },
+      {
+       "phoneme": "O",
+       "category": "Vowel",
+       "example": "v_o_ll",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "F_u_ß",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "U",
+       "category": "Vowel",
+       "example": "St_u_nde",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "U"
+      },
+      {
+       "phoneme": "ue",
+       "category": "Vowel",
+       "example": "_ü_ber",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "y"
+      },
+      {
+       "phoneme": "UE",
+       "category": "Vowel",
+       "example": "sch_ü_tzen",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Y"
+      },
+      {
+       "phoneme": "j",
+       "category": "Semivowel",
+       "example": "_J_acke",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      },
+      {
+       "phoneme": "eu",
+       "category": "Diphthong",
+       "example": "h_eu_te",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Oy"
+      },
+      {
+       "phoneme": "au",
+       "category": "Diphthong",
+       "example": "L_au_t",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "aU"
+      },
+      {
+       "phoneme": "ei",
+       "category": "Diphthong",
+       "example": "G_ei_ge",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ai"
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "-r",
+       "category": "Coda",
+       "example": "vo_r_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":6"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "a_b_er",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "o_d_er",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "Lü_g_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "_k_lu_g_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kh"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "_P_ack",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ph"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "_Th_ea_t_er_t_ag",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "th"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "_L_iebe",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "_M_aus",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "fü_n_f",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "ng",
+       "category": "Nasal",
+       "example": "la_ng_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Fricative",
+       "example": "ri_ch_ti_g_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "C"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "_f_ade",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "h",
+       "category": "Fricative",
+       "example": "_H_armonie",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      },
+      {
+       "phoneme": "R",
+       "category": "Fricative",
+       "example": "_R_ost",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "R"
+      },
+      {
+       "phoneme": "r",
+       "category": "Fricative",
+       "example": "T_r_eppe",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "X"
+      },
+      {
+       "phoneme": "pf",
+       "category": "Affricate",
+       "example": "_Pf_irsiche",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "pf"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "Hau_s_stra_ß_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "S",
+       "category": "Fricative",
+       "example": "_S_par_sch_wein",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Sw"
+      },
+      {
+       "phoneme": "tS",
+       "category": "Affricate",
+       "example": "_Tsch_üss",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tSw"
+      },
+      {
+       "phoneme": "ts",
+       "category": "Affricate",
+       "example": "_Z_usa_tz_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts"
+      },
+      {
+       "phoneme": "w",
+       "category": "Fricative",
+       "example": "_W_ächter",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "v"
+      },
+      {
+       "phoneme": "kh",
+       "category": "Fricative",
+       "example": "Bu_ch_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "x"
+      },
+      {
+       "phoneme": "Z",
+       "category": "Fricative",
+       "example": "Gara_g_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Zw"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "_s_auber",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Italian",
+   "languageKey": "Italian",
+   "languageZh": "意大利语",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "c_a_s_a_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "stell_e_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e_r"
+      },
+      {
+       "phoneme": "E",
+       "category": "Vowel",
+       "example": "b_e_ne",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "viol_i_no",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "_o_mbra",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o"
+      },
+      {
+       "phoneme": "O",
+       "category": "Vowel",
+       "example": "par_o_la",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "t_u_tto",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "j",
+       "category": "Semivowel",
+       "example": "_i_one",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "_u_omo",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      }
+     ]
+    },
+    {
+     "title": "Consonants",
+     "titleZh": "辅音",
+     "rows": [
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "_b_allata",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "_d_are",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "dz",
+       "category": "Affricate",
+       "example": "_z_ero",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dz"
+      },
+      {
+       "phoneme": "dZ",
+       "category": "Affricate",
+       "example": "_g_emma",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dZ"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "_f_antasma",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "_g_are",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "_c_asa",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "_l_etto",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "L",
+       "category": "Liquid",
+       "example": "fi_gl_io",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "L"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "_m_a_mm_a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "i_n_vece",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "N",
+       "category": "Nasal",
+       "example": "a_n_che",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "J",
+       "category": "Nasal",
+       "example": "ba_gn_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "J"
+      },
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "_p_apà",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p"
+      },
+      {
+       "phoneme": "r",
+       "category": "Liquid",
+       "example": "te_rr_a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "_s_ali",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "S",
+       "category": "Fricative",
+       "example": "fa_sc_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "S"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "_t_ale",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t"
+      },
+      {
+       "phoneme": "ts",
+       "category": "Affricate",
+       "example": "gra_z_ia",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "ts"
+      },
+      {
+       "phoneme": "tS",
+       "category": "Affricate",
+       "example": "_ci_ao",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tS"
+      },
+      {
+       "phoneme": "v",
+       "category": "Fricative",
+       "example": "a_v_are",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "v"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "ca_s_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Portuguese",
+   "languageKey": "Portuguese",
+   "languageZh": "葡萄牙语",
+   "groups": [
+    {
+     "title": "Vowels and Semivowels",
+     "titleZh": "元音、半元音",
+     "rows": [
+      {
+       "phoneme": "a",
+       "category": "Vowel",
+       "example": "_a_c_á_cia",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "a"
+      },
+      {
+       "phoneme": "-a",
+       "category": "Vowel",
+       "example": "aj_a_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "6"
+      },
+      {
+       "phoneme": "eh",
+       "category": "Vowel",
+       "example": "p_é_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "E"
+      },
+      {
+       "phoneme": "e",
+       "category": "Vowel",
+       "example": "_e_xp_e_riência",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e"
+      },
+      {
+       "phoneme": "i",
+       "category": "Vowel",
+       "example": "_i_n_í_c_i_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i"
+      },
+      {
+       "phoneme": "oh",
+       "category": "Vowel",
+       "example": "fof_o_ca",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "O"
+      },
+      {
+       "phoneme": "o",
+       "category": "Vowel",
+       "example": "d_o_d_ô_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o"
+      },
+      {
+       "phoneme": "u",
+       "category": "Vowel",
+       "example": "t_u_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u"
+      },
+      {
+       "phoneme": "an",
+       "category": "Vowel",
+       "example": "am_a_nh_ã_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "6~"
+      },
+      {
+       "phoneme": "en",
+       "category": "Vowel",
+       "example": "_en_tro",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "e~"
+      },
+      {
+       "phoneme": "in",
+       "category": "Vowel",
+       "example": "v_im_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "i~"
+      },
+      {
+       "phoneme": "on",
+       "category": "Vowel",
+       "example": "s_om_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "o~"
+      },
+      {
+       "phoneme": "un",
+       "category": "Vowel",
+       "example": "m_un_do",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "u~"
+      },
+      {
+       "phoneme": "w",
+       "category": "Semivowel",
+       "example": "qua_l_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w"
+      },
+      {
+       "phoneme": "y",
+       "category": "Semivowel",
+       "example": "bo_i_a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j"
+      }
+     ]
+    },
+    {
+     "title": "Consonants and Codas",
+     "titleZh": "辅音、尾音",
+     "rows": [
+      {
+       "phoneme": "p",
+       "category": "Stop",
+       "example": "_p_ai",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "p"
+      },
+      {
+       "phoneme": "b",
+       "category": "Stop",
+       "example": "_b_ato",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "b"
+      },
+      {
+       "phoneme": "t",
+       "category": "Stop",
+       "example": "mon_t_anha",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "t"
+      },
+      {
+       "phoneme": "d",
+       "category": "Stop",
+       "example": "_d_ar",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "d"
+      },
+      {
+       "phoneme": "k",
+       "category": "Stop",
+       "example": "_c_ava_qu_inho",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "k"
+      },
+      {
+       "phoneme": "g",
+       "category": "Stop",
+       "example": "_g_a_gu_eira",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "g"
+      },
+      {
+       "phoneme": "kw",
+       "category": "Stop",
+       "example": "_qu_atro",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "kw"
+      },
+      {
+       "phoneme": "gw",
+       "category": "Stop",
+       "example": "_gu_axinim",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "gw"
+      },
+      {
+       "phoneme": "f",
+       "category": "Fricative",
+       "example": "_f_ala",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "f"
+      },
+      {
+       "phoneme": "v",
+       "category": "Fricative",
+       "example": "_v_ila",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "v"
+      },
+      {
+       "phoneme": "s",
+       "category": "Fricative",
+       "example": "_s_u_c_e_ss_ão",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "s"
+      },
+      {
+       "phoneme": "z",
+       "category": "Fricative",
+       "example": "mú_s_ica",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "z"
+      },
+      {
+       "phoneme": "ch",
+       "category": "Fricative",
+       "example": "_ch_uva",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "S"
+      },
+      {
+       "phoneme": "j",
+       "category": "Fricative",
+       "example": "lo_j_a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "Z"
+      },
+      {
+       "phoneme": "m",
+       "category": "Nasal",
+       "example": "_m_ato",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "m"
+      },
+      {
+       "phoneme": "n",
+       "category": "Nasal",
+       "example": "_n_ari_n_a",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "n"
+      },
+      {
+       "phoneme": "-n",
+       "category": "Nasal",
+       "example": "ma_n_ga",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "N"
+      },
+      {
+       "phoneme": "nh",
+       "category": "Nasal",
+       "example": "so_nh_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j~_r"
+      },
+      {
+       "phoneme": "l",
+       "category": "Liquid",
+       "example": "_l_ero-_l_ero",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "l"
+      },
+      {
+       "phoneme": "lh",
+       "category": "Liquid",
+       "example": "a_lh_o",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "L"
+      },
+      {
+       "phoneme": "r",
+       "category": "Liquid",
+       "example": "p_r_ato",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "4"
+      },
+      {
+       "phoneme": "R",
+       "category": "Fricative",
+       "example": "_r_eco_rr_ente",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "h"
+      },
+      {
+       "phoneme": "-r",
+       "category": "Liquid",
+       "example": "amo_r_ (alt)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r\\"
+      },
+      {
+       "phoneme": "rr",
+       "category": "Liquid",
+       "example": "_r_eco_rr_ente (alt)",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "r"
+      },
+      {
+       "phoneme": "H",
+       "category": "Coda",
+       "example": "amo_r_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": ":X"
+      },
+      {
+       "phoneme": "wn",
+       "category": "Coda",
+       "example": "sã_o_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "w~"
+      },
+      {
+       "phoneme": "yn",
+       "category": "Coda",
+       "example": "be_m_",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "j~"
+      },
+      {
+       "phoneme": "tch",
+       "category": "Affricate",
+       "example": "presen_t_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "tS"
+      },
+      {
+       "phoneme": "dj",
+       "category": "Affricate",
+       "example": "gran_d_e",
+       "description": null,
+       "descriptionI18n": null,
+       "xsampa": "dZ"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "language": "Common phonemes",
+   "languageKey": "CommonPhonemes",
+   "languageZh": "常用音素",
+   "groups": [
+    {
+     "title": "",
+     "titleZh": "",
+     "rows": [
+      {
+       "phoneme": "cl",
+       "category": "",
+       "example": "",
+       "description": "喉塞音",
+       "descriptionI18n": {
+        "en": "glottal closure",
+        "zh": "喉塞音",
+        "jp": "声門閉鎖音"
+       },
+       "xsampa": null
+      },
+      {
+       "phoneme": "sil",
+       "category": "",
+       "example": "",
+       "description": "停顿音（高度情境依赖）",
+       "descriptionI18n": {
+        "en": "silence (highly situative)",
+        "zh": "停顿音（高度情境依赖）",
+        "jp": "無音（前後の発音により変化）"
+       },
+       "xsampa": null
+      },
+      {
+       "phoneme": "br",
+       "category": "",
+       "example": "",
+       "description": "换气音",
+       "descriptionI18n": {
+        "en": "breath",
+        "zh": "换气音",
+        "jp": "ブレス（吸気）"
+       },
+       "xsampa": null
+      }
+     ]
+    },
+    {
+     "title": "Standard voices only",
+     "titleZh": "仅限 Standard 歌声",
+     "rows": [
+      {
+       "phoneme": "br1",
+       "category": "",
+       "example": "",
+       "description": "换气音",
+       "descriptionI18n": {
+        "en": "breath",
+        "zh": "换气音",
+        "jp": "ブレス（吸気）"
+       },
+       "xsampa": null
+      },
+      {
+       "phoneme": "br2",
+       "category": "",
+       "example": "",
+       "description": "换气音",
+       "descriptionI18n": {
+        "en": "breath",
+        "zh": "换气音",
+        "jp": "ブレス（吸気）"
+       },
+       "xsampa": null
+      },
+      {
+       "phoneme": "brl1",
+       "category": "",
+       "example": "",
+       "description": "长呼吸",
+       "descriptionI18n": {
+        "en": "long breath",
+        "zh": "长呼吸",
+        "jp": "長い息"
+       },
+       "xsampa": null
+      },
+      {
+       "phoneme": "brl2",
+       "category": "",
+       "example": "",
+       "description": "长呼吸",
+       "descriptionI18n": {
+        "en": "long breath",
+        "zh": "长呼吸",
+        "jp": "長い息"
+       },
+       "xsampa": null
+      }
+     ]
+    }
+   ]
+  }
+ ]
 }
