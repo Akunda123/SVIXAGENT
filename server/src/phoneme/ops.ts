@@ -14,7 +14,7 @@
  */
 import { executeOp } from "../protocol.js";
 import {
-  LANG_ORDER, normLang, classify, rankCandidates, validateTokens, applyReplacements, tokenize,
+  LANG_ORDER, normLang, classify, rankCandidates, validateTokens, applyReplacements, tokenize, detectStyle, toStyle, defaultStyleForHost,
   LANG_TABLES, languagesOf, foreignTokens,
 } from "./index.js";
 
@@ -42,6 +42,9 @@ export interface GroupState {
   effectiveHint?: string;
   /** 每个音符的实际语种（来自 computed；取不到则缺键） */
   langOf: Map<number, string | null>;
+  /** 宿主版本信息（判"没有 token 时该用哪套写法"用；取不到就 null） */
+  hostVersionNumber?: number | null;
+  isSv2?: boolean | null;
 }
 
 /** 一次读齐：工程状态 + 实际发音串 + 每音符语种（尽力，缺了不致命） */
@@ -70,7 +73,17 @@ export async function readGroupState(host?: "sv" | "ix"): Promise<GroupState> {
       }
     }
   } catch { /* SV1 / 不支持 ⇒ 靠 languageOverride 或显式参数 */ }
-  return { ok: true, host: attrs.host, notes, effective, effectiveHint, langOf };
+  // 🆕 2026-11-02：拿宿主版本 —— 没有现成 token 时按版本决定"新写用哪套写法"（SV1/SV2<2.3 = X-SAMPA）
+  let hostVersionNumber: number | null = null;
+  let isSv2: boolean | null = null;
+  try {
+    const info = await call("ping", {}, host) as any;
+    if (info) {
+      hostVersionNumber = typeof info.hostVersionNumber === "number" ? info.hostVersionNumber : null;
+      isSv2 = typeof info.isSV2 === "boolean" ? info.isSV2 : null;
+    }
+  } catch { /* 拿不到就不判 */ }
+  return { ok: true, host: attrs.host, notes, effective, effectiveHint, langOf, hostVersionNumber, isSv2 };
 }
 
 /** 范围：indices → 选中的音符 → 全组（0 起组内下标） */
@@ -110,6 +123,8 @@ export interface ListRow {
   language: string | null;
   phonemes: string;
   source: string;
+  /** 该音符这串音素用的写法（SV1 / SV2<2.3 = xsampa；SV2 2.3.0 默认 = simplified） */
+  style?: "simplified" | "xsampa" | "unknown";
   tokens: { p: string; kind: string; candidates: { p: string; score: number; why: string; ex?: string | null }[] }[];
   note?: string;
 }
@@ -127,14 +142,25 @@ export async function listPhonemes(a: PhArgs): Promise<Record<string, unknown>> 
     if (lang) langs.add(lang);
     const cur = currentOf(st, idx);
     const toks = tokenize(cur.s);
+    /* 🆕 2026-11-02：同样一串音素，SV1 / SV2<2.3 是 X-SAMPA，SV2 2.3.0 默认是简化音素
+     * （用户可在设置里切）。这里**按该音符实际读到的写法**报出来，并把候选也显示成同一套，
+     * 免得给 SV1 用户一堆它不认识的简化写法。 */
+    const style = toks.length
+      ? detectStyle(toks, lang)
+      : defaultStyleForHost(st.hostVersionNumber, st.isSv2);
     const row: ListRow = {
       index: idx, lyrics: n?.lyrics ?? null, language: lang,
-      phonemes: cur.s, source: cur.source,
+      phonemes: cur.s, source: cur.source, style,
       tokens: toks.map((p) => {
         const cands = rankCandidates(p, lang, { topN: a.topN, crossLanguage: a.crossLanguage === true });
         const t: ListRow["tokens"][number] = {
           p, kind: classify(p, lang),
-          candidates: cands.map((c) => ({ p: c.p, score: c.score, why: c.why, ex: c.ex ?? null })),
+          candidates: cands.map((c) => {
+            const shown = style === "xsampa" ? toStyle(c.p, lang, "xsampa") : c.p;
+            return shown === c.p
+              ? { p: c.p, score: c.score, why: c.why, ex: c.ex ?? null }
+              : { p: shown, pSimplified: c.p, score: c.score, why: c.why, ex: c.ex ?? null };
+          }),
         };
         // 无相似信息 ⇒ **如实标注**，别让"按表序列出的清单"冒充"相似候选"（2026-09-22 实测 english `k` 会这样）
         if (cands.length && cands[0].score === 0) {
@@ -155,6 +181,13 @@ export async function listPhonemes(a: PhArgs): Promise<Record<string, unknown>> 
     host: st.host,
     scope: { source: scope.source, notes: scope.indices.length, groupNotes: st.notes.length },
     languages: [...langs],
+    /* 本组主流写法（多数派）；没有音素时是 unknown */
+    phonemeStyle: (() => {
+      const all = rows.flatMap((r) => (r.style ? [r.style] : []));
+      const x = all.filter((s) => s === "xsampa").length;
+      const s2 = all.filter((s) => s === "simplified").length;
+      return x > s2 ? "xsampa" : (s2 > 0 ? "simplified" : "unknown");
+    })(),
     effectiveSource: st.effective ? "get_phonemes（实际发音，含 T2P 默认）" : ("回退：手动音素串（" + (st.effectiveHint ?? "get_phonemes 不可用") + "）"),
     // ⚠️ 真机（SV1）踩到：SV2 才有 computed 的 `phonemes[].language` ⇒ SV1 上若用户没显式给 language、
     //    音符也没有 languageOverride，则**读不到语种** ⇒ 候选/校验只能按"全语言"退化。如实提示。
@@ -210,8 +243,20 @@ export async function replacePhonemes(a: ReplaceArgs): Promise<Record<string, un
     let next = cur.s;
     let detail: unknown = null;
     if (mode === "map") {
-      const r = applyReplacements(cur.s, a.replacements!);
+      /* 🆕 2026-11-02：用户给的 token 可能是另一套写法（比如在 SV1 上给简化音素、或在 2.3.0 上给 X-SAMPA）
+       *   ⇒ 先按**该音符现有的写法**映射，再精确匹配；映射了什么如实回报。 */
+      const curToks = tokenize(cur.s);
+      /* 没有现成 token（首次写/空串）⇒ 用宿主版本决定的默认写法；有 token 就以实际写法为准 */
+      const style = curToks.length ? detectStyle(curToks, lang) : defaultStyleForHost(st.hostVersionNumber, st.isSv2);
+      const mapped = a.replacements!.map((r) => ({
+        from: toStyle(r.from, lang, style),
+        to: toStyle(r.to, lang, style),
+      }));
+      const r = applyReplacements(cur.s, mapped);
       next = r.next; detail = r.detail;
+      (detail as any).style = style;
+      const changedByMap = mapped.filter((m, i) => m.from !== a.replacements![i].from || m.to !== a.replacements![i].to);
+      if (changedByMap.length) (detail as any).mappedToStyle = changedByMap;
     } else {
       const hit = a.items!.find((it) => Number(it.index) === idx);
       if (!hit) continue;                                   // set 模式：没点名的音符不动

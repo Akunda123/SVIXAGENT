@@ -33,7 +33,9 @@ for (const t of table.tables) {
   for (const g of t.groups) {
     const isV = /vowel/i.test(g.title);          // "Vowels…" / "Vowels and Semivowels…"
     for (const r of g.rows) {
-      const item = { p: r.phoneme, cat: r.category || null, ex: r.example || null };
+      /* 🆕 2026-11-02（SV2 2.3.0 表）：官方现在**简化音素**与 **X-SAMPA** 两套写法并存，xsampa 列要带上，
+   *   否则用户切到 X-SAMPA 模式后写的音素会被我们判成「表外」直接拒写。 */
+  const item = { p: r.phoneme, cat: r.category || null, ex: r.example || null, xs: r.xsampa || null };
       (isV ? vowels : consonants).push(item);
     }
   }
@@ -43,6 +45,10 @@ for (const t of table.tables) {
 /** 官方表名 → 语言键（与参考 JS 的 languageArr 对齐；Common 单列） */
 function keyOf(name) {
   const n = name.toLowerCase();
+  if (n.includes('french')) return 'french';
+  if (n.includes('german')) return 'german';
+  if (n.includes('italian')) return 'italian';
+  if (n.includes('portuguese')) return 'portuguese';
   if (n.includes('common')) return 'common';
   if (n.includes('english')) return 'english';
   if (n.includes('japanese')) return 'japanese';
@@ -65,10 +71,14 @@ const Vowels = grab('Vowels');        // [6 类][6 语言] -> 该类的音素
 const Vowels0 = grab('Vowels0');      // [6 语言] -> 参考顺序（全集）
 const Consonants0 = grab('Consonants0'); // [6 语言] -> 辅音全集（按字母近似用）
 const LANG_ARR = (/var\s+languageArr\s*=\s*(\[[^\]]*\])/.exec(js) || [])[1];
-const langOrder = LANG_ARR ? eval(LANG_ARR) : ['mandarin', 'english', 'japanese', 'cantonese', 'spanish', 'korean'];
+const refOrder = LANG_ARR ? eval(LANG_ARR) : ['mandarin', 'english', 'japanese', 'cantonese', 'spanish', 'korean'];
+/* 🆕 2026-11-02：`LANG_ORDER` 要覆盖**官方表里的全部语种**（2.3.0 新增 fr/de/it/pt），
+ *   否则 `normLang('french')` 返回 null ⇒ 跨语言/外来音素判定全部失灵。
+ *   `refOrder` 仍只用于对齐参考 JS 的 6 组近似数据。 */
+const langOrder = [...refOrder, ...langs.map((l) => l.key).filter((k) => k !== 'common' && !refOrder.includes(k))];
 
 const near = {};
-langOrder.forEach((L, li) => {
+refOrder.forEach((L, li) => {
   near[L] = {
     vowelClasses: Vowels.map((cls) => (cls[li] || []).filter((x) => typeof x === 'string')),
     vowelOrder: (Vowels0[li] || []).filter((x) => typeof x === 'string'),
@@ -148,7 +158,7 @@ const banner = [
   ' * 改真源后重跑：node tools/gen-phoneme-data.cjs（然后 npm --prefix server run build）',
   ' */',
   '',
-  'export interface PhonemeItem { p: string; cat: string | null; ex: string | null; observed?: boolean }',
+  'export interface PhonemeItem { p: string; cat: string | null; ex: string | null; xs?: string | null; observed?: boolean }',
   'export interface LangTable { table: string; key: string; vowels: PhonemeItem[]; consonants: PhonemeItem[] }',
   'export interface NearGroup { vowelClasses: string[][]; vowelOrder: string[]; consonants: string[] }',
   '',
@@ -156,7 +166,7 @@ const banner = [
   'export const LANG_TABLES: Record<string, LangTable> = ' + JSON.stringify(
     Object.fromEntries(langs.map((l) => [l.key, l])), null, 2).replace(/\n/g, '\n') + ';',
   '',
-  '/** 参考 JS 的 6 语言顺序（mandarin/english/japanese/cantonese/spanish/korean） */',
+  '/** 语言顺序：参考 JS 的 6 语言在前，其余官方表语种（fr/de/it/pt）在后 */',
   'export const LANG_ORDER: string[] = ' + JSON.stringify(langOrder) + ';',
   '',
   '/** 经验近似分组：语言键 → { 元音 6 类(同 JS), 元音参考顺序, 辅音全集 } */',

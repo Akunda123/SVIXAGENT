@@ -40,11 +40,16 @@ export function commonSet(): Set<string> {
 }
 
 /** 某语言的官方表集合（元音 / 辅音） */
-export function tableSets(lang: string | null): { vowels: Set<string>; consonants: Set<string> } {
+export function tableSets(lang: string | null): { vowels: Set<string>; consonants: Set<string>; xsampa: Set<string> } {
   const t = lang ? LANG_TABLES[lang] : undefined;
+  const all = [...(t?.vowels ?? []), ...(t?.consonants ?? [])];
   return {
     vowels: new Set((t?.vowels ?? []).map((x) => x.p)),
     consonants: new Set((t?.consonants ?? []).map((x) => x.p)),
+    /* 🆕 2026-11-02（SV2 2.3.0）：官方表同时给出 X-SAMPA 写法；用户切到 X-SAMPA 模式时写的就是这一套
+     *   ⇒ 合法性判据要把两套都认，否则「表外音素拒写」会误伤新模式下合法的 token。 */
+    /* 注意：`isAllowed` 用 low() 归一后比较，这里也要**统一小写**（否则 `M+` 这类大写 X-SAMPA 永远匹配不上）。 */
+    xsampa: new Set(all.map((x) => x.xs).filter((x): x is string => !!x).map((x) => x.toLowerCase())),
   };
 }
 
@@ -78,6 +83,15 @@ export function classify(p: string, lang: string | null): PhKind {
     const s = tableSets(L);
     if (s.consonants.has(key) || inNearConsonants(key, L)) return "consonant";
     if (s.vowels.has(key) || inNearVowels(key, L)) return "vowel";
+  }
+  /* 🆕 2026-11-02（2.3.0 两套写法）：X-SAMPA 的 token 在"简化音素"表里查不到
+   *   ⇒ 先映射成同一条目的简化写法再判一次（否则 SV1 上传来的 X-SAMPA 会被判 unknown）。 */
+  const pair = spellingPair(p, lang);
+  if (pair) {
+    const k2 = low(pair.phoneme);
+    const s2 = tableSets(lang);
+    if (s2.consonants.has(k2)) return "consonant";
+    if (s2.vowels.has(k2)) return "vowel";
   }
   return "unknown";
 }
@@ -125,12 +139,84 @@ export function isAllowed(p: string, lang: string | null, crossLanguage = false,
   if (crossLanguage) {
     for (const L of LANG_ORDER) {
       const s = tableSets(L);
-      if (s.vowels.has(key) || s.consonants.has(key) || nearOk(L)) return true;
+      if (s.vowels.has(key) || s.consonants.has(key) || s.xsampa.has(key) || nearOk(L)) return true;
     }
     return false;
   }
   const s = tableSets(lang);
-  return s.vowels.has(key) || s.consonants.has(key) || nearOk(lang);
+  return s.vowels.has(key) || s.consonants.has(key) || s.xsampa.has(key) || nearOk(lang);
+}
+
+/**
+ * **两套写法**（2026-11-02，SV2 2.3.0 起）：
+ *   · 简化音素（2.3.0 默认，如 mandarin `zh` / `ir`）—— 官方表的 `phoneme` 列
+ *   · X-SAMPA（SV1 与 SV2 < 2.3.0 的写法，2.3.0 也可切换，如 `ts\\` / `i\\`）—— 官方表的 `xsampa` 列
+ * ⚠️ **SV1 没有更新、仍是 X-SAMPA**（用户 2026-11-02 提醒）⇒ 判据/写回要按"该宿主/该音符实际用的那套"来，
+ *    不能一律当简化音素处理；两套在 `isAllowed` 里都算合法。
+ */
+export type PhonemeStyle = "simplified" | "xsampa" | "unknown";
+
+function langItems(lang: string | null) {
+  const t = lang ? LANG_TABLES[lang] : undefined;
+  return t ? [...t.vowels, ...t.consonants] : [];
+}
+
+/** 同一音素的两套写法（找不到就 null）。命中 `phoneme` 或 `xsampa` 任一列都算。 */
+export function spellingPair(p: string, lang: string | null): { phoneme: string; xsampa: string | null } | null {
+  const key = low(p);
+  for (const it of langItems(lang)) {
+    if (low(it.p) === key) return { phoneme: it.p, xsampa: it.xs ?? null };
+    if (it.xs && low(it.xs) === key) return { phoneme: it.p, xsampa: it.xs };
+  }
+  return null;
+}
+
+/** 这个 token 在该语言里属于哪套写法（同形时按简化音素算） */
+export function styleOf(p: string, lang: string | null): PhonemeStyle {
+  const key = low(p);
+  for (const it of langItems(lang)) {
+    if (low(it.p) === key) return "simplified";
+    if (it.xs && low(it.xs) === key) return "xsampa";
+  }
+  return "unknown";
+}
+
+/** 把 token 换成目标写法；换不了（不在表里 / 没有对应写法）就原样返回 */
+export function toStyle(p: string, lang: string | null, style: PhonemeStyle): string {
+  if (style !== "xsampa" && style !== "simplified") return p;
+  const pair = spellingPair(p, lang);
+  if (!pair) return p;
+  return style === "xsampa" ? (pair.xsampa ?? p) : pair.phoneme;
+}
+
+/**
+ * **没有全局开关**（2026-11-02 复核：宿主设置里没有"X-SAMPA 音素"项，脚本 API 也没有设置接口）
+ * ⇒ 新写 / 空串时按**宿主版本**给默认写法：
+ *   · SV1（1.x）与 SV2 < 2.3.0 —— 历来就是 X-SAMPA
+ *   · SV2 ≥ 2.3.0（versionNumber ≥ 131840）—— 默认简化音素
+ * 有现成 token 时**永远以实际 token 为准**（detectStyle），不用这个默认值。
+ */
+export const SV_2_3_0_VERSION = 131840;
+
+export function defaultStyleForHost(hostVersionNumber: number | null | undefined, isSv2?: boolean | null): PhonemeStyle {
+  if (isSv2 === false) return "xsampa";
+  const n = Number(hostVersionNumber ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "simplified";
+  return n >= SV_2_3_0_VERSION ? "simplified" : "xsampa";
+}
+
+/** 一串 token 整体偏哪套写法（多数派；平票/都不认识 ⇒ simplified 优先，最后 unknown） */
+export function detectStyle(tokens: string[], lang: string | null): PhonemeStyle {
+  let s = 0;
+  let x = 0;
+  for (const tk of tokens) {
+    const st = styleOf(tk, lang);
+    if (st === "simplified") s++;
+    else if (st === "xsampa") x++;
+  }
+  if (x > s) return "xsampa";
+  if (s > 0) return "simplified";
+  return "unknown";
 }
 
 /** 照参考 JS：小写 → 只留 a-z → 去重 → 按字符升序 */
