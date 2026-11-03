@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('svi18n', __i18n)
 
 contextBridge.exposeInMainWorld('akdagent', {
   toggle: () => ipcRenderer.send('akdagent-toggle-chat'),
+  openExternal: (url) => ipcRenderer.send('akdagent-open-external', url),
   dragStart: () => ipcRenderer.send('akdagent-drag-start'),
   dragMove: (x, y) => ipcRenderer.send('akdagent-drag-move', x, y),
   dragEnd: () => ipcRenderer.send('akdagent-drag-end'),

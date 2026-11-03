@@ -74,7 +74,7 @@ function listOf(group) {
     for (const f of fs.readdirSync(TOOLS).filter((x) => /^test-.*\.cjs$/.test(x)).sort()) out.push({ kind: 'test', name: f, cmd: [path.join(TOOLS, f)] })
   }
   if (group === 'client' || group === 'all') {
-    for (const s of ['test:i18n', 'test:settings-ui', 'test:badge', 'test:host-pick']) out.push({ kind: 'client', name: 'npm run ' + s, cwd: ELECTRON, cmd: ['npm', 'run', s, '--silent'], shell: true })
+    for (const s of ['test:i18n', 'test:settings-ui', 'test:badge', 'test:host-pick', 'test:markdown']) out.push({ kind: 'client', name: 'npm run ' + s, cwd: ELECTRON, cmd: ['npm', 'run', s, '--silent'], shell: true })
     for (const f of ['dev/test-pdf-render.cjs', 'dev/test-audio-decode.cjs']) out.push({ kind: 'client', name: 'electron ' + f, cwd: ELECTRON, cmd: ['npx', 'electron', f], shell: true })
   }
   return ONLY ? out.filter((x) => (x.name + ' ' + x.kind).toLowerCase().includes(ONLY.toLowerCase())) : out

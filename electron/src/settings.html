@@ -1641,19 +1641,33 @@
     }
   }
 
-  /* ── 添加提供方（预设） ── */
+  /* ── 添加提供方（预设与自定义互斥展开） ── */
   $('btn-add-provider').addEventListener('click', () => {
     const f = $('preset-form')
-    f.style.display = f.style.display === 'none' ? 'block' : 'none'
+    const willOpen = f.style.display === 'none'
+    f.style.display = willOpen ? 'block' : 'none'
+    if (willOpen) {
+      $('custom-form').style.display = 'none'
+      const customTip = $('custom-tip')
+      if (customTip) customTip.textContent = ''
+    }
   })
 
   /* ── 添加自定义提供方 ── */
   $('btn-add-custom-provider').addEventListener('click', () => {
     const f = $('custom-form')
-    f.style.display = f.style.display === 'none' ? 'flex' : 'none'
+    const willOpen = f.style.display === 'none'
+    f.style.display = willOpen ? 'flex' : 'none'
+    if (willOpen) {
+      $('preset-form').style.display = 'none'
+      const presetTip = $('preset-tip')
+      if (presetTip) presetTip.textContent = ''
+    }
   })
   $('btn-cancel-custom').addEventListener('click', () => {
     $('custom-form').style.display = 'none'
+    const customTip = $('custom-tip')
+    if (customTip) customTip.textContent = ''
   })
   /* 从 route 派生一个**合法**的凭据名（与主进程 `deriveKeyEnvName` 同一口径：
    * 宿主只认 `/^[A-Za-z_][A-Za-z0-9_]*$/`，带 `-`/`.` 的名字会让**整个宿主起不来**）。
@@ -1780,7 +1794,18 @@
    * 旧实现：按钮文案是写死的，主进程改完不回话 ⇒ 点完毫无变化（用户报「两个按钮点不动」）。
    * 现在：加载时 getOrbState() 查一次，之后每次切换听主进程的 changed 推送。 */
   const orbState = { autostart: false, alwaysOnTop: false, loaded: false }
-  function orbTip(msg) { $('orb-tip').textContent = msg || '' }
+  let orbTipTimer = null
+  function orbTip(msg) {
+    const el = $('orb-tip')
+    if (!el) return
+    el.textContent = msg || ''
+    clearTimeout(orbTipTimer)
+    if (msg) {
+      orbTipTimer = setTimeout(() => {
+        el.textContent = ''
+      }, 3000)
+    }
+  }
   function renderOrbState() {
     if (!orbState.loaded) return   // 真实状态还没读回来时，保留按钮上的「读取中…」
     const a = $('btn-autostart')
